@@ -2320,6 +2320,21 @@ export default function AdminVisaDetailPage() {
               <span className="text-sm text-[#0B1F3A] font-semibold">Application Form</span>
               <ExternalLink className="w-4 h-4 text-gray-400" />
             </Link>
+            {/*
+              WhatsApp Broadcast V1.1 — contextual single-recipient action.
+
+              Opens the broadcast composer with THIS applicant pre-selected
+              as the intended recipient. It is a link, not a send: the staff
+              member still picks an approved Meta template, sees the real
+              server-computed eligibility, and confirms. Nothing is ever
+              auto-sent, and this reuses the existing broadcast snapshot +
+              cron + webhook delivery path rather than a second sender.
+            */}
+            <Link href={`/admin/marketing/whatsapp?visaApplicationId=${app.id}`}
+              className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100 transition-colors">
+              <span className="text-sm text-[#0B1F3A] font-semibold">Send WhatsApp Template</span>
+              <Send className="w-4 h-4 text-green-500" />
+            </Link>
             {/* WhatsApp chat button */}
             {waEditPhone ? (
               <div className="p-2.5 rounded-xl border border-gray-100 space-y-2">

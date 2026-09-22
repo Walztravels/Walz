@@ -26,10 +26,11 @@
  *    a value cached from an earlier step.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   MessageSquare, Plus, Loader2, Sparkles, Send, Clock, CheckCircle, X, ChevronDown,
-  ShieldAlert, ShieldCheck, Check, AlertTriangle, Ban,
+  ShieldAlert, ShieldCheck, Check, AlertTriangle, Ban, Search, Users, FileText, Phone,
+  Trash2, Info,
 } from 'lucide-react'
 
 // ── Types mirroring the API responses ───────────────────────────────────
@@ -64,15 +65,75 @@ type Breakdown = {
   countryFiltered: number
   templateUnresolvable: number
   finalSendCount: number
+  // V1.1 — present only on a multi-source breakdown.
+  totalSelected?: number
+  validNumber?: number
+  manualRejected?: number
+  bySource?: Record<string, number>
+  sendableBySource?: Record<string, number>
+}
+
+/** A counted exclusion WITH a reason. Never a bare number. */
+type ExclusionBucket = { reason: string; count: number; description: string }
+
+type ManualReport = {
+  valid: Array<{ raw: string; normalizedNumber: string; displayName: string | null; consentStatus?: string }>
+  invalid: Array<{ raw: string; reason: string }>
+  duplicates: Array<{ raw: string; normalizedNumber: string; firstSeenAs: string }>
+  totalEntries: number
 }
 
 type PreviewResponse = {
+  multiSource?: boolean
   breakdown: Breakdown
+  exclusions?: ExclusionBucket[]
+  manual?: ManualReport
+  sample?: Array<{
+    maskedNumber: string; status: string; sourceType?: string
+    sources?: string[]; displayName?: string | null; reason?: string | null
+  }>
   templateValid: boolean
   templateErrors: string[]
   consentNotice: string | null
   error?: string
 }
+
+// ── V1.1 recipient picker shapes ────────────────────────────────────────
+
+type LeadOption = {
+  id: string
+  name: string | null
+  email: string | null
+  normalizedNumber: string | null
+  service: string | null
+  destination: string | null
+  optedOut: boolean
+  consentStatus: string
+  hasValidNumber: boolean
+}
+
+type VisaOption = {
+  id: string
+  referenceNumber: string
+  name: string | null
+  email: string | null
+  normalizedNumber: string | null
+  destinationIso2: string
+  visaType: string
+  status: string
+  assignedTo: string | null
+  optedOut: boolean
+  consentStatus: string
+  hasValidNumber: boolean
+}
+
+type LeadSearchResponse = {
+  leads?: LeadOption[]
+  total?: number
+  truncated?: boolean
+  totalIsBeforeCountryFilter?: boolean
+}
+type VisaSearchResponse = { applications?: VisaOption[]; total?: number; truncated?: boolean }
 
 type Readiness = {
   canSend: boolean
@@ -91,6 +152,7 @@ type DetailResponse = {
   }
   rates: { deliveryPct: number; readPct: number; failurePct: number }
   failureReasons: Array<{ code: string; count: number; example: string | null }>
+  bySource?: Array<{ sourceType: string; count: number }>
 }
 
 // ── Static vocabularies (must match the server) ─────────────────────────
@@ -131,15 +193,53 @@ const SERVICES = [
 
 const LEAD_FIELDS = ['name', 'destination', 'service', 'travelDate'] as const
 
+// VisaApplication.status — the real stored vocabulary (lib/visa-config.ts).
+const VISA_STATUSES = [
+  { value: '',                     label: 'Any status' },
+  { value: 'received',             label: 'Application Received' },
+  { value: 'documents_pending',    label: 'Documents Pending' },
+  { value: 'under_review',         label: 'Under Review' },
+  { value: 'ready_to_submit',      label: 'Ready to Submit' },
+  { value: 'submitted_to_embassy', label: 'Submitted to Embassy' },
+  { value: 'decision_pending',     label: 'Decision Pending' },
+  { value: 'approved',             label: 'Approved' },
+  { value: 'refused',              label: 'Refused' },
+  { value: 'info_required',        label: 'Info Required' },
+  { value: 'draft',                label: 'Draft' },
+]
+
+/**
+ * Meta's real template-category taxonomy, RECORDED ONLY.
+ *
+ * Choosing one here changes NOTHING about who can be sent to. The server
+ * runs the full affirmative-consent check for every broadcast built in
+ * this wizard, whatever is picked. The UI says so out loud rather than
+ * implying a "non-marketing" shortcut that does not exist.
+ */
+const TEMPLATE_CATEGORIES = [
+  { value: '',               label: 'Not recorded' },
+  { value: 'MARKETING',      label: 'Marketing' },
+  { value: 'UTILITY',        label: 'Utility' },
+  { value: 'AUTHENTICATION', label: 'Authentication' },
+]
+
+const SOURCE_LABELS: Record<string, string> = {
+  LEAD: 'Client / Lead',
+  VISA_APPLICATION: 'Visa application',
+  MANUAL: 'Manual number',
+  CLIENT: 'Client',
+}
+
 const STEPS = [
-  { label: 'Audience',  sub: 'Who receives this' },
-  { label: 'Template',  sub: 'Approved Meta template' },
-  { label: 'Preview',   sub: 'Real eligible counts' },
-  { label: 'Schedule',  sub: 'Now or later' },
-  { label: 'Confirm',   sub: 'Final check' },
+  { label: 'Recipients', sub: 'Choose who receives this' },
+  { label: 'Template',   sub: 'Approved Meta template' },
+  { label: 'Preview',    sub: 'Real eligible counts' },
+  { label: 'Schedule',   sub: 'Now or later' },
+  { label: 'Confirm',    sub: 'Final check' },
 ] as const
 
 type Step = 1 | 2 | 3 | 4 | 5
+type RecipientTab = 'leads' | 'visa' | 'manual'
 
 type ParamRow = { kind: 'static' | 'lead_field'; value: string; fallback: string }
 
@@ -193,16 +293,78 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: 'go
 function BreakdownGrid({ b }: { b: Breakdown }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {typeof b.totalSelected === 'number' && <Stat label="Total selected" value={b.totalSelected} />}
       <Stat label="Total matched"   value={b.totalMatched} />
+      {typeof b.validNumber === 'number' && <Stat label="Valid WhatsApp number" value={b.validNumber} />}
       <Stat label="Eligible"        value={b.eligible} tone={b.eligible > 0 ? 'good' : 'warn'} />
       <Stat label="Opted out"       value={b.optedOut} />
       <Stat label="Missing consent" value={b.missingConsent} tone={b.missingConsent > 0 ? 'warn' : undefined} />
       <Stat label="Invalid number"  value={b.invalidNumber} />
       <Stat label="Duplicates removed" value={b.duplicatesRemoved} />
       <Stat label="Country filtered"   value={b.countryFiltered} />
+      {typeof b.manualRejected === 'number' && b.manualRejected > 0 && (
+        <Stat label="Manual entries rejected" value={b.manualRejected} tone="warn" />
+      )}
       <Stat label="Final send count"   value={b.finalSendCount} tone={b.finalSendCount > 0 ? 'good' : 'bad'} />
     </div>
   )
+}
+
+/**
+ * Exclusions WITH reasons. This is the direct answer to "why is my
+ * eligible count zero" — every excluded person is accounted for in a
+ * named bucket that explains itself, rather than an unexplained number.
+ */
+function ExclusionList({ buckets }: { buckets: ExclusionBucket[] }) {
+  if (buckets.length === 0) return null
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Why recipients were excluded</p>
+      <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
+        {buckets.map(x => (
+          <div key={x.reason} className="px-3 py-2.5">
+            <p className="text-xs font-semibold text-gray-800">{x.reason} · {x.count}</p>
+            <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{x.description}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Per-source contribution, straight from the server's own counts. */
+function SourceCounts({ bySource, title }: { bySource: Record<string, number>; title: string }) {
+  const rows = Object.entries(bySource).filter(([, n]) => n > 0)
+  if (rows.length === 0) return null
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{title}</p>
+      <div className="flex flex-wrap gap-2">
+        {rows.map(([k, n]) => (
+          <span key={k} className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-700">
+            {SOURCE_LABELS[k] ?? k}: {n}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The advisory consent label on a picker row.
+ *
+ * SELECTION IS NEVER GATED BY THIS. It exists so a staff member can see,
+ * while building a list, who will be excluded and why — the server decides
+ * eligibility for itself at preview and again at approval.
+ */
+function ConsentChip({ optedOut, consentStatus, hasValidNumber }: {
+  optedOut: boolean; consentStatus: string; hasValidNumber: boolean
+}) {
+  if (optedOut) return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-600">Opted out</span>
+  if (!hasValidNumber) return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">No valid number</span>
+  if (consentStatus === 'SUBSCRIBED') return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Consented</span>
+  if (consentStatus === 'OPTED_OUT') return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-50 text-red-600">Opted out</span>
+  return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">No consent</span>
 }
 
 // ── Page ────────────────────────────────────────────────────────────────
@@ -221,7 +383,43 @@ export default function WhatsAppPage() {
   const [filterService, setFilterService] = useState('')
   const [templateName, setTemplateName]   = useState('')
   const [templateLanguage, setTemplateLanguage] = useState('en')
+  const [templateCategory, setTemplateCategory] = useState('')
   const [params, setParams]             = useState<ParamRow[]>([])
+
+  // ── V1.1 recipient builder ──────────────────────────────────────────
+  const [tab, setTab] = useState<RecipientTab>('leads')
+
+  // Clients & Leads tab
+  const [leadQuery, setLeadQuery]       = useState('')
+  const [leadResults, setLeadResults]   = useState<LeadOption[]>([])
+  const [leadTotal, setLeadTotal]       = useState(0)
+  const [leadTruncated, setLeadTruncated] = useState(false)
+  const [leadCountBeforeCountry, setLeadCountBeforeCountry] = useState(false)
+  const [leadSearching, setLeadSearching] = useState(false)
+  const [selectedLeads, setSelectedLeads] = useState<LeadOption[]>([])
+  /** "Select all from this explicitly resolved filter" — never implicit. */
+  const [useLeadFilter, setUseLeadFilter] = useState(false)
+
+  // Visa Applications tab
+  const [visaQuery, setVisaQuery]         = useState('')
+  const [visaDest, setVisaDest]           = useState('')
+  const [visaType, setVisaType]           = useState('')
+  const [visaStatus, setVisaStatus]       = useState('')
+  const [visaFrom, setVisaFrom]           = useState('')
+  const [visaTo, setVisaTo]               = useState('')
+  const [visaResults, setVisaResults]     = useState<VisaOption[]>([])
+  const [visaTotal, setVisaTotal]         = useState(0)
+  const [visaTruncated, setVisaTruncated] = useState(false)
+  const [visaSearching, setVisaSearching] = useState(false)
+  const [selectedVisa, setSelectedVisa]   = useState<VisaOption[]>([])
+  const [useVisaFilter, setUseVisaFilter] = useState(false)
+
+  // Add Numbers tab
+  const [manualBlob, setManualBlob]     = useState('')
+  const [manualReport, setManualReport] = useState<ManualReport | null>(null)
+  const [manualChecking, setManualChecking] = useState(false)
+  /** Accepted manual recipients, as the SERVER normalized them. */
+  const [manualAccepted, setManualAccepted] = useState<Array<{ raw: string; normalizedNumber: string; displayName: string | null; consentStatus?: string }>>([])
   const [scheduledAt, setScheduledAt]   = useState('')
   const [sendMode, setSendMode]         = useState<'send' | 'schedule'>('send')
 
@@ -269,10 +467,46 @@ export default function WhatsAppPage() {
       .then((d: DetailResponse) => setDetail(d))
   }, [detailId])
 
-  const targetFilter = {
+  const targetFilter = useMemo(() => ({
     ...(filterCountry && { country: filterCountry }),
     ...(filterService && { service: filterService }),
-  }
+  }), [filterCountry, filterService])
+
+  const visaFilter = useMemo(() => ({
+    ...(visaDest && { destinationIso2: visaDest }),
+    ...(visaType && { visaType }),
+    ...(visaStatus && { status: visaStatus }),
+    ...(visaFrom && { createdFrom: visaFrom }),
+    ...(visaTo && { createdTo: visaTo }),
+  }), [visaDest, visaType, visaStatus, visaFrom, visaTo])
+
+  /**
+   * THE SELECTION SENT TO THE SERVER — pointers only.
+   *
+   * Ids, filters and the RAW text of each manual entry. Deliberately no
+   * phone number belonging to a record, no name, no consent status and no
+   * count: the server re-reads every named record itself at preview time
+   * and again at approval, so nothing this browser believes about who is
+   * eligible can influence who is actually sent to.
+   */
+  const audienceSelection = useMemo(() => ({
+    ...(Object.keys(targetFilter).length > 0 && { leadFilter: targetFilter }),
+    ...(useLeadFilter && { useLeadFilter: true }),
+    ...(selectedLeads.length > 0 && { leadIds: selectedLeads.map(l => l.id) }),
+    ...(Object.keys(visaFilter).length > 0 && { visaFilter }),
+    ...(useVisaFilter && { useVisaFilter: true }),
+    ...(selectedVisa.length > 0 && { visaApplicationIds: selectedVisa.map(v => v.id) }),
+    ...(manualAccepted.length > 0 && {
+      manualEntries: manualAccepted.map(m => ({ number: m.raw, displayName: m.displayName })),
+    }),
+  }), [targetFilter, useLeadFilter, selectedLeads, visaFilter, useVisaFilter, selectedVisa, manualAccepted])
+
+  const hasAnySelection =
+    useLeadFilter || useVisaFilter ||
+    selectedLeads.length > 0 || selectedVisa.length > 0 || manualAccepted.length > 0
+
+  /** Running count of individually-picked recipients (filters are separate). */
+  const trayCount = selectedLeads.length + selectedVisa.length + manualAccepted.length
 
   const templatePayload = {
     templateName: templateName.trim(),
@@ -282,6 +516,9 @@ export default function WhatsAppPage() {
         ? { type: 'static' as const, value: p.value }
         : { type: 'lead_field' as const, field: p.value, ...(p.fallback ? { fallback: p.fallback } : {}) },
     ),
+    // Recorded for the operator's own bookkeeping. The server does not use
+    // it to relax any check — every broadcast here is consent-gated in full.
+    templateCategory: templateCategory || undefined,
   }
 
   async function runPreview(target: 'step' | 'confirm') {
@@ -291,7 +528,7 @@ export default function WhatsAppPage() {
       const r = await fetch('/api/admin/marketing/whatsapp-broadcast/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetFilter, ...templatePayload }),
+        body: JSON.stringify({ targetFilter, audienceSelection, ...templatePayload }),
       })
       const d = (await r.json()) as PreviewResponse
       if (target === 'confirm') setConfirmPreview(d)
@@ -300,6 +537,75 @@ export default function WhatsAppPage() {
     } finally {
       setPreviewLoading(false)
     }
+  }
+
+  // ── Recipient search — SELECTION, never gated by consent ──────────────
+
+  const searchLeads = useCallback(async () => {
+    setLeadSearching(true)
+    try {
+      const qs = new URLSearchParams()
+      if (leadQuery.trim()) qs.set('q', leadQuery.trim())
+      if (filterService) qs.set('service', filterService)
+      if (filterCountry) qs.set('country', filterCountry)
+      const r = await fetch(`/api/admin/marketing/whatsapp-broadcast/recipients/leads?${qs.toString()}`)
+      const d = (await r.json()) as LeadSearchResponse
+      setLeadResults(d.leads ?? [])
+      setLeadTotal(d.total ?? 0)
+      setLeadTruncated(Boolean(d.truncated))
+      setLeadCountBeforeCountry(Boolean(d.totalIsBeforeCountryFilter))
+    } finally {
+      setLeadSearching(false)
+    }
+  }, [leadQuery, filterService, filterCountry])
+
+  const searchVisa = useCallback(async () => {
+    setVisaSearching(true)
+    try {
+      const qs = new URLSearchParams()
+      if (visaQuery.trim()) qs.set('q', visaQuery.trim())
+      Object.entries(visaFilter).forEach(([k, v]) => qs.set(k, String(v)))
+      const r = await fetch(`/api/admin/marketing/whatsapp-broadcast/recipients/visa-applications?${qs.toString()}`)
+      const d = (await r.json()) as VisaSearchResponse
+      setVisaResults(d.applications ?? [])
+      setVisaTotal(d.total ?? 0)
+      setVisaTruncated(Boolean(d.truncated))
+    } finally {
+      setVisaSearching(false)
+    }
+  }, [visaQuery, visaFilter])
+
+  /**
+   * Validate the manual paste SERVER-SIDE. The browser never decides that
+   * a number is valid — it only displays what the server concluded, and
+   * the server re-parses the same raw strings again at approval time.
+   */
+  async function checkManualNumbers() {
+    if (!manualBlob.trim()) return
+    setManualChecking(true)
+    try {
+      const r = await fetch('/api/admin/marketing/whatsapp-broadcast/recipients/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blob: manualBlob }),
+      })
+      const d = (await r.json()) as ManualReport
+      setManualReport(d)
+      setManualAccepted(prev => {
+        const seen = new Set(prev.map(p => p.normalizedNumber))
+        return [...prev, ...(d.valid ?? []).filter(v => !seen.has(v.normalizedNumber))]
+      })
+      setManualBlob('')
+    } finally {
+      setManualChecking(false)
+    }
+  }
+
+  function toggleLead(l: LeadOption) {
+    setSelectedLeads(prev => (prev.some(x => x.id === l.id) ? prev.filter(x => x.id !== l.id) : [...prev, l]))
+  }
+  function toggleVisa(v: VisaOption) {
+    setSelectedVisa(prev => (prev.some(x => x.id === v.id) ? prev.filter(x => x.id !== v.id) : [...prev, v]))
   }
 
   async function askJade() {
@@ -321,9 +627,52 @@ export default function WhatsAppPage() {
 
   function resetWizard() {
     setStep(1); setName(''); setMessage(''); setFilterCountry(''); setFilterService('')
-    setTemplateName(''); setTemplateLanguage('en'); setParams([]); setScheduledAt('')
+    setTemplateName(''); setTemplateLanguage('en'); setTemplateCategory(''); setParams([]); setScheduledAt('')
     setSendMode('send'); setPreview(null); setConfirmPreview(null); setWizardError('')
+    setTab('leads')
+    setLeadQuery(''); setLeadResults([]); setSelectedLeads([]); setUseLeadFilter(false)
+    setVisaQuery(''); setVisaDest(''); setVisaType(''); setVisaStatus(''); setVisaFrom(''); setVisaTo('')
+    setVisaResults([]); setSelectedVisa([]); setUseVisaFilter(false)
+    setManualBlob(''); setManualReport(null); setManualAccepted([])
   }
+
+  /**
+   * ── VISA CONTEXTUAL ACTION ──────────────────────────────────────────
+   * /admin/marketing/whatsapp?visaApplicationId=<id> opens this wizard
+   * with that ONE applicant pre-selected as the INTENDED recipient.
+   *
+   * It pre-populates and stops there. No template is chosen, no preview is
+   * approved, and nothing is queued: the staff member still walks every
+   * step and presses the final button themselves. Nothing on this page
+   * sends on mount, and the server would refuse anyway — queueing requires
+   * a template, a non-zero server-computed eligible count and an explicit
+   * POST to …/schedule.
+   *
+   * Read from window.location rather than useSearchParams so this client
+   * page needs no Suspense boundary at build time.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const id = new URLSearchParams(window.location.search).get('visaApplicationId')
+    if (!id) return
+    let cancelled = false
+    void (async () => {
+      const r = await fetch(
+        `/api/admin/marketing/whatsapp-broadcast/recipients/visa-applications?id=${encodeURIComponent(id)}`,
+      )
+      if (!r.ok) return
+      const d = (await r.json()) as VisaSearchResponse
+      const app = d.applications?.[0]
+      if (!app || cancelled) return
+      setShowNew(true)
+      setStep(1)
+      setTab('visa')
+      setSelectedVisa([app])
+      setName(n => n || `WhatsApp — ${app.name ?? app.referenceNumber}`)
+      setMessage(m => m || `Single-recipient WhatsApp template for visa application ${app.referenceNumber}.`)
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   /** Save the draft, then approve + queue it. Two server calls, one click. */
   async function queueBroadcast() {
@@ -335,7 +684,7 @@ export default function WhatsAppPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name, message, targetFilter, ...templatePayload,
+          name, message, targetFilter, audienceSelection, ...templatePayload,
           scheduledAt: sendMode === 'schedule' ? scheduledAt : undefined,
         }),
       })
@@ -385,7 +734,10 @@ export default function WhatsAppPage() {
   }
 
   // ── Per-step validity (Quote Builder convention) ──────────────────────
-  const step1Valid = name.trim().length > 0 && message.trim().length > 0
+  // A campaign must now name SOMEBODY — an individual, a group from an
+  // explicitly resolved filter, or a manual number. There is no shape here
+  // that means "everyone".
+  const step1Valid = name.trim().length > 0 && message.trim().length > 0 && hasAnySelection
   const step2Valid = /^[a-z0-9_]{1,512}$/.test(templateName.trim()) &&
                      /^[a-z]{2,3}(_[A-Z]{2})?$/.test(templateLanguage.trim()) &&
                      params.every(p => (p.kind === 'static' ? p.value.trim().length > 0 : LEAD_FIELDS.includes(p.value as typeof LEAD_FIELDS[number])))
@@ -535,34 +887,395 @@ export default function WhatsAppPage() {
                   </div>
                 )}
 
+                {/* ── Choose recipients — three sources, one tray ────── */}
                 <div>
-                  <label className={`${labelCls} mb-2`}>Target Audience</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="relative">
-                      <select
-                        value={filterCountry}
-                        onChange={e => setFilterCountry(e.target.value)}
-                        className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
+                  <label className={`${labelCls} mb-2`}>Choose Recipients</label>
+
+                  <div className="flex gap-1.5 flex-wrap mb-3">
+                    {([
+                      { k: 'leads',  label: 'Clients & Leads',   Icon: Users },
+                      { k: 'visa',   label: 'Visa Applications', Icon: FileText },
+                      { k: 'manual', label: 'Add Numbers',       Icon: Phone },
+                    ] as const).map(t => (
+                      <button
+                        key={t.k}
+                        onClick={() => setTab(t.k)}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition ${
+                          tab === t.k ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
                       >
-                        {COUNTRIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                        <t.Icon className="w-3.5 h-3.5" /> {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 mb-3 flex items-start gap-2">
+                    <Info className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-gray-500 leading-snug">
+                      Anyone can be searched and selected here, whatever their consent status — so you can build the list
+                      and then see exactly who is excluded. Whether each person can actually be sent to is worked out
+                      separately by the server, on the Preview step and again when you approve.
+                    </p>
+                  </div>
+
+                  {/* ── Tab: Clients & Leads ─────────────────────────── */}
+                  {tab === 'leads' && (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                          <input
+                            value={leadQuery}
+                            onChange={e => setLeadQuery(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && void searchLeads()}
+                            placeholder="Search by name, email or phone…"
+                            className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400/50"
+                          />
+                        </div>
+                        <button
+                          onClick={() => void searchLeads()}
+                          disabled={leadSearching}
+                          className="px-3 py-2 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold transition disabled:opacity-50"
+                        >
+                          {leadSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="relative">
+                          <select
+                            value={filterCountry}
+                            onChange={e => setFilterCountry(e.target.value)}
+                            className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
+                          >
+                            {COUNTRIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                          </select>
+                          <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                        </div>
+                        <div className="relative">
+                          <select
+                            value={filterService}
+                            onChange={e => setFilterService(e.target.value)}
+                            className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
+                          >
+                            {SERVICES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                          </select>
+                          <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        Service filters on the lead record. There is no stored country field, so country is derived from
+                        the dialling prefix of each lead’s WhatsApp number.
+                      </p>
+
+                      {leadResults.length > 0 && (
+                        <>
+                          <div className="border border-gray-100 rounded-xl divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                            {leadResults.map(l => {
+                              const picked = selectedLeads.some(x => x.id === l.id)
+                              return (
+                                <button
+                                  key={l.id}
+                                  onClick={() => toggleLead(l)}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition text-left"
+                                >
+                                  <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                                    picked ? 'bg-green-600 border-green-600' : 'bg-white border-gray-300'
+                                  }`}>
+                                    {picked && <Check className="w-3 h-3 text-white" />}
+                                  </span>
+                                  <span className="flex-1 min-w-0">
+                                    <span className="block text-sm text-gray-900 truncate">{l.name ?? '(no name)'}</span>
+                                    <span className="block text-[11px] text-gray-400 truncate">
+                                      {l.normalizedNumber ?? l.email ?? '—'}{l.service ? ` · ${l.service}` : ''}
+                                    </span>
+                                  </span>
+                                  <ConsentChip optedOut={l.optedOut} consentStatus={l.consentStatus} hasValidNumber={l.hasValidNumber} />
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <p className="text-[11px] text-gray-400">
+                              Showing {leadResults.length}{leadTruncated ? ' (first page)' : ''} of {leadTotal} matching this filter
+                              {leadCountBeforeCountry ? ', counted before the country prefix filter' : ''}.
+                            </p>
+                            <button
+                              onClick={() => setUseLeadFilter(v => !v)}
+                              className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition ${
+                                useLeadFilter ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                              }`}
+                            >
+                              {useLeadFilter ? '✓ All matching this filter included' : `Select all ${leadTotal} matching this filter`}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {leadResults.length === 0 && !leadSearching && (
+                        <p className="text-xs text-gray-400">Search to list clients and leads.</p>
+                      )}
                     </div>
-                    <div className="relative">
-                      <select
-                        value={filterService}
-                        onChange={e => setFilterService(e.target.value)}
-                        className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
-                      >
-                        {SERVICES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                      </select>
-                      <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                  )}
+
+                  {/* ── Tab: Visa Applications ───────────────────────── */}
+                  {tab === 'visa' && (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                          <input
+                            value={visaQuery}
+                            onChange={e => setVisaQuery(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && void searchVisa()}
+                            placeholder="Search by name, email, phone or reference…"
+                            className="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-400/50"
+                          />
+                        </div>
+                        <button
+                          onClick={() => void searchVisa()}
+                          disabled={visaSearching}
+                          className="px-3 py-2 bg-gray-900 hover:bg-black text-white rounded-xl text-xs font-semibold transition disabled:opacity-50"
+                        >
+                          {visaSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Search'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <input
+                          value={visaDest}
+                          onChange={e => setVisaDest(e.target.value.toUpperCase().slice(0, 2))}
+                          placeholder="Destination (GB)"
+                          className={inputCls}
+                        />
+                        <input
+                          value={visaType}
+                          onChange={e => setVisaType(e.target.value)}
+                          placeholder="Visa type (tourist)"
+                          className={inputCls}
+                        />
+                        <div className="relative">
+                          <select
+                            value={visaStatus}
+                            onChange={e => setVisaStatus(e.target.value)}
+                            className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
+                          >
+                            {VISA_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                          </select>
+                          <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                        </div>
+                        <input type="date" value={visaFrom} onChange={e => setVisaFrom(e.target.value)} className={inputCls} />
+                        <input type="date" value={visaTo} onChange={e => setVisaTo(e.target.value)} className={inputCls} />
+                      </div>
+                      <p className="text-[11px] text-gray-400">
+                        Destination, visa type, status, branch and application date are real stored fields on the visa
+                        application. The applicant’s existing contact number is used — no new client record is created.
+                      </p>
+
+                      {visaResults.length > 0 && (
+                        <>
+                          <div className="border border-gray-100 rounded-xl divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                            {visaResults.map(v => {
+                              const picked = selectedVisa.some(x => x.id === v.id)
+                              return (
+                                <button
+                                  key={v.id}
+                                  onClick={() => toggleVisa(v)}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-gray-50 transition text-left"
+                                >
+                                  <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                                    picked ? 'bg-green-600 border-green-600' : 'bg-white border-gray-300'
+                                  }`}>
+                                    {picked && <Check className="w-3 h-3 text-white" />}
+                                  </span>
+                                  <span className="flex-1 min-w-0">
+                                    <span className="block text-sm text-gray-900 truncate">{v.name ?? v.referenceNumber}</span>
+                                    <span className="block text-[11px] text-gray-400 truncate">
+                                      {v.referenceNumber} · {v.destinationIso2} {v.visaType} · {v.status.replace(/_/g, ' ')}
+                                      {v.normalizedNumber ? ` · ${v.normalizedNumber}` : ''}
+                                    </span>
+                                  </span>
+                                  <ConsentChip optedOut={v.optedOut} consentStatus={v.consentStatus} hasValidNumber={v.hasValidNumber} />
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <p className="text-[11px] text-gray-400">
+                              Showing {visaResults.length}{visaTruncated ? ' (first page)' : ''} of {visaTotal} matching this filter.
+                            </p>
+                            <button
+                              onClick={() => setUseVisaFilter(v => !v)}
+                              className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition ${
+                                useVisaFilter ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                              }`}
+                            >
+                              {useVisaFilter ? '✓ All matching this filter included' : `Select all ${visaTotal} matching this filter`}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      {visaResults.length === 0 && !visaSearching && (
+                        <p className="text-xs text-gray-400">Search to list visa applications.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Tab: Add Numbers ─────────────────────────────── */}
+                  {tab === 'manual' && (
+                    <div className="space-y-3">
+                      <textarea
+                        value={manualBlob}
+                        onChange={e => setManualBlob(e.target.value)}
+                        rows={4}
+                        placeholder={'+2348012345678 | Ada Obi\n+233201234567\n+254712345678, +27821234567'}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-400/50 resize-none"
+                      />
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          onClick={() => void checkManualNumbers()}
+                          disabled={manualChecking || !manualBlob.trim()}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-semibold transition disabled:opacity-50"
+                        >
+                          {manualChecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                          Add WhatsApp Numbers
+                        </button>
+                        <p className="text-[11px] text-gray-400">
+                          One per line, or comma/semicolon separated. Optional name after “|”. Checked and normalized on
+                          the server.
+                        </p>
+                      </div>
+
+                      {manualReport && (
+                        <div className="space-y-2">
+                          {manualReport.invalid.length > 0 && (
+                            <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
+                              <p className="text-xs font-semibold text-red-700">
+                                {manualReport.invalid.length} entr{manualReport.invalid.length === 1 ? 'y' : 'ies'} rejected
+                              </p>
+                              <ul className="text-[11px] text-red-600 mt-1 space-y-0.5">
+                                {manualReport.invalid.slice(0, 10).map((x, i) => (
+                                  <li key={`${x.raw}-${i}`}><code>{x.raw || '(empty)'}</code> — {x.reason}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {manualReport.duplicates.length > 0 && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                              <p className="text-xs text-amber-700">
+                                {manualReport.duplicates.length} duplicate{manualReport.duplicates.length === 1 ? '' : 's'} in
+                                this paste were collapsed — a number receives one message however many times it appears.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+                        <p className="text-[11px] text-amber-700 leading-snug">
+                          Typing a number here creates no client record and no consent. It is checked against the real
+                          WhatsApp consent table exactly like a stored contact: with no recorded consent for that number,
+                          it will be excluded at preview.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Shared selected-recipients tray ──────────────── */}
+                  <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2.5 bg-gray-50 border-b border-gray-100">
+                      <p className="text-xs font-semibold text-gray-700">
+                        Selected recipients · {trayCount}
+                        {(useLeadFilter || useVisaFilter) && ' + filter groups'}
+                      </p>
+                      {(trayCount > 0 || useLeadFilter || useVisaFilter) && (
+                        <button
+                          onClick={() => {
+                            setSelectedLeads([]); setSelectedVisa([]); setManualAccepted([])
+                            setUseLeadFilter(false); setUseVisaFilter(false)
+                          }}
+                          className="text-[11px] font-semibold text-gray-400 hover:text-red-500"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
+                      {useLeadFilter && (
+                        <div className="flex items-center gap-2 px-3 py-2">
+                          <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="flex-1 text-xs text-gray-700">
+                            All leads matching: {filterService || 'any service'}
+                            {filterCountry ? ` · ${filterCountry}` : ''} ({leadTotal} matched)
+                          </span>
+                          <button onClick={() => setUseLeadFilter(false)} className="text-gray-300 hover:text-red-500">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      {useVisaFilter && (
+                        <div className="flex items-center gap-2 px-3 py-2">
+                          <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="flex-1 text-xs text-gray-700">
+                            All visa applications matching: {visaDest || 'any destination'}
+                            {visaStatus ? ` · ${visaStatus.replace(/_/g, ' ')}` : ''} ({visaTotal} matched)
+                          </span>
+                          <button onClick={() => setUseVisaFilter(false)} className="text-gray-300 hover:text-red-500">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                      {selectedLeads.map(l => (
+                        <div key={`l-${l.id}`} className="flex items-center gap-2 px-3 py-2">
+                          <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="flex-1 min-w-0 text-xs text-gray-700 truncate">
+                            {l.name ?? '(no name)'} · {l.normalizedNumber ?? 'no valid number'}
+                          </span>
+                          <ConsentChip optedOut={l.optedOut} consentStatus={l.consentStatus} hasValidNumber={l.hasValidNumber} />
+                          <button onClick={() => toggleLead(l)} className="text-gray-300 hover:text-red-500">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {selectedVisa.map(v => (
+                        <div key={`v-${v.id}`} className="flex items-center gap-2 px-3 py-2">
+                          <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="flex-1 min-w-0 text-xs text-gray-700 truncate">
+                            {v.name ?? v.referenceNumber} · {v.normalizedNumber ?? 'no valid number'}
+                          </span>
+                          <ConsentChip optedOut={v.optedOut} consentStatus={v.consentStatus} hasValidNumber={v.hasValidNumber} />
+                          <button onClick={() => toggleVisa(v)} className="text-gray-300 hover:text-red-500">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {manualAccepted.map(m => (
+                        <div key={`m-${m.normalizedNumber}`} className="flex items-center gap-2 px-3 py-2">
+                          <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="flex-1 min-w-0 text-xs text-gray-700 truncate">
+                            {m.displayName ? `${m.displayName} · ` : ''}{m.normalizedNumber}
+                          </span>
+                          <ConsentChip optedOut={false} consentStatus={m.consentStatus ?? 'UNKNOWN'} hasValidNumber />
+                          <button
+                            onClick={() => setManualAccepted(prev => prev.filter(x => x.normalizedNumber !== m.normalizedNumber))}
+                            className="text-gray-300 hover:text-red-500"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {trayCount === 0 && !useLeadFilter && !useVisaFilter && (
+                        <p className="px-3 py-4 text-xs text-gray-400 text-center">
+                          Nobody selected yet. Pick people from any of the three tabs above.
+                        </p>
+                      )}
+                    </div>
+                    <div className="px-3 py-2 bg-gray-50 border-t border-gray-100">
+                      <p className="text-[11px] text-gray-400 leading-snug">
+                        The same person selected from more than one source is one recipient: the list is de-duplicated by
+                        WhatsApp number on the server, and each number receives exactly one message.
+                      </p>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1.5">
-                    Service filters on the lead record. There is no stored country field, so country is derived from the
-                    dialling prefix of each lead’s WhatsApp number.
-                  </p>
                 </div>
               </>
             )}
@@ -597,6 +1310,30 @@ export default function WhatsAppPage() {
                       placeholder="en or en_US"
                       className={inputCls}
                     />
+                  </div>
+                </div>
+
+                {/* ── Recorded Meta category — bookkeeping ONLY ──────── */}
+                <div>
+                  <label className={labelCls}>Meta Template Category (recorded only)</label>
+                  <div className="relative sm:max-w-xs">
+                    <select
+                      value={templateCategory}
+                      onChange={e => setTemplateCategory(e.target.value)}
+                      className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
+                    >
+                      {TEMPLATE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                  </div>
+                  <div className="mt-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 flex items-start gap-2">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
+                    <p className="text-[11px] text-amber-700 leading-snug">
+                      This is stored for your own records and changes nothing about who can be messaged. Every broadcast
+                      built here requires full recorded WhatsApp consent, whichever category you pick — Meta decides a
+                      template’s real category at approval, and a category typed here cannot be verified, so it is never
+                      used to relax a consent check.
+                    </p>
                   </div>
                 </div>
 
@@ -684,6 +1421,36 @@ export default function WhatsAppPage() {
                 {!previewLoading && preview && (
                   <>
                     <BreakdownGrid b={preview.breakdown} />
+                    {preview.breakdown.bySource && (
+                      <SourceCounts bySource={preview.breakdown.bySource} title="Selected from each source" />
+                    )}
+                    {preview.breakdown.sendableBySource && preview.breakdown.finalSendCount > 0 && (
+                      <SourceCounts bySource={preview.breakdown.sendableBySource} title="Sendable from each source" />
+                    )}
+                    {preview.exclusions && <ExclusionList buckets={preview.exclusions} />}
+                    {preview.sample && preview.sample.length > 0 && (
+                      <div>
+                        <p className={labelCls}>Sample of resolved recipients</p>
+                        <div className="divide-y divide-gray-50 border border-gray-100 rounded-xl overflow-hidden">
+                          {preview.sample.map((s, i) => (
+                            <div key={`${s.maskedNumber}-${i}`} className="px-3 py-2">
+                              <p className="text-xs text-gray-700">
+                                <span className="font-mono">{s.maskedNumber}</span>
+                                {s.displayName ? ` · ${s.displayName}` : ''}
+                                {' · '}
+                                <span className="font-semibold">{s.status.replace(/_/g, ' ').toLowerCase()}</span>
+                                {s.sources && s.sources.length > 0 && (
+                                  <span className="text-gray-400">
+                                    {' '}· from {s.sources.map(x => SOURCE_LABELS[x] ?? x).join(' + ')}
+                                  </span>
+                                )}
+                              </p>
+                              {s.reason && <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{s.reason}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {preview.consentNotice && (
                       <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
@@ -776,9 +1543,18 @@ export default function WhatsAppPage() {
                       </p>
                     </div>
                     <BreakdownGrid b={confirmPreview.breakdown} />
+                    {confirmPreview.exclusions && <ExclusionList buckets={confirmPreview.exclusions} />}
                     <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 space-y-1">
                       <p className="text-xs text-gray-600"><b>Campaign:</b> {name}</p>
-                      <p className="text-xs text-gray-600"><b>Template:</b> {templateName} ({templateLanguage})</p>
+                      <p className="text-xs text-gray-600">
+                        <b>Template:</b> {templateName} ({templateLanguage})
+                        {templateCategory ? ` · recorded as ${templateCategory}` : ''}
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        <b>Recipients:</b> {trayCount} individually selected
+                        {useLeadFilter ? ' + all leads matching the filter' : ''}
+                        {useVisaFilter ? ' + all visa applications matching the filter' : ''}
+                      </p>
                       <p className="text-xs text-gray-600">
                         <b>Timing:</b> {sendMode === 'schedule' ? `Scheduled for ${scheduledAt}` : 'Queued immediately'}
                       </p>
@@ -921,6 +1697,13 @@ export default function WhatsAppPage() {
               <Stat label="Skipped — no consent"    value={detail.counts.skippedNoConsent} />
               <Stat label="Skipped — bad number"    value={detail.counts.skippedInvalidNumber} />
             </div>
+
+            {detail.bySource && detail.bySource.length > 0 && (
+              <SourceCounts
+                bySource={Object.fromEntries(detail.bySource.map(s => [s.sourceType, s.count]))}
+                title="Recipients by source (from the frozen snapshot)"
+              />
+            )}
 
             {detail.failureReasons.length > 0 && (
               <div>

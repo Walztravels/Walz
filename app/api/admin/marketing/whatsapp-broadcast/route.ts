@@ -22,6 +22,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { requireBroadcastAccess } from '@/lib/whatsapp/broadcast/rbac'
 import { parseTargetFilter } from '@/lib/whatsapp/broadcast/audience'
+import { parseAudienceSelection } from '@/lib/whatsapp/broadcast/selection'
+import { parseTemplateCategory } from '@/lib/whatsapp/broadcast/sources'
 import { validateTemplateDefinition } from '@/lib/whatsapp/broadcast/template'
 import { canScheduleBroadcast } from '@/lib/whatsapp/broadcast/lifecycle'
 
@@ -48,9 +50,11 @@ export async function POST(req: NextRequest) {
     message?: string
     mediaUrl?: string
     targetFilter?: unknown
+    audienceSelection?: unknown
     templateName?: string
     templateLanguage?: string
     templateParams?: unknown
+    templateCategory?: unknown
     scheduledAt?: string
   }
   try {
@@ -90,9 +94,17 @@ export async function POST(req: NextRequest) {
       message: body.message.trim(),
       mediaUrl: body.mediaUrl?.trim() || null,
       targetFilter: parseTargetFilter(body.targetFilter) as object,
+      // POINTERS ONLY (ids, filters, raw manual strings) — narrowed by
+      // parseAudienceSelection, which has no field for a number belonging
+      // to a record, a name, a count or an eligibility claim. Re-resolved
+      // against the live database on every preview and at snapshot time.
+      audienceSelection: parseAudienceSelection(body.audienceSelection) as object,
       templateName,
       templateLanguage,
       templateParams: templateParams as object,
+      // RECORDED FOR BOOKKEEPING ONLY. Never read by any eligibility code
+      // path — see lib/whatsapp/broadcast/sources.ts.
+      templateCategory: parseTemplateCategory(body.templateCategory),
       // recipientCount is deliberately NOT read from the request.
       recipientCount: 0,
       status: 'DRAFT',
@@ -114,9 +126,11 @@ export async function PATCH(req: NextRequest) {
     message?: string
     mediaUrl?: string | null
     targetFilter?: unknown
+    audienceSelection?: unknown
     templateName?: string
     templateLanguage?: string
     templateParams?: unknown
+    templateCategory?: unknown
     scheduledAt?: string | null
   }
   try {
@@ -147,6 +161,11 @@ export async function PATCH(req: NextRequest) {
   if (body.message !== undefined) data.message = String(body.message).trim()
   if (body.mediaUrl !== undefined) data.mediaUrl = body.mediaUrl ? String(body.mediaUrl).trim() : null
   if (body.targetFilter !== undefined) data.targetFilter = parseTargetFilter(body.targetFilter)
+  // Re-narrowed on every edit, never merged with whatever is stored: an
+  // edit replaces the selection wholesale, so a removed recipient is
+  // genuinely removed rather than lingering in an un-overwritten key.
+  if (body.audienceSelection !== undefined) data.audienceSelection = parseAudienceSelection(body.audienceSelection)
+  if (body.templateCategory !== undefined) data.templateCategory = parseTemplateCategory(body.templateCategory)
   if (body.scheduledAt !== undefined) data.scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null
 
   if (body.templateName !== undefined || body.templateLanguage !== undefined || body.templateParams !== undefined) {

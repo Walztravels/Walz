@@ -31,6 +31,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { requireBroadcastAccess } from '@/lib/whatsapp/broadcast/rbac'
 import { parseTargetFilter, resolveAudience } from '@/lib/whatsapp/broadcast/audience'
+import { resolveMultiSourceAudience } from '@/lib/whatsapp/broadcast/audience-multi'
+import { hasMultiSourceSelection, parseAudienceSelection } from '@/lib/whatsapp/broadcast/selection'
+import type { RecipientProvenanceEntry, RecipientSourceType } from '@/lib/whatsapp/broadcast/sources'
 import { validateTemplateDefinition } from '@/lib/whatsapp/broadcast/template'
 import { canScheduleBroadcast, SCHEDULABLE_FROM } from '@/lib/whatsapp/broadcast/lifecycle'
 import { getWhatsAppReadiness } from '@/lib/whatsapp/config'
@@ -108,8 +111,65 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   // ── Resolve the audience FRESH, right now. ────────────────────────────
+  //
+  // V1.1: the STORED selection is what gets resolved — never a list the
+  // browser sent with this request (there is no such field). Whatever the
+  // preview screen showed, the send-eligible set is recomputed here from
+  // the live Lead / VisaApplication / whatsapp_consents rows, by id, and
+  // manual numbers are re-normalized from their raw strings. A V1-shaped
+  // broadcast (filter only, no selection) resolves through V1's untouched
+  // single-source resolver.
   const filter = parseTargetFilter(broadcast.targetFilter)
-  const { breakdown, recipients } = await resolveAudience({ filter, template })
+  const selection = parseAudienceSelection(broadcast.audienceSelection)
+  const multiSource = hasMultiSourceSelection(selection)
+
+  /** The provenance-carrying shape both resolvers are normalized into. */
+  type SnapshotRecipient = {
+    leadId: string | null
+    visaApplicationId: string | null
+    sourceType: RecipientSourceType
+    sourceProvenance: RecipientProvenanceEntry[]
+    displayName: string | null
+    normalizedNumber: string | null
+    waId: string | null
+    templateParamsSnapshot: string[]
+    status: string
+  }
+
+  let breakdown: Record<string, unknown> & { finalSendCount: number }
+  let recipients: SnapshotRecipient[]
+
+  if (multiSource) {
+    const resolved = await resolveMultiSourceAudience({ selection, template })
+    breakdown = resolved.breakdown as unknown as Record<string, unknown> & { finalSendCount: number }
+    recipients = resolved.recipients.map(r => ({
+      leadId: r.leadId,
+      visaApplicationId: r.visaApplicationId,
+      sourceType: r.sourceType,
+      sourceProvenance: r.sourceProvenance,
+      displayName: r.displayName,
+      normalizedNumber: r.normalizedNumber,
+      waId: r.waId,
+      templateParamsSnapshot: r.templateParamsSnapshot,
+      status: r.status,
+    }))
+  } else {
+    const resolved = await resolveAudience({ filter, template })
+    breakdown = resolved.breakdown as unknown as Record<string, unknown> & { finalSendCount: number }
+    // A V1 audience is entirely Lead-sourced; its provenance says exactly
+    // that rather than being left empty.
+    recipients = resolved.recipients.map(r => ({
+      leadId: r.leadId,
+      visaApplicationId: null,
+      sourceType: 'LEAD' as RecipientSourceType,
+      sourceProvenance: [{ type: 'LEAD' as RecipientSourceType, id: r.leadId, label: null }],
+      displayName: null,
+      normalizedNumber: r.normalizedNumber,
+      waId: r.waId,
+      templateParamsSnapshot: r.templateParamsSnapshot,
+      status: r.status,
+    }))
+  }
 
   if (breakdown.finalSendCount === 0) {
     return NextResponse.json(
@@ -171,6 +231,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       data: recipients.map(r => ({
         broadcastId: broadcast.id,
         leadId: r.leadId,
+        // V1.1 provenance. The dedup in the resolver already collapsed a
+        // human contributed by several sources into ONE row before we get
+        // here, so this records where that single recipient came from
+        // without ever producing a second send target.
+        visaApplicationId: r.visaApplicationId,
+        sourceType: r.sourceType,
+        sourceProvenance: r.sourceProvenance as unknown as object,
+        displayName: r.displayName,
         normalizedNumber: r.normalizedNumber,
         waId: r.waId,
         templateParamsSnapshot: r.templateParamsSnapshot as unknown as object,
@@ -199,9 +267,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   })
 
+  const n = (k: string): number => (typeof breakdown[k] === 'number' ? (breakdown[k] as number) : 0)
   console.info(
-    `[wa-broadcast/schedule] id=${broadcast.id} mode=${mode} matched=${breakdown.totalMatched} ` +
-    `eligible=${breakdown.eligible} skipped=${breakdown.optedOut + breakdown.missingConsent + breakdown.invalidNumber}`,
+    `[wa-broadcast/schedule] id=${broadcast.id} mode=${mode} source=${multiSource ? 'multi' : 'v1-filter'} ` +
+    `matched=${n('totalMatched')} eligible=${n('eligible')} ` +
+    `skipped=${n('optedOut') + n('missingConsent') + n('invalidNumber')}`,
   )
 
   return NextResponse.json({ broadcast: updated, breakdown })

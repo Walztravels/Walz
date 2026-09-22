@@ -344,6 +344,15 @@ model VisaApplication {
   duplicatedFrom  VisaApplication?         @relation("Duplicates", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
   duplicates      VisaApplication[]        @relation("Duplicates")
 
+  // ── WhatsApp Broadcast V1.1 back-relation (adds NO column here) ───────
+  // A visa applicant is a FIRST-CLASS broadcast audience source: the
+  // resolver reads `phone` and `marketingOptOut` from this row directly and
+  // never mints a synthetic Lead to route an applicant through the send
+  // pipeline. marketingOptOut above is, exactly as on Lead, an opt-OUT flag
+  // defaulting to false: a HARD EXCLUDE when true, and NEVER read as
+  // affirmative marketing consent when false.
+  broadcastRecipients WhatsAppBroadcastRecipient[]
+
   @@index([userId])
   @@index([status])
   @@index([destinationIso2])
@@ -3681,6 +3690,26 @@ model WhatsAppBroadcast {
   snapshotAt       DateTime?
   approvedBy       String?
 
+  // ── V1.1: the multi-source audience SELECTION ────────────────────────
+  // What the operator PICKED: Lead ids, VisaApplication ids, explicitly
+  // resolved filters and raw manual number strings. Pointers only — this
+  // JSON can hold no phone number belonging to a record, no name, no
+  // consent verdict and no count. It is re-resolved against the live
+  // database on every preview and again at snapshot time, which is how V1's
+  // "never trust the browser's recipientCount" rule extends to three
+  // sources. See lib/whatsapp/broadcast/selection.ts.
+  // Empty ({}) on a V1-shaped, filter-only broadcast, which keeps running
+  // through V1's untouched resolveAudience().
+  audienceSelection Json   @default("{}")
+  // ── V1.1: RECORDED Meta template category — BOOKKEEPING ONLY ─────────
+  // 'MARKETING' | 'UTILITY' | 'AUTHENTICATION', CHECK-constrained in SQL.
+  // Deliberately NOT an input to eligibility. Nothing here can verify an
+  // admin's self-declared category (Meta owns template approval), so wiring
+  // it to a relaxed consent path would be a consent bypass in compliance
+  // clothing. Every broadcast built through the audience builder takes the
+  // FULL affirmative-consent check whatever this says. Pinned by a test.
+  templateCategory String?
+
   // ── V1: lifecycle timestamps ─────────────────────────────────────────
   queuedAt       DateTime?
   startedAt      DateTime?
@@ -3712,6 +3741,27 @@ model WhatsAppBroadcastRecipient {
   // Attribution only. Nullable + SetNull so deleting a CRM lead never
   // destroys the send audit trail.
   leadId                 String?   @map("lead_id")
+  // ── V1.1 PROVENANCE ───────────────────────────────────────────────────
+  // Which audience source produced this recipient. 'CLIENT' | 'LEAD' |
+  // 'VISA_APPLICATION' | 'MANUAL', CHECK-constrained in SQL. Defaults to
+  // 'LEAD' so every V1 row already in the table is correct without a
+  // backfill. Nothing emits 'CLIENT' today — see sources.ts for why it is
+  // in the vocabulary anyway.
+  sourceType             String    @default("LEAD") @map("source_type")
+  // Attribution only, like leadId: nullable + SetNull so deleting a visa
+  // application never destroys the send audit trail.
+  visaApplicationId      String?   @map("visa_application_id")
+  // EVERY contributing source for this one dispatch identity, as
+  // [{ type, id, label }]. One human can arrive as a Lead, a visa applicant
+  // AND a pasted number; dedup collapses them into THIS single row before
+  // the snapshot is written, and this column is how that history survives.
+  // JSON rather than a join table because it is written once, never
+  // updated, never joined on and never aggregated in SQL — the same
+  // reasoning V1 used for templateParamsSnapshot and audienceSnapshot.
+  sourceProvenance       Json      @default("[]") @map("source_provenance")
+  // The staff-typed name on a MANUAL entry. NULL for record-backed sources,
+  // whose name lives on the record itself.
+  displayName            String?   @map("display_name")
   // E.164 ('+2348…') as produced by normalizePhoneE164. NULL means the
   // lead had no usable WhatsApp number (status SKIPPED_INVALID_NUMBER);
   // Postgres treats NULLs as distinct, so many such rows coexist under the
@@ -3745,6 +3795,7 @@ model WhatsAppBroadcastRecipient {
 
   broadcast              WhatsAppBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
   lead                   Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  visaApplication        VisaApplication?  @relation(fields: [visaApplicationId], references: [id], onDelete: SetNull)
 
   // THE dispatch-identity guarantee. WhatsApp delivers to a PHONE NUMBER,
   // and this schema deliberately allows several Lead rows per human (Lead
@@ -3757,6 +3808,8 @@ model WhatsAppBroadcastRecipient {
   @@index([broadcastId, status])
   @@index([status, nextAttemptAt])
   @@index([leadId])
+  @@index([visaApplicationId])
+  @@index([broadcastId, sourceType])
   @@map("whatsapp_broadcast_recipients")
 }
 

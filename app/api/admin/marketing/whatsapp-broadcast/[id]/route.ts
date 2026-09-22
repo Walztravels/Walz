@@ -47,6 +47,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   // as far as DELIVERED — a READ message was necessarily delivered.
   const deliveredOrBetter = counts.delivered + counts.read
 
+  // V1.1 — where this campaign's recipients came from, straight from the
+  // frozen snapshot rows. A V1 campaign groups entirely under 'LEAD'
+  // because that is what its rows genuinely were.
+  const sourceGroups = await prisma.whatsAppBroadcastRecipient.groupBy({
+    by: ['sourceType'],
+    where: { broadcastId: params.id },
+    _count: { _all: true },
+  })
+
   // Real failure reasons, grouped — no invented categories.
   const failureGroups = await prisma.whatsAppBroadcastRecipient.groupBy({
     by: ['failureCode'],
@@ -62,6 +71,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({
     broadcast,
     counts: { ...counts, dispatched, skipped, deliveredOrBetter },
+    bySource: sourceGroups
+      .map(g => ({ sourceType: g.sourceType, count: g._count._all }))
+      .sort((a, b) => b.count - a.count),
     rates: {
       // Percentages of what was actually DISPATCHED — not of the whole
       // matched audience, which would flatter the numbers.
