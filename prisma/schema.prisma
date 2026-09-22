@@ -5544,26 +5544,6 @@ model StaffNotification {
   @@index([staffId, read])
   @@index([staffId, createdAt])
   @@index([staffId, archived])
-  // Composite uniqueness on (staffId, sourceId) — added via a hand-run
-  // Supabase SQL editor migration (prisma/migrations/
-  // staff_notification_sourceid_unique.sql) — NEVER prisma db push. Closes
-  // a real production race: lib/notifications/staff.ts's
-  // createStaffNotification() previously did findFirst({staffId,sourceId})
-  // THEN create() with no atomicity between the two, so two concurrent
-  // callers with the identical (staffId, sourceId) — e.g. two overlapping
-  // SLA-escalation cron invocations — could both pass the "does this
-  // already exist" check before either insert landed, producing two
-  // StaffNotification rows sharing one sourceId (confirmed in production:
-  // duplicate rows for the same sla:<stage>:<conversationId>:<anchorMs>
-  // sourceId, created ~563ms apart). `sourceId` is nullable and shared by
-  // several OTHER notification call sites that never pass one at all —
-  // Postgres treats each NULL as distinct under a standard unique
-  // constraint, so those callers are completely unaffected; only rows that
-  // both share the SAME staffId AND the SAME non-null sourceId collide,
-  // which is exactly the intended idempotency key every existing caller
-  // already assumed (see recovery/detect.ts, recovery/detect-leads.ts,
-  // the itinerary-fulfilment route, and lib/inbox/sla-escalation.ts).
-  @@unique([staffId, sourceId], map: "StaffNotification_staffId_sourceId_key")
 }
 
 model BriefDeliveryLog {
