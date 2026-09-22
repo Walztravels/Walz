@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { verifyMetaSignature } from '@/lib/webhooks/verify'
+import { applyBroadcastStatusCallbacks } from '@/lib/whatsapp/broadcast/status-callbacks'
 
 export const dynamic = 'force-dynamic'
 
@@ -62,12 +63,27 @@ export async function POST(req: Request) {
 
     const supabase = getSupabaseAdmin()
 
-    // ── Status updates (delivered / read) ───────────────────────────────────
+    // ── Status updates (sent / delivered / read / failed) ───────────────────
     if (value.statuses?.length) {
+      // PRESERVED EXACTLY (1:1 Inbox reply path) — same first-status-only
+      // read receipt against the Supabase `messages` table it has always
+      // done. Not widened, not reordered, not moved.
       const s = value.statuses[0]
       if (s.status === 'read') {
         await supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('external_id', s.id)
       }
+
+      // ADDED (WhatsApp Broadcast V1) — attribute sent/delivered/read/
+      // failed callbacks to whatsapp_broadcast_recipients rows. A message
+      // id belonging to a 1:1 reply matches no recipient row, so this is a
+      // no-op for every pre-existing flow. Wrapped so a broadcast-side
+      // failure can never change the response Meta receives.
+      try {
+        await applyBroadcastStatusCallbacks(value.statuses)
+      } catch (e) {
+        console.warn('[wa-webhook] broadcast status handling failed:', (e as Error)?.message)
+      }
+
       return NextResponse.json({ ok: true })
     }
 

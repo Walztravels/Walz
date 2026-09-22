@@ -13,6 +13,7 @@
     "app/api/cron/jade-brief-whatsapp/route.ts":   { "maxDuration": 60 },
     "app/api/cron/recovery-detect/route.ts":       { "maxDuration": 60 },
     "app/api/cron/team-email-notifications/route.ts": { "maxDuration": 60 },
+    "app/api/cron/whatsapp-broadcast/route.ts": { "maxDuration": 60 },
     "app/api/public/group/[param]/lock/route.ts": {
       "maxDuration": 120
     },
@@ -143,6 +144,10 @@
     },
     {
       "path": "/api/cron/team-email-notifications",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-broadcast",
       "schedule": "*/5 * * * *"
     }
   ]

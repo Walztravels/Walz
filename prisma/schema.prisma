@@ -521,6 +521,13 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // ── WhatsApp Broadcast V1 back-relations (adds NO column to "Lead") ───
+  // NOTE: marketingOptOut above is an opt-OUT flag defaulting to false. It
+  // is a HARD EXCLUDE when true and is NEVER read as affirmative marketing
+  // consent when false — affirmative consent lives in WhatsAppConsent.
+  broadcastRecipients WhatsAppBroadcastRecipient[]
+  whatsAppConsents    WhatsAppConsent[]
+
   @@unique([source, sourceId])   // 0S.4A — Postgres NULLS DISTINCT: rows with NULL sourceId are unaffected
   @@index([status])
   @@index([createdAt])
@@ -3608,22 +3615,185 @@ model MarketingMedia {
 // Social Studio — Month 3
 // ===========================
 
+// ─────────────────────────────────────────────────────────────────────────
+// WHATSAPP BROADCAST V1
+//
+// The three models below (WhatsAppBroadcast — extended in place — plus the
+// new WhatsAppBroadcastRecipient and WhatsAppConsent) are the whole
+// broadcast data model. Provider is Meta WhatsApp Cloud API ONLY, reusing
+// the env vars the existing 1:1 Inbox reply path already uses. Twilio
+// (lib/twilio-whatsapp.ts) is a different, unrelated integration and is
+// never involved here.
+//
+// NOTE ON COLUMN NAMING. "WhatsAppBroadcast" is a pre-existing table with
+// camelCase columns and no @@map, so every column ADDED to it below stays
+// camelCase to match it. The two NEW tables follow this repo's current
+// convention for new tables (snake_case + @map/@@map, TEXT + CHECK instead
+// of a native enum — see TeamConversation.type / team_hub_v1_core.sql).
+// ─────────────────────────────────────────────────────────────────────────
+
 model WhatsAppBroadcast {
   id             String    @id @default(cuid())
   name           String
   message        String
   mediaUrl       String?
   targetFilter   Json      @default("{}")
+  // recipientCount / sentCount are now DERIVED from the recipient rows and
+  // rewritten by recomputeBroadcastCounts() — never client-supplied, never
+  // blindly incremented. They are kept (not dropped) because the existing
+  // list UI already reads them.
   recipientCount Int       @default(0)
   sentCount      Int       @default(0)
-  status         String    @default("draft")
+  // 'DRAFT' | 'READY' | 'SCHEDULED' | 'QUEUED' | 'SENDING' | 'COMPLETED'
+  // | 'PARTIAL_FAILURE' | 'FAILED' | 'CANCELLED' — CHECK-constrained in
+  // SQL (this repo's String+CHECK convention, see TeamConversation.type).
+  // The legacy lowercase vocabulary ('draft'/'sending'/'sent'/'failed'/
+  // 'scheduled') is migrated in whatsapp_broadcast_v1.sql; the ONLY code
+  // that ever read this column was this feature's own route + page.
+  status         String    @default("DRAFT")
   scheduledAt    DateTime?
   sentAt         DateTime?
   createdBy      String
   createdAt      DateTime  @default(now())
 
+  // ── V1: derived delivery counters (recomputed, never drifting) ────────
+  deliveredCount Int       @default(0)
+  readCount      Int       @default(0)
+  failedCount    Int       @default(0)
+  skippedCount   Int       @default(0)
+
+  // ── V1: Meta approved-template definition ────────────────────────────
+  // A broadcast is ALWAYS sent as type:'template'. There is no free-form
+  // fallback anywhere in the send path.
+  templateName     String?
+  templateLanguage String?
+  // Ordered body-parameter MAPPING (not values): an array of
+  // { type:'lead_field', field:'name', fallback?:string } | { type:'static', value:string }.
+  // Resolved per-recipient into templateParamsSnapshot at approval time.
+  templateParams   Json      @default("[]")
+
+  // ── V1: the approved audience SNAPSHOT summary ───────────────────────
+  // The full computed preview breakdown, frozen at approve/schedule time.
+  // The authoritative snapshot is the set of WhatsAppBroadcastRecipient
+  // rows themselves; this JSON preserves the counts that cannot be
+  // reconstructed from rows (e.g. duplicates collapsed away).
+  audienceSnapshot Json?
+  snapshotAt       DateTime?
+  approvedBy       String?
+
+  // ── V1: lifecycle timestamps ─────────────────────────────────────────
+  queuedAt       DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  cancelledBy    String?
+
+  updatedAt      DateTime  @updatedAt
+
+  recipients     WhatsAppBroadcastRecipient[]
+
   @@index([status])
   @@index([createdBy])
+  @@index([status, scheduledAt])
+}
+
+/// One durable row per resolved audience member for ONE broadcast.
+///
+/// Creating these rows IS the snapshot: after approval the processor only
+/// ever touches existing rows and never re-queries Lead, so later Lead or
+/// consent changes can neither add nor remove a recipient.
+///
+/// Rows are written for EVERY matched lead, including ineligible ones
+/// (status SKIPPED_*), so the detail view's counts are auditable straight
+/// from the table rather than from a remembered number.
+model WhatsAppBroadcastRecipient {
+  id                     String    @id @default(cuid())
+  broadcastId            String    @map("broadcast_id")
+  // Attribution only. Nullable + SetNull so deleting a CRM lead never
+  // destroys the send audit trail.
+  leadId                 String?   @map("lead_id")
+  // E.164 ('+2348…') as produced by normalizePhoneE164. NULL means the
+  // lead had no usable WhatsApp number (status SKIPPED_INVALID_NUMBER);
+  // Postgres treats NULLs as distinct, so many such rows coexist under the
+  // unique index below while real numbers stay deduplicated.
+  normalizedNumber       String?   @map("normalized_number")
+  // Meta's wa_id form — the same number with no '+' — stored so the send
+  // payload never re-derives it from possibly-changed lead data.
+  waId                   String?   @map("wa_id")
+  // The RESOLVED ordered body parameter VALUES for this recipient, frozen
+  // at approval time (e.g. ["Ada","July"]). Never re-resolved at send time.
+  templateParamsSnapshot Json      @default("[]") @map("template_params_snapshot")
+  // 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
+  // | 'SKIPPED_OPT_OUT' | 'SKIPPED_NO_CONSENT' | 'SKIPPED_INVALID_NUMBER'
+  // — CHECK-constrained in SQL.
+  status                 String    @default("QUEUED") @map("status")
+  // Meta's wamid. Its presence is the hard "already dispatched" proof: the
+  // processor refuses to call Meta for any row that already has one, no
+  // matter what triggered the retry.
+  metaMessageId          String?   @map("meta_message_id")
+  failureCode            String?   @map("failure_code")
+  failureReason          String?   @map("failure_reason")
+  attempts               Int       @default(0) @map("attempts")
+  nextAttemptAt          DateTime? @map("next_attempt_at")
+  queuedAt               DateTime? @map("queued_at")
+  sentAt                 DateTime? @map("sent_at")
+  deliveredAt            DateTime? @map("delivered_at")
+  readAt                 DateTime? @map("read_at")
+  failedAt               DateTime? @map("failed_at")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  broadcast              WhatsAppBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  lead                   Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  // THE dispatch-identity guarantee. WhatsApp delivers to a PHONE NUMBER,
+  // and this schema deliberately allows several Lead rows per human (Lead
+  // is unique on (source, sourceId) — see inbox_0s4a_lead_cleanup.sql for a
+  // real production duplicate). Keying on leadId would therefore let one
+  // person receive the same campaign twice; keying on the number cannot.
+  @@unique([broadcastId, normalizedNumber])
+  // Webhook status callbacks look a recipient up by Meta's message id.
+  @@unique([metaMessageId])
+  @@index([broadcastId, status])
+  @@index([status, nextAttemptAt])
+  @@index([leadId])
+  @@map("whatsapp_broadcast_recipients")
+}
+
+/// Affirmative, auditable WhatsApp MARKETING consent.
+///
+/// Deliberately a separate table keyed on the phone NUMBER, because:
+///   (a) Lead.marketingOptOut is an opt-OUT flag defaulting to false —
+///       absence of an opt-out is not consent and must never be read as
+///       consent;
+///   (b) consent attaches to the endpoint that receives the message, and
+///       one human may own several Lead rows.
+///
+/// No capture surface writes this table yet — see the release report. A
+/// number with no row here is UNKNOWN, i.e. NOT eligible.
+model WhatsAppConsent {
+  id               String    @id @default(cuid())
+  // Attribution only; consent identity is the number.
+  leadId           String?   @map("lead_id")
+  normalizedNumber String    @unique @map("normalized_number")
+  // 'SUBSCRIBED' | 'UNKNOWN' | 'OPTED_OUT' — CHECK-constrained in SQL.
+  status           String    @default("UNKNOWN") @map("status")
+  // Free-form provenance, e.g. 'web_form' | 'sms_reply' | 'whatsapp_reply'
+  // | 'import' | 'unknown_legacy'. Intentionally not an enum: the real
+  // capture sources do not exist in the product yet.
+  source           String?   @map("source")
+  // Short human-readable proof pointer (form id, message id, ticket URL).
+  evidence         String?   @map("evidence")
+  consentedAt      DateTime? @map("consented_at")
+  optedOutAt       DateTime? @map("opted_out_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  lead             Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([leadId])
+  @@map("whatsapp_consents")
 }
 
 model TravelPostTenant {
