@@ -14,9 +14,13 @@
  */
 
 import { NextResponse } from 'next/server'
+import prisma from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { normalizePhoneE164 } from '@/lib/identity/normalize'
 import { verifyMetaSignature } from '@/lib/webhooks/verify'
 import { applyBroadcastStatusCallbacks } from '@/lib/whatsapp/broadcast/status-callbacks'
+import { isOptOutKeyword } from '@/lib/whatsapp/opt-out-keywords'
+import { WHATSAPP_UNSUBSCRIBE_CONFIRMATION } from '@/lib/whatsapp/preferences-disclosure'
 
 export const dynamic = 'force-dynamic'
 
@@ -198,8 +202,19 @@ export async function POST(req: Request) {
         }
       }
 
+      // Opt-out ──────────────────────────────────────────────────────────────
+      // WhatsApp Broadcast V1.2. Checked BEFORE Jade so an opt-out command
+      // never gets an AI reply — it gets the fixed confirmation below and
+      // nothing else. The inbound STOP/UNSUBSCRIBE message itself was
+      // already saved above like any other message, so staff still see it
+      // in the Inbox thread.
+      const isOptOutMessage = message.type === 'text' && isOptOutKeyword(msgBody)
+      if (isOptOutMessage) {
+        await handleWhatsAppOptOut({ fromNumber, messageId: message.id, leadId, supabase })
+      }
+
       // Jade auto-reply ──────────────────────────────────────────────────────
-      if (message.type === 'text' && msgBody) {
+      if (message.type === 'text' && msgBody && !isOptOutMessage) {
         await maybeJadeReply({ leadId, fromNumber, msgBody, supabase })
       }
     }
@@ -209,6 +224,73 @@ export async function POST(req: Request) {
     console.error('[wa-webhook] Error:', err)
     // Always 200 — Meta retries on non-200 and will flood the endpoint
     return NextResponse.json({ ok: true })
+  }
+}
+
+// ── Opt-out (WhatsApp Broadcast V1.2) ───────────────────────────────────────────
+/**
+ * Record an inbound STOP/UNSUBSCRIBE as an immediate, canonical-number
+ * WhatsApp opt-out, and send a fixed confirmation. This is the SAME
+ * WhatsAppConsent table `decideEligibility()` already reads for every
+ * broadcast source (Lead, VisaApplication, manual) — writing OPTED_OUT
+ * here excludes the number from ALL of them immediately, regardless of
+ * which source(s) later try to select it (see
+ * lib/whatsapp/broadcast/consent.ts and audience-multi.ts: the eligibility
+ * lookup is one consent row per canonical number, never per source, so
+ * this override cannot be bypassed by re-adding the number a different way).
+ *
+ * Never throws to the caller — a failure here must not break inbound
+ * message processing or the webhook's 200 response to Meta.
+ */
+async function handleWhatsAppOptOut({
+  fromNumber, messageId, leadId, supabase,
+}: { fromNumber: string; messageId: string; leadId: string; supabase: ReturnType<typeof getSupabaseAdmin> }) {
+  try {
+    const normalizedNumber = normalizePhoneE164(fromNumber)
+    if (!normalizedNumber) return
+
+    await prisma.whatsAppConsent.upsert({
+      where: { normalizedNumber },
+      create: {
+        normalizedNumber,
+        status: 'OPTED_OUT',
+        source: 'whatsapp_stop_reply',
+        evidence: messageId,
+        optedOutAt: new Date(),
+      },
+      update: {
+        status: 'OPTED_OUT',
+        source: 'whatsapp_stop_reply',
+        evidence: messageId,
+        optedOutAt: new Date(),
+      },
+    })
+
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
+    const accessToken    = process.env.WHATSAPP_ACCESS_TOKEN
+    if (!phoneNumberId || !accessToken) return
+
+    const waRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        messaging_product: 'whatsapp',
+        to:   fromNumber,
+        type: 'text',
+        text: { body: WHATSAPP_UNSUBSCRIBE_CONFIRMATION },
+      }),
+    })
+    const waData = await waRes.json() as { messages?: Array<{ id: string }> }
+
+    await supabase.from('messages').insert({
+      lead_id:     leadId,
+      channel:     'whatsapp',
+      direction:   'outbound',
+      body:        WHATSAPP_UNSUBSCRIBE_CONFIRMATION,
+      external_id: waData.messages?.[0]?.id ?? null,
+    })
+  } catch (err) {
+    console.error('[wa-webhook] opt-out handling error:', (err as Error)?.message)
   }
 }
 

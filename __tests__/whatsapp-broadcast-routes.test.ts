@@ -336,11 +336,27 @@ describe('schedule — the snapshot and its guards', () => {
     expect(snap.missingConsent).toBe(1)
   })
 
-  it('the processor never re-queries Lead — the snapshot cannot expand', () => {
+  it('the processor never RE-RESOLVES the audience — the snapshot cannot expand', () => {
     const p = read('lib/whatsapp/broadcast/processor.ts')
-    expect(p).not.toMatch(/prisma\.lead\b/)
-    expect(p).not.toContain('whatsAppConsent')
+    // WhatsApp Broadcast V1.2 added a pre-dispatch consent RECHECK
+    // (lib/whatsapp/broadcast/processor.ts's dispatchClaimed): immediately
+    // before the Meta call, it re-reads WhatsAppConsent/Lead/VisaApplication
+    // by the ALREADY-FROZEN ids on the recipient row, so someone who opted
+    // out after scheduling is excluded rather than sent to. That is a
+    // narrow eligibility RECHECK of one known row — not audience expansion.
+    // The guarantee this test actually protects is that the processor never
+    // finds NEW recipients or re-derives template params from live data,
+    // which is why it must never call the plural, audience-resolving
+    // `findMany` on Lead, and must never call `resolveAudience`/
+    // `resolveMultiSourceAudience` at all.
+    expect(p).not.toMatch(/prisma\.lead\.findMany/)
+    expect(p).not.toMatch(/prisma\.visaApplication\.findMany/)
     expect(p).not.toContain('resolveAudience')
+    expect(p).not.toContain('resolveMultiSourceAudience')
+    // The recheck reads a SINGLE already-known row by id — never a query
+    // that could return a different or additional set of recipients.
+    expect(p).toMatch(/prisma\.lead\.findUnique\(\{\s*where: \{ id: row\.leadId \}/)
+    expect(p).toMatch(/prisma\.whatsAppConsent\.findUnique\(\{\s*where: \{ normalizedNumber: row\.normalizedNumber \}/)
     // Its scan is keyed on existing rows only.
     expect(p).toContain('broadcastId: broadcast.id,')
     expect(p).toContain("status: 'QUEUED',")

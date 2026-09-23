@@ -130,8 +130,36 @@ const mockPrisma = {
       return b ? { ...b } : null
     }),
   },
+  // ── WhatsApp Broadcast V1.2: the pre-dispatch consent recheck ──────────
+  // UNSEEDED (the default for every pre-existing test in this file, which
+  // predates the recheck and never populates these stores) means "assume
+  // still eligible" — i.e. nothing changed since snapshot time, which was
+  // the entire, implicit universe before V1.2. A test that wants to
+  // exercise the recheck itself explicitly seeds `consentOverrides` /
+  // `leadOptOutOverrides` / `visaOptOutOverrides` for the specific
+  // number/id under test.
+  whatsAppConsent: {
+    findUnique: jest.fn(async (args: { where: { normalizedNumber: string } }) => {
+      const status = consentOverrides.get(args.where.normalizedNumber)
+      return { status: status ?? 'SUBSCRIBED' }
+    }),
+  },
+  lead: {
+    findUnique: jest.fn(async (args: { where: { id: string } }) => ({
+      marketingOptOut: leadOptOutOverrides.has(args.where.id),
+    })),
+  },
+  visaApplication: {
+    findUnique: jest.fn(async (args: { where: { id: string } }) => ({
+      marketingOptOut: visaOptOutOverrides.has(args.where.id),
+    })),
+  },
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma, prisma: mockPrisma }))
+
+let consentOverrides = new Map<string, string>()
+let leadOptOutOverrides = new Set<string>()
+let visaOptOutOverrides = new Set<string>()
 
 // Credentials are always "present" so the sender reaches the fetch mock.
 process.env.WHATSAPP_PHONE_NUMBER_ID = 'pn-test'
@@ -179,6 +207,9 @@ beforeEach(() => {
   jest.clearAllMocks()
   recipients = []
   broadcasts = []
+  consentOverrides = new Map()
+  leadOptOutOverrides = new Set()
+  visaOptOutOverrides = new Set()
 })
 
 // ── Rate limiting / batching ────────────────────────────────────────────
@@ -543,7 +574,154 @@ describe('what reaches Meta', () => {
     await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
     const body = JSON.parse(((f as unknown as jest.Mock).mock.calls[0][1] as RequestInit).body as string)
     expect(body.template.components[0].parameters[0].text).toBe('FrozenName')
-    // The processor never touches the lead table at all.
-    expect((mockPrisma as unknown as { lead?: unknown }).lead).toBeUndefined()
+    // WhatsApp Broadcast V1.2: the processor DOES now read the lead row —
+    // but ONLY for the pre-dispatch consent recheck's marketingOptOut
+    // field, never to re-derive a template parameter. Pin the query shape
+    // rather than "never touches the lead table", which stopped being true
+    // the moment the recheck was added on purpose.
+    expect(mockPrisma.lead.findUnique).toHaveBeenCalledWith({
+      where: { id: 'l1' },
+      select: { marketingOptOut: true },
+    })
+  })
+})
+
+// ── WhatsApp Broadcast V1.2: pre-dispatch consent recheck ────────────────
+describe('pre-dispatch consent recheck (V1.2)', () => {
+  it('excludes a recipient whose WhatsAppConsent flipped to OPTED_OUT after scheduling, without calling Meta', async () => {
+    broadcasts = [bcast()]
+    recipients = [recip()]
+    consentOverrides.set('+2348011111111', 'OPTED_OUT')
+    const f = okFetch()
+
+    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+
+    expect((f as unknown as jest.Mock)).not.toHaveBeenCalled()
+    expect(recipients[0].status).toBe('SKIPPED_OPT_OUT')
+    expect(recipients[0].metaMessageId).toBeNull()
+    expect(summary.skippedConsentChangedAtSend).toBe(1)
+    expect(summary.sent).toBe(0)
+  })
+
+  it('excludes a recipient whose consent lapsed to no-longer-SUBSCRIBED after scheduling', async () => {
+    broadcasts = [bcast()]
+    recipients = [recip()]
+    consentOverrides.set('+2348011111111', 'UNKNOWN')
+    const f = okFetch()
+
+    await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+
+    expect((f as unknown as jest.Mock)).not.toHaveBeenCalled()
+    expect(recipients[0].status).toBe('SKIPPED_NO_CONSENT')
+  })
+
+  it('excludes a recipient whose Lead.marketingOptOut became true after scheduling, even though WhatsAppConsent still says SUBSCRIBED', async () => {
+    broadcasts = [bcast()]
+    recipients = [recip({ leadId: 'l1' })]
+    consentOverrides.set('+2348011111111', 'SUBSCRIBED')
+    leadOptOutOverrides.add('l1')
+    const f = okFetch()
+
+    await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+
+    // The hard override is checked first, exactly as decideEligibility()
+    // always has — an OPTED_OUT-shaped consent row could never re-enrol it.
+    expect((f as unknown as jest.Mock)).not.toHaveBeenCalled()
+    expect(recipients[0].status).toBe('SKIPPED_OPT_OUT')
+  })
+
+  it('still sends when consent is unchanged (SUBSCRIBED) at dispatch time', async () => {
+    broadcasts = [bcast()]
+    recipients = [recip()]
+    consentOverrides.set('+2348011111111', 'SUBSCRIBED')
+    const f = okFetch()
+
+    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+
+    expect((f as unknown as jest.Mock)).toHaveBeenCalledTimes(1)
+    expect(recipients[0].status).toBe('SENT')
+    expect(summary.skippedConsentChangedAtSend).toBe(0)
+  })
+
+  it('never resends a row already marked SKIPPED_OPT_OUT by the recheck (SKIPPED_* is terminal)', async () => {
+    broadcasts = [bcast()]
+    recipients = [recip()]
+    consentOverrides.set('+2348011111111', 'OPTED_OUT')
+    await processWhatsAppBroadcasts({ now: NOW, fetchImpl: okFetch() })
+    expect(recipients[0].status).toBe('SKIPPED_OPT_OUT')
+
+    // A second tick must not touch it — SKIPPED_OPT_OUT is not QUEUED, so
+    // the claim step never picks it up again.
+    const f2 = okFetch()
+    await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f2 })
+    expect((f2 as unknown as jest.Mock)).not.toHaveBeenCalled()
+    expect(recipients[0].status).toBe('SKIPPED_OPT_OUT')
+  })
+})
+
+// ── ADVERSARIAL: the recheck-read → Meta-call window ─────────────────────
+// V1.2's recheck reads WhatsAppConsent/Lead/VisaApplication, THEN calls
+// sendBroadcastTemplate() (an external HTTP call, so it cannot share a
+// transaction with the read). Anything that opts out in that exact gap is
+// still sent to — an unavoidable property of any recheck-then-act design,
+// not a defect introduced here. What actually matters for correctness is
+// (a) that gap is per-recipient and as small as one recheck+HTTP round
+// trip — never a batch-wide staleness where recipient #5's opt-out is
+// missed because recipient #1's recheck read is reused for it — and
+// (b) it is strictly smaller than the V1 window it replaces, which was
+// "however long the broadcast sat QUEUED/SCHEDULED", i.e. potentially
+// hours or days with NO recheck at all.
+describe('ADVERSARIAL: recheck-read-to-Meta-call window', () => {
+  it('a real gap exists: an opt-out written DURING the Meta call for THIS recipient still gets sent to (inherent TOCTOU, not a batch-wide gap)', async () => {
+    broadcasts = [bcast()]
+    recipients = [recip()]
+    // Simulate the opt-out landing at the worst possible instant: exactly
+    // while the Meta HTTP call for this very row is in flight, i.e. AFTER
+    // the recheck read already returned "still SUBSCRIBED".
+    const f = jest.fn(async () => {
+      consentOverrides.set('+2348011111111', 'OPTED_OUT')
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.RACE' }] }) }
+    }) as unknown as typeof fetch
+
+    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+
+    // This message DOES go out — the recheck read happened before the
+    // opt-out was written, and nothing rolls back an already-sent Meta
+    // call. This is the honest, unavoidable shape of the gap: it can only
+    // be closed by not sending at all, which is not what a recheck design
+    // buys you.
+    expect((f as unknown as jest.Mock)).toHaveBeenCalledTimes(1)
+    expect(recipients[0].status).toBe('SENT')
+    expect(summary.sent).toBe(1)
+  })
+
+  it('the gap does NOT extend across recipients in the same tick — recipient #2 sees recipient #1\'s just-written opt-out, proving the recheck is per-row-fresh, not snapshotted once for the whole batch', async () => {
+    broadcasts = [bcast()]
+    recipients = [
+      recip({ id: 'r1', normalizedNumber: '+2348011111111', waId: '2348011111111' }),
+      recip({ id: 'r2', normalizedNumber: '+2348022222222', waId: '2348022222222' }),
+    ]
+    // r1's OWN Meta call flips consent for r2's number — simulating a
+    // completely independent event (e.g. r2's number sends an inbound
+    // STOP) landing in the gap between the batch being claimed and r2's
+    // turn in the sequential dispatch loop.
+    const f = jest.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string)
+      if (body.to === '2348011111111') consentOverrides.set('+2348022222222', 'OPTED_OUT')
+      return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${body.to}` }] }) }
+    }) as unknown as typeof fetch
+
+    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+
+    // r1 sent (its own recheck ran before anything changed).
+    expect(recipients.find(r => r.id === 'r1')!.status).toBe('SENT')
+    // r2 is excluded — its recheck runs AFTER r1's send, inside the SAME
+    // tick, and picks up the fresh OPTED_OUT state. No batch-wide
+    // snapshot-once-for-all-rows staleness exists in this design.
+    expect(recipients.find(r => r.id === 'r2')!.status).toBe('SKIPPED_OPT_OUT')
+    expect(summary.sent).toBe(1)
+    expect(summary.skippedConsentChangedAtSend).toBe(1)
+    // Only ONE Meta call was made — r2 was never dispatched to.
+    expect((f as unknown as jest.Mock)).toHaveBeenCalledTimes(1)
   })
 })

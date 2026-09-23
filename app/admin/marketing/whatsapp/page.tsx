@@ -30,7 +30,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   MessageSquare, Plus, Loader2, Sparkles, Send, Clock, CheckCircle, X, ChevronDown,
   ShieldAlert, ShieldCheck, Check, AlertTriangle, Ban, Search, Users, FileText, Phone,
-  Trash2, Info,
+  Trash2, Info, Download,
 } from 'lucide-react'
 
 // ── Types mirroring the API responses ───────────────────────────────────
@@ -504,6 +504,44 @@ export default function WhatsAppPage() {
   const hasAnySelection =
     useLeadFilter || useVisaFilter ||
     selectedLeads.length > 0 || selectedVisa.length > 0 || manualAccepted.length > 0
+
+  // ── Export Contacts (V1.2) ─────────────────────────────────────────────
+  // Downloads exactly the current selection, resolved server-side — never
+  // a client-built CSV of what's shown in the tray above. Gated server-side
+  // behind the separate marketing_whatsapp_export permission; a staff
+  // member without it sees a clear error rather than a silent failure.
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
+
+  async function handleExportContacts() {
+    setExportError('')
+    setExporting(true)
+    try {
+      const res = await fetch('/api/admin/marketing/whatsapp-broadcast/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selection: audienceSelection }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setExportError(data.error ?? 'Export failed.')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `whatsapp-contacts-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportError('Export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   /** Running count of individually-picked recipients (filters are separate). */
   const trayCount = selectedLeads.length + selectedVisa.length + manualAccepted.length
@@ -1188,17 +1226,31 @@ export default function WhatsAppPage() {
                         {(useLeadFilter || useVisaFilter) && ' + filter groups'}
                       </p>
                       {(trayCount > 0 || useLeadFilter || useVisaFilter) && (
-                        <button
-                          onClick={() => {
-                            setSelectedLeads([]); setSelectedVisa([]); setManualAccepted([])
-                            setUseLeadFilter(false); setUseVisaFilter(false)
-                          }}
-                          className="text-[11px] font-semibold text-gray-400 hover:text-red-500"
-                        >
-                          Clear all
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={handleExportContacts}
+                            disabled={exporting || !hasAnySelection}
+                            className="flex items-center gap-1 text-[11px] font-semibold text-gray-500 hover:text-walz-navy disabled:opacity-50"
+                            title="Export the current selection as CSV — this does not grant marketing consent"
+                          >
+                            {exporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                            Export Contacts
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedLeads([]); setSelectedVisa([]); setManualAccepted([])
+                              setUseLeadFilter(false); setUseVisaFilter(false)
+                            }}
+                            className="text-[11px] font-semibold text-gray-400 hover:text-red-500"
+                          >
+                            Clear all
+                          </button>
+                        </div>
                       )}
                     </div>
+                    {exportError && (
+                      <p className="px-3 py-2 text-[11px] text-red-600 bg-red-50 border-b border-red-100">{exportError}</p>
+                    )}
                     <div className="max-h-56 overflow-y-auto divide-y divide-gray-50">
                       {useLeadFilter && (
                         <div className="flex items-center gap-2 px-3 py-2">

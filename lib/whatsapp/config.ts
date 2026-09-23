@@ -56,6 +56,55 @@ export function getMetaAppSecret(): string {
 }
 
 /**
+ * WhatsApp Broadcast V1.2 P1 FIX — OTP verification template config.
+ *
+ * ── WHY THIS EXISTS, AND WHY IT CANNOT BE FREE TEXT ─────────────────────
+ * Meta's WhatsApp Cloud API only allows a business-initiated message
+ * OUTSIDE the 24-hour customer-service session window (i.e. before the
+ * person has ever messaged Walz) to be sent as an approved Message
+ * Template — never free-form text. A brand-new /whatsapp/preferences
+ * visitor has, by definition, not yet opened a session with Walz's
+ * WhatsApp number, so the verification code MUST go out as an approved
+ * template, in Meta's dedicated 'AUTHENTICATION' category (see
+ * lib/whatsapp/broadcast/sources.ts's TEMPLATE_CATEGORIES). This mirrors
+ * exactly why lib/whatsapp/broadcast/sender.ts never has a text fallback
+ * for marketing sends — the same platform rule, applied to OTP delivery.
+ *
+ * ── WHAT THIS CODE COULD NOT VERIFY IN THIS ENVIRONMENT ─────────────────
+ * Meta's exact required PAYLOAD SHAPE for an AUTHENTICATION-category
+ * template has changed across API versions and Business Manager options:
+ * some authentication templates are body-only (one {{1}} placeholder,
+ * which is the code); others additionally require a "Copy Code" button
+ * component carrying its own code parameter. This module has no live
+ * network/documentation access to confirm which shape the ACTUAL template
+ * registered in Meta Business Manager will need — that can only be
+ * confirmed by whoever creates and gets that template approved. Rather
+ * than hardcode a guess, WHATSAPP_OTP_TEMPLATE_HAS_BUTTON below makes the
+ * shape configurable; lib/whatsapp/otp-template.ts branches on it. Verify
+ * the real approved template's structure against Meta's current docs
+ * before setting these variables in production, and keep this flag in
+ * sync with whichever structure that template actually has.
+ *
+ * FAILS CLOSED: returns null when the template name is not configured —
+ * callers must treat null as "cannot send a verification code right now",
+ * never as "fall back to something else".
+ */
+export interface OtpTemplateConfig {
+  templateName: string
+  templateLanguage: string
+  /** Whether the approved template has a Copy-Code button component. */
+  hasCodeButton: boolean
+}
+
+export function getOtpTemplateConfig(): OtpTemplateConfig | null {
+  const templateName = (process.env.WHATSAPP_OTP_TEMPLATE_NAME ?? '').trim()
+  if (!templateName) return null
+  const templateLanguage = (process.env.WHATSAPP_OTP_TEMPLATE_LANGUAGE ?? '').trim() || 'en_US'
+  const hasCodeButton = (process.env.WHATSAPP_OTP_TEMPLATE_HAS_BUTTON ?? '').trim().toLowerCase() === 'true'
+  return { templateName, templateLanguage, hasCodeButton }
+}
+
+/**
  * PRESENT/MISSING capability report for the admin readiness banner.
  * Deliberately boolean-only — see the security note above.
  */

@@ -142,6 +142,7 @@ export type PermissionKey =
   | 'manage_marketing'
   | 'marketing_publish'
   | 'marketing_whatsapp_broadcast'
+  | 'marketing_whatsapp_export'
   | 'marketing_brand_memory'
   | 'marketing_tenants'
   // Concierge
@@ -262,6 +263,7 @@ export const EMPTY_PERMISSIONS: Permissions = {
   manage_marketing: false,
   marketing_publish: false,
   marketing_whatsapp_broadcast: false,
+  marketing_whatsapp_export: false,
   marketing_brand_memory: false,
   marketing_tenants: false,
   concierge_view: false,
@@ -534,6 +536,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'manage_marketing',             label: 'Manage Marketing',          desc: 'Access caption generator, content calendar, media library and analytics' },
       { key: 'marketing_publish',            label: 'Publish to Social Media',   desc: 'Approve and publish posts to Instagram and Facebook' },
       { key: 'marketing_whatsapp_broadcast', label: 'WhatsApp Broadcast',        desc: 'Send WhatsApp broadcast messages to client lists' },
+      { key: 'marketing_whatsapp_export',    label: 'Export WhatsApp Contacts', desc: 'Export the resolved WhatsApp contact/consent directory as CSV' },
       { key: 'marketing_brand_memory',       label: 'Edit Brand Memory',         desc: 'Edit brand voice, hashtags, templates and audience profiles' },
       { key: 'marketing_tenants',            label: 'Manage TravelPost Tenants', desc: 'Onboard and manage white-label agency tenants' },
     ],
@@ -591,7 +594,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: T, cms_edit: T, cms_publish: T,
     roles_view: T, roles_manage: F, roles_assign: F,
     settings_view: T, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: T, marketing_publish: T, marketing_whatsapp_broadcast: T, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: T, marketing_publish: T, marketing_whatsapp_broadcast: T, marketing_whatsapp_export: T, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: T, concierge_book: T, concierge_manage_images: T,
   },
 
@@ -616,7 +619,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: T, cms_edit: T, cms_publish: T,
     roles_view: T, roles_manage: F, roles_assign: F,
     settings_view: T, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: T, concierge_book: T, concierge_manage_images: T,
   },
 
@@ -641,7 +644,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: T, cms_edit: T, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: T, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -666,7 +669,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: F, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -691,7 +694,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: T, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -716,7 +719,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: F, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -741,7 +744,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: F, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -766,7 +769,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: F, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -791,7 +794,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: T, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -816,7 +819,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: F, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -841,7 +844,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: T, concierge_book: F, concierge_manage_images: F,
   },
 
@@ -866,7 +869,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
-    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_whatsapp_export: F, marketing_brand_memory: F, marketing_tenants: F,
     concierge_view: F, concierge_book: F, concierge_manage_images: F,
   },
 }

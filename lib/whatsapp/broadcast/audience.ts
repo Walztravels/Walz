@@ -92,6 +92,23 @@ export function matchesCountry(normalizedNumber: string | null, country: string 
   return normalizedNumber.startsWith(prefix)
 }
 
+/**
+ * WhatsApp Broadcast V1.2 — best-effort ISO2 country FOR DISPLAY, derived
+ * from the same dialling-prefix table as matchesCountry. Used only by the
+ * contact export CSV's "country" column — never by any eligibility or
+ * filtering logic. Longest-prefix match first so a future overlapping
+ * prefix (there are none today) would resolve correctly. Returns null
+ * rather than a guess when no known prefix matches.
+ */
+export function deriveCountryFromNumber(normalizedNumber: string | null): string | null {
+  if (!normalizedNumber) return null
+  const entries = Object.entries(COUNTRY_DIAL_PREFIXES).sort((a, b) => b[1].length - a[1].length)
+  for (const [iso2, prefix] of entries) {
+    if (normalizedNumber.startsWith(prefix)) return iso2
+  }
+  return null
+}
+
 // ── Preview breakdown ───────────────────────────────────────────────────
 
 export interface AudienceBreakdown {

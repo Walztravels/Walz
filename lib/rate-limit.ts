@@ -88,3 +88,25 @@ export function tripRevalidateRateLimit(ip: string): RateLimitResult {
 export function consentCaptureRateLimit(ip: string): RateLimitResult {
   return rateLimit({ key: `consent-capture:${ip}`, limit: 10, windowMs: 10 * 60 * 1000 })
 }
+
+// Public WhatsApp marketing preferences (POST /api/whatsapp/preferences).
+// A SEPARATE limiter from consentCaptureRateLimit — different table,
+// different channel. Same reasoning: generous enough for a real person to
+// correct a typo and resubmit, tight enough that the endpoint cannot be
+// used to mass-write WhatsApp consent rows for numbers the submitter does
+// not own, or to probe many numbers quickly for enumeration.
+export function whatsappPreferenceRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `whatsapp-preference:${ip}`, limit: 10, windowMs: 10 * 60 * 1000 })
+}
+
+// WhatsApp OTP send/verify (P1 fix). Separate, tighter limiters from the
+// general preferences one above — sending a real WhatsApp message costs
+// money and verify-attempts are also bounded per-code in the DB, but an
+// IP-level cap is defense-in-depth against sweeping many different numbers
+// from one source.
+export function whatsappOtpSendRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `whatsapp-otp-send:${ip}`, limit: 5, windowMs: 10 * 60 * 1000 })
+}
+export function whatsappOtpVerifyRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `whatsapp-otp-verify:${ip}`, limit: 20, windowMs: 10 * 60 * 1000 })
+}

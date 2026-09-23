@@ -146,7 +146,13 @@ export function isRecipientStatus(v: unknown): v is RecipientStatus {
  */
 const RECIPIENT_TRANSITIONS: Record<RecipientStatus, readonly RecipientStatus[]> = {
   QUEUED: ['SENDING', 'FAILED'],
-  SENDING: ['SENT', 'FAILED', 'QUEUED'],
+  // WhatsApp Broadcast V1.2: SKIPPED_OPT_OUT / SKIPPED_NO_CONSENT are now
+  // also reachable from SENDING — the processor re-checks WhatsAppConsent
+  // immediately before the Meta call, so someone who opted out (or whose
+  // consent otherwise lapsed) after their broadcast was scheduled but
+  // before dispatch is excluded rather than sent to. See
+  // dispatchClaimed()'s pre-send recheck in processor.ts.
+  SENDING: ['SENT', 'FAILED', 'QUEUED', 'SKIPPED_OPT_OUT', 'SKIPPED_NO_CONSENT'],
   SENT: ['DELIVERED', 'READ', 'FAILED'],
   // Meta may report `read` without a preceding `delivered`, and a message
   // can still fail after delivery (e.g. a later policy failure callback).

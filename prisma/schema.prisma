@@ -3813,6 +3813,98 @@ model WhatsAppBroadcastRecipient {
   @@map("whatsapp_broadcast_recipients")
 }
 
+/// WhatsApp Broadcast V1.2 — audit trail for contact-directory CSV exports.
+///
+/// Exporting contact data is RBAC-gated behind its own permission
+/// (`marketing_whatsapp_export`, separate from `marketing_whatsapp_broadcast`
+/// — being able to send a campaign does not by itself imply being able to
+/// bulk-export the underlying contact directory). This table exists so that
+/// export is auditable: who exported, when, how many rows, and a summary of
+/// what was exported — never the exported rows themselves. Exporting NEVER
+/// creates, modifies, or implies any consent record; this table is written
+/// only as a record of the export action, not as part of the eligibility or
+/// consent pipeline.
+model WhatsAppContactExportLog {
+  id             String   @id @default(cuid())
+  // Attribution only. No FK to Staff — this app's staff records live outside
+  // Prisma-modeled auth in places; the session's own id/email string is
+  // captured directly, matching how other admin action logs in this codebase
+  // attribute staff identity without a hard relational dependency.
+  staffId        String   @map("staff_id")
+  staffEmail     String   @map("staff_email")
+  exportedAt     DateTime @default(now()) @map("exported_at")
+  recipientCount Int      @map("recipient_count")
+  // Summary of WHAT was exported (source types, filter shape) — never the
+  // exported rows, never a name, never a phone number.
+  summary        Json     @default("{}")
+  ipAddress      String?  @map("ip_address")
+
+  @@index([staffId])
+  @@index([exportedAt])
+  @@map("whatsapp_contact_exports")
+}
+
+/// WhatsApp Broadcast V1.2 P1 FIX — proof-of-possession for the public
+/// /whatsapp/preferences SUBSCRIBE flow.
+///
+/// A DEDICATED, separate model from WhatsAppConsent on purpose: this table
+/// holds only short-lived, single-use CHALLENGE state (a hashed OTP, an
+/// attempt counter, an expiry). It is never read by decideEligibility() and
+/// never itself represents consent — only a SUCCESSFUL verification (see
+/// lib/whatsapp/consent-otp.ts) writes the real WhatsAppConsent.SUBSCRIBED
+/// row. Keeping OTP state out of WhatsAppConsent means a half-finished or
+/// abandoned verification attempt can never be mistaken for, or leak into,
+/// an actual consent record.
+///
+/// One row per SEND. A resend creates a NEW row rather than overwriting —
+/// the most recent row for (normalizedNumber, purpose) is the only one
+/// verify-code accepts against; older rows are simply superseded and
+/// naturally ignored, not deleted (kept for audit/rate-limit history).
+model WhatsAppConsentVerification {
+  id               String    @id @default(cuid())
+  normalizedNumber String    @map("normalized_number")
+  // 'WHATSAPP_MARKETING_SUBSCRIBE' today — CHECK-constrained in SQL, kept
+  // as a real column (not hardcoded) so a second purpose never needs a
+  // schema migration, only a new CHECK value.
+  purpose          String    @default("WHATSAPP_MARKETING_SUBSCRIBE") @map("purpose")
+  // sha256(code + ":" + this row's own id) — see lib/whatsapp/consent-otp.ts.
+  // Never the plaintext code. Salting with the row's own id (rather than a
+  // shared server-wide pepper/env var) means every row's hash is unique
+  // even for an identical 6-digit code, without introducing a new secret
+  // to provision — the same technique lib/secure-lookup/service.ts already
+  // uses for visa-application OTP verification.
+  codeHash         String    @map("code_hash")
+  expiresAt        DateTime  @map("expires_at")
+  attempts         Int       @default(0) @map("attempts")
+  maxAttempts      Int       @default(5) @map("max_attempts")
+  // Set ONCE, atomically, only on a successful verification. Doubles as
+  // both "single-use" (a consumed code can never be replayed) and the
+  // concurrency guard (two simultaneous correct submissions can only ever
+  // have ONE of them win the guarded UPDATE that sets this).
+  consumedAt       DateTime? @map("consumed_at")
+  // Set once `attempts` reaches `maxAttempts` — this row can never be
+  // verified again regardless of a later correct guess.
+  lockedAt         DateTime? @map("locked_at")
+  // ── Audit metadata, carried through to the eventual WhatsAppConsent
+  //    write on success — the disclosure shown at SEND time is what the
+  //    person actually agreed to, so it travels with the challenge, not
+  //    re-derived at verify time. ──
+  capturePage       String?  @map("capture_page")
+  disclosureVersion String?  @map("disclosure_version")
+  ipAddress         String?  @map("ip_address")
+  userAgent         String?  @map("user_agent")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  // Powers both "find the active challenge for this number" and the
+  // resend-cooldown / max-sends-per-window checks (a COUNT/MAX(createdAt)
+  // over rows sharing this pair).
+  @@index([normalizedNumber, purpose, createdAt])
+  // Lets a future cleanup job cheaply find long-expired rows without a
+  // full scan; nothing in this release deletes them automatically.
+  @@index([expiresAt])
+  @@map("whatsapp_consent_verifications")
+}
+
 /// Affirmative, auditable WhatsApp MARKETING consent.
 ///
 /// Deliberately a separate table keyed on the phone NUMBER, because:
@@ -3839,6 +3931,16 @@ model WhatsAppConsent {
   evidence         String?   @map("evidence")
   consentedAt      DateTime? @map("consented_at")
   optedOutAt       DateTime? @map("opted_out_at")
+  // ── V1.2 audit metadata, additive only ──────────────────────────────
+  // The same kind of audit-evidence shape the separate SMS consent system
+  // (Consent Foundation V1) uses for its own table, for the same reason: a
+  // carrier or a customer can ask "show me the consent for this number,"
+  // and these fields are what let that be answered exactly. No relation to
+  // that table — WhatsApp and SMS consent remain two independent systems.
+  capturePage      String?   @map("capture_page")
+  disclosureVersion String?  @map("disclosure_version")
+  ipAddress        String?   @map("ip_address")
+  userAgent        String?   @map("user_agent")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 

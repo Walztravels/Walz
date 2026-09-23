@@ -307,3 +307,78 @@ describe('source pins — the pre-existing webhook behaviour is preserved', () =
     ]))
   })
 })
+
+// ── WhatsApp Broadcast V1.2: inbound opt-out source pins ─────────────────
+// Same style as the block above — this route's full inbound-message path
+// (Supabase lead/message inserts, RPC unread counters) is too heavy to
+// mock meaningfully here, so the PRE-EXISTING pins above prove nothing
+// regressed, and these new pins prove the opt-out addition is wired the
+// way it's supposed to be: checked before Jade, never skipping the normal
+// message save, and reusing the existing Graph API call shape rather than
+// inventing a second one.
+describe('WhatsApp Broadcast V1.2: inbound STOP/UNSUBSCRIBE opt-out', () => {
+  const s2 = read('app/api/webhooks/whatsapp/route.ts')
+
+  it('checks for an opt-out BEFORE the Jade auto-reply, and skips Jade for one', () => {
+    const optOutIdx = s2.indexOf('isOptOutKeyword(msgBody)')
+    const jadeIdx = s2.indexOf('await maybeJadeReply(')
+    expect(optOutIdx).toBeGreaterThan(-1)
+    expect(jadeIdx).toBeGreaterThan(optOutIdx)
+    expect(s2).toContain("message.type === 'text' && msgBody && !isOptOutMessage")
+  })
+
+  it('the inbound STOP message itself is still saved like any other message (staff still see it)', () => {
+    // The opt-out check happens strictly after the existing message-insert
+    // block — it never short-circuits (`continue`s) before the save.
+    const insertIdx = s2.indexOf("await supabase.from('messages').insert({")
+    const optOutIdx = s2.indexOf('handleWhatsAppOptOut(')
+    expect(insertIdx).toBeGreaterThan(-1)
+    expect(optOutIdx).toBeGreaterThan(insertIdx)
+  })
+
+  it('writes WhatsAppConsent OPTED_OUT via prisma, keyed on the canonical number, with real evidence', () => {
+    expect(s2).toContain("status: 'OPTED_OUT'")
+    expect(s2).toContain("source: 'whatsapp_stop_reply'")
+    expect(s2).toContain('evidence: messageId')
+    expect(s2).toContain('normalizePhoneE164(fromNumber)')
+  })
+
+  it('sends the confirmation via the SAME Graph API shape already used for Jade — no second implementation', () => {
+    const jadeCallIdx = s2.indexOf("fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`", s2.indexOf('maybeJadeReply'))
+    const optOutCallIdx = s2.indexOf("fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`", s2.indexOf('handleWhatsAppOptOut'))
+    expect(jadeCallIdx).toBeGreaterThan(-1)
+    expect(optOutCallIdx).toBeGreaterThan(-1)
+    expect(s2).toContain('WHATSAPP_UNSUBSCRIBE_CONFIRMATION')
+  })
+
+  it('never throws out of the opt-out handler — wrapped in try/catch like the rest of this webhook', () => {
+    const fnStart = s2.indexOf('async function handleWhatsAppOptOut')
+    const fnBody = s2.slice(fnStart, s2.indexOf('\n}\n', fnStart))
+    expect(fnBody).toContain('try {')
+    expect(fnBody).toContain('} catch (err) {')
+  })
+
+  // ── ADVERSARIAL: STOP-message idempotency (Meta redelivery) ────────────
+  // A redelivered inbound message (any type, including a STOP) must not be
+  // processed twice. The existing `external_id` dedup guard
+  // (`if (dup) continue`) is what the 1:1 Inbox path has always relied on;
+  // this proves it structurally applies BEFORE the opt-out branch can ever
+  // run for a redelivered STOP, not after — i.e. the SECOND delivery of an
+  // identical STOP message never reaches isOptOutKeyword/
+  // handleWhatsAppOptOut at all, so there is no double consent-write, no
+  // double confirmation reply, and no error. Ordering is checked via the
+  // position of the `continue` inside the SAME `for (const message of
+  // value.messages` loop body that both the dup check and the opt-out
+  // check live in.
+  it('the external_id dedup guard is checked, and can `continue` past this message, BEFORE the opt-out branch is ever reached — so a redelivered STOP cannot double-write consent or double-reply', () => {
+    const loopStart = s2.indexOf('for (const message of value.messages')
+    const dupCheckIdx = s2.indexOf("eq('external_id', message.id)", loopStart)
+    const dupContinueIdx = s2.indexOf('if (dup) continue', dupCheckIdx)
+    const optOutBranchIdx = s2.indexOf('isOptOutKeyword(msgBody)', loopStart)
+
+    expect(loopStart).toBeGreaterThan(-1)
+    expect(dupCheckIdx).toBeGreaterThan(loopStart)
+    expect(dupContinueIdx).toBeGreaterThan(dupCheckIdx)
+    expect(optOutBranchIdx).toBeGreaterThan(dupContinueIdx)
+  })
+})

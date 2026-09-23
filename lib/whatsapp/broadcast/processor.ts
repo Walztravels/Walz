@@ -49,14 +49,16 @@
  */
 
 import prisma from '@/lib/db'
-import { sendBroadcastTemplate, type SendOutcome } from './sender'
+import { decideEligibility, SKIP_REASON_TO_STATUS, type ConsentStatus } from './consent'
 import {
   DISPATCHED_STATUSES,
   SKIPPED_STATUSES,
   canTransitionBroadcast,
+  canTransitionRecipient,
   terminalBroadcastStatus,
   type BroadcastStatus,
 } from './lifecycle'
+import { sendBroadcastTemplate, type SendOutcome } from './sender'
 
 /** Recipients dispatched in ONE tick, across all broadcasts. */
 export const MAX_RECIPIENTS_PER_TICK = 25
@@ -79,6 +81,8 @@ export interface TickSummary {
   retried: number
   skippedAlreadyDispatched: number
   cancelledBroadcastsSkipped: number
+  /** WhatsApp Broadcast V1.2: excluded at the pre-send recheck, not at snapshot. */
+  skippedConsentChangedAtSend: number
 }
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
@@ -216,7 +220,10 @@ async function dispatchClaimed(
   // ── GUARANTEE (b): re-read and refuse anything already dispatched. ────
   const row = await prisma.whatsAppBroadcastRecipient.findUnique({
     where: { id: recipientId },
-    select: { id: true, waId: true, metaMessageId: true, attempts: true, templateParamsSnapshot: true },
+    select: {
+      id: true, waId: true, normalizedNumber: true, leadId: true, visaApplicationId: true,
+      metaMessageId: true, attempts: true, templateParamsSnapshot: true,
+    },
   })
   if (!row) return
 
@@ -242,6 +249,50 @@ async function dispatchClaimed(
       },
     })
     summary.failed += 1
+    return
+  }
+
+  // ── WhatsApp Broadcast V1.2: RECHECK CONSENT IMMEDIATELY BEFORE DISPATCH.
+  // The audience is snapshotted at approval time (V1's guarantee: what an
+  // approver sees is what gets frozen), but a scheduled broadcast can sit
+  // QUEUED for a while before the cron actually reaches a given row. If the
+  // recipient opts out (or their consent otherwise lapses) in that window —
+  // via the inbound STOP webhook, the public preferences page, or a direct
+  // opt-out on their Lead/VisaApplication record — this is the check that
+  // catches it before a real Meta call is made. Reuses the SAME
+  // decideEligibility() the resolver already uses at preview/snapshot time
+  // — not a second, divergent consent rule.
+  const [freshConsent, freshLead, freshVisa] = await Promise.all([
+    row.normalizedNumber
+      ? prisma.whatsAppConsent.findUnique({ where: { normalizedNumber: row.normalizedNumber }, select: { status: true } })
+      : Promise.resolve(null),
+    row.leadId
+      ? prisma.lead.findUnique({ where: { id: row.leadId }, select: { marketingOptOut: true } })
+      : Promise.resolve(null),
+    row.visaApplicationId
+      ? prisma.visaApplication.findUnique({ where: { id: row.visaApplicationId }, select: { marketingOptOut: true } })
+      : Promise.resolve(null),
+  ])
+  const recheck = decideEligibility({
+    marketingOptOut: freshLead?.marketingOptOut === true || freshVisa?.marketingOptOut === true,
+    normalizedNumber: row.normalizedNumber,
+    consent: freshConsent ? { status: freshConsent.status as ConsentStatus } : null,
+  })
+  if (!recheck.eligible) {
+    const targetStatus = SKIP_REASON_TO_STATUS[recheck.reason]
+    if (canTransitionRecipient('SENDING', targetStatus)) {
+      await prisma.whatsAppBroadcastRecipient.updateMany({
+        where: { id: recipientId, status: 'SENDING' },
+        data: {
+          status: targetStatus,
+          failureCode: 'CONSENT_CHANGED_BEFORE_DISPATCH',
+          failureReason:
+            'This recipient’s WhatsApp marketing consent changed after the broadcast was approved and before ' +
+            'this message was sent, so it was not sent.',
+        },
+      })
+      summary.skippedConsentChangedAtSend += 1
+    }
     return
   }
 
@@ -324,6 +375,7 @@ export async function processWhatsAppBroadcasts(options: {
     retried: 0,
     skippedAlreadyDispatched: 0,
     cancelledBroadcastsSkipped: 0,
+    skippedConsentChangedAtSend: 0,
   }
 
   // ── 1. SCHEDULED and due → QUEUED (conditional, so a concurrent tick

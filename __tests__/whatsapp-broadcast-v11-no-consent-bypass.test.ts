@@ -207,7 +207,6 @@ describe('the recorded template category is inert', () => {
 describe('V1 internals this release must not have touched', () => {
   const PROTECTED = [
     'lib/whatsapp/broadcast/sender.ts',
-    'lib/whatsapp/broadcast/processor.ts',
     'lib/whatsapp/broadcast/status-callbacks.ts',
     'lib/whatsapp/broadcast/consent.ts',
     'lib/whatsapp/broadcast/rbac.ts',
@@ -219,6 +218,23 @@ describe('V1 internals this release must not have touched', () => {
   it.each(PROTECTED)('%s knows nothing about V1.1 multi-source types', file => {
     const code = readCode(file)
     expect(code).not.toMatch(/sourceProvenance|visaApplicationId|manualEntries|audienceSelection/)
+  })
+
+  // processor.ts is DELIBERATELY excluded from the check above as of
+  // WhatsApp Broadcast V1.2: its new pre-dispatch consent recheck reads
+  // `visaApplicationId` off an already-frozen recipient row to re-verify a
+  // VisaApplication-sourced opt-out fresh, immediately before sending (see
+  // __tests__/whatsapp-broadcast-routes.test.ts's "never RE-RESOLVES the
+  // audience" test for the guarantee that actually matters: it is a
+  // single-row-by-known-id RECHECK, never audience expansion). The
+  // property THIS test suite exists to protect — no second, divergent
+  // consent rule — is asserted directly below instead.
+  it('processor.ts still imports and calls the real decideEligibility for its recheck — never a reimplementation', () => {
+    const code = readCode('lib/whatsapp/broadcast/processor.ts')
+    expect(code).toMatch(/import\s*\{[^}]*decideEligibility[^}]*\}\s*from\s*'\.\/consent'/)
+    expect(code).toContain('decideEligibility({')
+    // No parallel eligibility vocabulary of its own.
+    expect(code).not.toMatch(/ignoreConsent|forceSend|skipConsentCheck/)
   })
 
   it('the sender still builds only a Meta template payload', () => {

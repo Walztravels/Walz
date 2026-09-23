@@ -120,6 +120,7 @@ export const PERMISSION_REGISTRY = {
   manage_marketing:              { label: 'Manage Marketing',          section: 'Social Studio', desc: 'Access caption generator, content calendar, media library and analytics' },
   marketing_publish:             { label: 'Publish to Social Media',   section: 'Social Studio', desc: 'Approve and publish posts to Instagram and Facebook' },
   marketing_whatsapp_broadcast:  { label: 'WhatsApp Broadcast',        section: 'Social Studio', desc: 'Send WhatsApp broadcast messages to client lists' },
+  marketing_whatsapp_export:    { label: 'Export WhatsApp Contacts',  section: 'Social Studio', desc: 'Export the resolved WhatsApp contact/consent directory as CSV' },
   marketing_brand_memory:        { label: 'Edit Brand Memory',         section: 'Social Studio', desc: 'Edit brand voice, hashtags, templates and audience profiles' },
   marketing_tenants:             { label: 'Manage TravelPost Tenants', section: 'Social Studio', desc: 'Onboard and manage white-label agency tenants' },
 
