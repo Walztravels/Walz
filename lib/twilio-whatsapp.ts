@@ -1,7 +1,8 @@
 /**
  * Twilio WhatsApp helper — sends messages directly via Twilio REST API.
  *
- * Two-number routing:
+ * Two-number routing (used by sendWhatsAppBody/sendWhatsAppViaTwilio when no
+ * explicit fromOverride is given, and by Chatwoot's inbox mapping):
  *   Nigeria clients  (+234 / 08x / 07x)  → TWILIO_WHATSAPP_NUMBER_NG  (default +2347077691701)
  *   All other clients                     → TWILIO_WHATSAPP_NUMBER_INTL (default +12317902336)
  *
@@ -12,6 +13,20 @@
  * Optional (override default numbers):
  *   TWILIO_WHATSAPP_NUMBER_NG     — Nigeria WhatsApp sender (default: +2347077691701)
  *   TWILIO_WHATSAPP_NUMBER_INTL   — International WhatsApp sender (default: +12317902336)
+ *
+ * ── PRIMARY SENDER (OTP + Broadcast) ────────────────────────────────────
+ *   TWILIO_WHATSAPP_PRIMARY_FROM  — the explicit sender for WhatsApp
+ *                                    marketing-consent OTP and Broadcast
+ *                                    campaigns, e.g. whatsapp:+12317902336
+ *                                    or +12317902336 (the "whatsapp:"
+ *                                    prefix is stripped if present — see
+ *                                    getPrimaryWhatsAppSender()). NOT
+ *                                    inferred from NG/INTL geomatch and
+ *                                    NOT delegated to the Messaging
+ *                                    Service's own sender-pool selection —
+ *                                    see sendOtpViaTwilio()'s doc comment
+ *                                    for why that distinction matters.
+ *                                    Fails closed (no send) when unset.
  *
  * Template (enables business-initiated — works for clients who've never messaged us):
  *   TWILIO_CONTENT_TEMPLATE_SID   — HX98c6c9a03dc7155b1b743e09de56b9b2
@@ -41,6 +56,31 @@ const INTL_FROM = process.env.TWILIO_WHATSAPP_NUMBER_INTL || `+${BUSINESS.contac
 // Dedicated UK number for visa application threads
 export const VISA_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER_VISA || '+447949448680'
 
+// ── Primary sender for OTP + Broadcast ──────────────────────────────────
+// Accepts either "+12317902336" or "whatsapp:+12317902336" (the prefix is
+// stripped here so sendWhatsAppContentTemplate's fromOverride — which
+// always prepends "whatsapp:" itself — never double-prefixes). Not
+// hardcoded: unset by default, so a missing configuration fails closed
+// rather than silently falling through to NG/INTL geomatch or the
+// Messaging Service's own sender-pool selection.
+const PRIMARY_FROM = (process.env.TWILIO_WHATSAPP_PRIMARY_FROM ?? '').trim().replace(/^whatsapp:/i, '').trim() || null
+
+/** True only when the explicit OTP/Broadcast primary sender is configured. */
+export function twilioPrimarySenderConfigured(): boolean {
+  return !!PRIMARY_FROM
+}
+
+/**
+ * The explicit primary WhatsApp sender for OTP and Broadcast — never
+ * derived from a recipient's country and never left to Twilio's
+ * Messaging-Service-level sender-pool selection. Null when
+ * TWILIO_WHATSAPP_PRIMARY_FROM is not set; callers must check
+ * twilioPrimarySenderConfigured() (or handle null) before using this.
+ */
+export function getPrimaryWhatsAppSender(): string | null {
+  return PRIMARY_FROM
+}
+
 // ── WhatsApp Broadcast V1.2.1 / OTP P1 fix ─────────────────────────────────
 // The approved Content SID used ONLY for the WhatsApp marketing-preferences
 // OTP (a fixed, single AUTHENTICATION-category template — never Broadcast's
@@ -49,7 +89,7 @@ export const VISA_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER_VISA || '
 const OTP_CONTENT_SID = (process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID ?? '').trim() || null
 
 export function twilioOtpConfigured(): boolean {
-  return !!(TWILIO_SID && TWILIO_TOKEN && OTP_CONTENT_SID)
+  return !!(TWILIO_SID && TWILIO_TOKEN && OTP_CONTENT_SID && PRIMARY_FROM)
 }
 
 /** Returns true if the phone belongs to Nigeria (starts with +234, 234, 0 local) */
@@ -399,8 +439,23 @@ export async function listApprovedWhatsAppContentTemplates(
 /**
  * OTP delivery via Twilio (WhatsApp Broadcast V1.2.1 P1 fix, transport
  * only — the OTP security engine itself, in lib/whatsapp/consent-otp.ts,
- * is unchanged). Fails closed when TWILIO_WHATSAPP_OTP_CONTENT_SID is not
- * set — never falls back to free text.
+ * is unchanged). Fails closed when TWILIO_WHATSAPP_OTP_CONTENT_SID or
+ * TWILIO_WHATSAPP_PRIMARY_FROM is not set — never falls back to free
+ * text, and never falls back to NG/INTL geomatch or the Messaging
+ * Service's own sender-pool selection.
+ *
+ * ── WHY AN EXPLICIT fromOverride, NOT MessagingServiceSid ────────────────
+ * Passing fromOverride here makes sendWhatsAppContentTemplate set an
+ * explicit `From` and skip `MessagingServiceSid` entirely (see its own
+ * branching) — the SAME "force this exact sender" mechanism
+ * VISA_WHATSAPP_NUMBER already uses. Root cause this fixes: before this
+ * change, sendOtpViaTwilio() passed no fromOverride at all, so every OTP
+ * went out via MessagingServiceSid and Twilio's own Messaging Service
+ * sender-pool (which has BOTH the NG and INTL/primary numbers registered
+ * under it) decided which number actually sent it — observed in
+ * production to sometimes pick the Nigeria number for an OTP that should
+ * always come from the main Walz Travels WhatsApp number. An explicit
+ * `From` removes that ambiguity: Twilio can no longer choose.
  *
  * The approved OTP Content Template must declare exactly one body
  * variable, keyed "1" (Twilio's default numbered-variable convention),
@@ -414,10 +469,14 @@ export async function sendOtpViaTwilio(
   if (!OTP_CONTENT_SID) {
     return { ok: false, errorMessage: 'OTP Content SID not configured' }
   }
+  if (!PRIMARY_FROM) {
+    return { ok: false, errorMessage: 'Primary WhatsApp sender (TWILIO_WHATSAPP_PRIMARY_FROM) not configured' }
+  }
   return sendWhatsAppContentTemplate({
     toPhone,
     contentSid: OTP_CONTENT_SID,
     contentVariables: { '1': code },
+    fromOverride: PRIMARY_FROM,
     fetchImpl,
   })
 }

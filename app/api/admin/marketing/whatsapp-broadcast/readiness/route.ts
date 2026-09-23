@@ -30,6 +30,7 @@ export async function GET() {
   return NextResponse.json({
     canSend: readiness.canSend,
     canReceiveStatusCallbacks: readiness.canReceiveStatusCallbacks,
+    canSendOtp: readiness.canSendOtp,
     checks: readiness.checks,
     missing: readiness.missing,
     // Structurally checkable configuration only. Whether a given template

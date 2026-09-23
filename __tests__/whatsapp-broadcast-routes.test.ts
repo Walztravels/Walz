@@ -155,6 +155,8 @@ beforeEach(() => {
   // credentials, not Meta's — see lib/whatsapp/config.ts.
   process.env.TWILIO_ACCOUNT_SID = 'AC-test'
   process.env.TWILIO_AUTH_TOKEN = 'tok'
+  process.env.TWILIO_WHATSAPP_PRIMARY_FROM = '+12317902336'
+  process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID = 'HX' + '4'.repeat(32)
 })
 
 // ── RBAC ────────────────────────────────────────────────────────────────
@@ -221,12 +223,16 @@ describe('the readiness endpoint', () => {
 
     expect(body.canSend).toBe(true)
     expect(body.canReceiveStatusCallbacks).toBe(true)
+    expect(body.canSendOtp).toBe(true)
     expect(body.checks).toEqual({
       twilioAccountSid: 'PRESENT', twilioAuthToken: 'PRESENT',
+      primarySender: 'PRESENT', otpContentSid: 'PRESENT',
     })
     expect(body.missing).toEqual([])
     expect(JSON.stringify(body)).not.toContain('super-secret-token-value')
     expect(JSON.stringify(body)).not.toContain('AC-test')
+    expect(JSON.stringify(body)).not.toContain('+12317902336')
+    expect(JSON.stringify(body)).not.toContain(process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID)
   })
 
   it('names the MISSING variables only, never a value', async () => {
@@ -236,8 +242,33 @@ describe('the readiness endpoint', () => {
 
     expect(body.canSend).toBe(false)
     expect(body.canReceiveStatusCallbacks).toBe(false)
+    expect(body.canSendOtp).toBe(false)
     expect(body.checks.twilioAuthToken).toBe('MISSING')
+    // Only the two credential vars are missing here — PRIMARY_FROM/
+    // OTP_CONTENT_SID are still configured by beforeEach in this test.
     expect(body.missing.sort()).toEqual(['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN'])
+  })
+
+  it('a missing primary sender alone makes canSend false, distinctly named in `missing`, without touching the OTP-specific check', async () => {
+    process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID = 'HX' + '6'.repeat(32)
+    delete process.env.TWILIO_WHATSAPP_PRIMARY_FROM
+    const body = await (await (readinessGET() as unknown as Promise<Response>)).json()
+
+    expect(body.canSend).toBe(false)
+    expect(body.canSendOtp).toBe(false) // OTP needs canSend too — never independently true
+    expect(body.checks.primarySender).toBe('MISSING')
+    expect(body.checks.otpContentSid).toBe('PRESENT')
+    expect(body.missing).toEqual(['TWILIO_WHATSAPP_PRIMARY_FROM'])
+  })
+
+  it('a missing OTP Content SID makes ONLY canSendOtp false — Broadcast (canSend) is unaffected', async () => {
+    delete process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID
+    const body = await (await (readinessGET() as unknown as Promise<Response>)).json()
+
+    expect(body.canSend).toBe(true)
+    expect(body.canSendOtp).toBe(false)
+    expect(body.checks.otpContentSid).toBe('MISSING')
+    expect(body.missing).toEqual(['TWILIO_WHATSAPP_OTP_CONTENT_SID'])
   })
 
   // WhatsApp Broadcast V1.2.1: the old Meta-specific

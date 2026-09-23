@@ -28,6 +28,7 @@ process.env.TWILIO_AUTH_TOKEN = AUTH_TOKEN
 process.env.TWILIO_WEBHOOK_URL = INBOUND_URL
 process.env.TWILIO_BROADCAST_STATUS_WEBHOOK_URL = STATUS_URL
 process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID = 'HX' + '9'.repeat(32)
+process.env.TWILIO_WHATSAPP_PRIMARY_FROM = '+12317902336'
 
 function twilioSignature(url: string, params: Record<string, string>, authToken = AUTH_TOKEN): string {
   const data = url + Object.keys(params).sort().map(k => k + params[k]).join('')

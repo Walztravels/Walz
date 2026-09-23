@@ -14,10 +14,12 @@
  * already reuses the exact TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/Messaging
  * Service credentials every other Twilio WhatsApp send in this codebase
  * uses — this file is only responsible for Broadcast-specific error
- * classification (retry vs. permanent) and status-callback wiring.
+ * classification (retry vs. permanent), forcing the explicit primary
+ * sender (see sendBroadcastTemplate()'s own comment — WhatsApp OTP
+ * Primary Sender Alignment), and status-callback wiring.
  */
 
-import { sendWhatsAppContentTemplate, twilioConfigured } from '@/lib/twilio-whatsapp'
+import { sendWhatsAppContentTemplate, twilioConfigured, twilioPrimarySenderConfigured, getPrimaryWhatsAppSender } from '@/lib/twilio-whatsapp'
 
 /**
  * Where Twilio reports delivery status for a broadcast message. Per-message
@@ -124,6 +126,21 @@ export async function sendBroadcastTemplate(input: {
     }
   }
 
+  // Explicit primary sender only — see getPrimaryWhatsAppSender()'s doc
+  // comment. Without this, sendWhatsAppContentTemplate would fall through
+  // to MessagingServiceSid and let Twilio's own sender-pool pick between
+  // the NG and primary/INTL numbers, which is exactly the ambiguity that
+  // let a Broadcast (or OTP) send go out from the wrong number. Fails
+  // closed rather than silently defaulting to that pool-selection behavior.
+  if (!twilioPrimarySenderConfigured()) {
+    return {
+      ok: false,
+      kind: 'PERMANENT',
+      code: 'NO_PRIMARY_SENDER',
+      reason: 'The primary WhatsApp sender (TWILIO_WHATSAPP_PRIMARY_FROM) is not configured on the server.',
+    }
+  }
+
   const result = await sendWhatsAppContentTemplate({
     // waId is the number without its leading '+' (see audience-multi.ts's
     // dedup/eligibility layer, unchanged by this release); Twilio needs
@@ -132,6 +149,7 @@ export async function sendBroadcastTemplate(input: {
     toPhone: `+${input.waId}`,
     contentSid: input.contentSid,
     contentVariables: input.contentVariables,
+    fromOverride: getPrimaryWhatsAppSender()!,
     statusCallbackUrl: input.statusCallbackUrl ?? BROADCAST_STATUS_CALLBACK_URL,
     fetchImpl: input.fetchImpl,
   })

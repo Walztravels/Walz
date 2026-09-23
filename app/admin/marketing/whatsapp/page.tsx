@@ -142,6 +142,7 @@ type VisaSearchResponse = { applications?: VisaOption[]; total?: number; truncat
 type Readiness = {
   canSend: boolean
   canReceiveStatusCallbacks: boolean
+  canSendOtp: boolean
   checks: Record<string, 'PRESENT' | 'MISSING'>
   missing: string[]
 }
@@ -853,6 +854,16 @@ export default function WhatsAppPage() {
               <p className="text-xs text-emerald-600 mt-0.5">
                 Delivery and read receipts will be recorded from Twilio’s status callbacks.
               </p>
+              {/* Broadcast readiness and OTP readiness are independent —
+                  a missing OTP Content SID never implies Broadcast itself
+                  is unavailable, so this is its own, separate line. */}
+              {!readiness.canSendOtp && (
+                <p className="text-xs text-amber-700 mt-1.5">
+                  WhatsApp OTP verification (the public marketing-preferences subscribe flow) is not
+                  available: <code className="bg-amber-100 px-1 rounded">TWILIO_WHATSAPP_OTP_CONTENT_SID</code> is not set.
+                  Broadcast sending is unaffected.
+                </p>
+              )}
             </div>
           </div>
         ) : (

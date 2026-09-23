@@ -163,6 +163,7 @@ let visaOptOutOverrides = new Set<string>()
 // Credentials are always "present" so the sender reaches the fetch mock.
 process.env.TWILIO_ACCOUNT_SID = 'AC-test'
 process.env.TWILIO_AUTH_TOKEN = 'token-test'
+process.env.TWILIO_WHATSAPP_PRIMARY_FROM = '+12317902336'
 
 import {
   processWhatsAppBroadcasts, recomputeBroadcastCounts,

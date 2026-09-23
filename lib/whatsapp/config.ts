@@ -22,14 +22,32 @@
  */
 
 export interface WhatsAppReadiness {
-  /** True only when a broadcast can actually be dispatched via Twilio. */
+  /**
+   * True only when a Broadcast can actually be dispatched via Twilio —
+   * account credentials AND the explicit primary sender (see
+   * TWILIO_WHATSAPP_PRIMARY_FROM's doc comment in lib/twilio-whatsapp.ts:
+   * without it, sendBroadcastTemplate() fails closed rather than falling
+   * back to Twilio's own Messaging-Service sender-pool selection).
+   * Deliberately independent of the OTP Content SID — Broadcast never
+   * needs it, so a missing OTP config must never show as Broadcast being
+   * unavailable (see canSendOtp below).
+   */
   canSend: boolean
   /** True only when Twilio status callbacks can be authenticated. */
   canReceiveStatusCallbacks: boolean
+  /**
+   * True only when the WhatsApp marketing-preferences OTP flow
+   * (/whatsapp/preferences) can actually deliver a code — everything
+   * canSend requires, PLUS the approved OTP Content Template. A missing
+   * OTP Content SID makes ONLY this false; it never affects canSend.
+   */
+  canSendOtp: boolean
   /** PRESENT / MISSING per variable — never the value. */
   checks: {
     twilioAccountSid: 'PRESENT' | 'MISSING'
     twilioAuthToken: 'PRESENT' | 'MISSING'
+    primarySender: 'PRESENT' | 'MISSING'
+    otpContentSid: 'PRESENT' | 'MISSING'
   }
   /** Names of the variables that still need setting, for the admin banner. */
   missing: string[]
@@ -39,26 +57,42 @@ const present = (v: string | undefined): boolean => typeof v === 'string' && v.t
 
 /**
  * PRESENT/MISSING capability report for the admin readiness banner.
- * Deliberately boolean-only — see the security note above.
+ * Deliberately boolean-only — see the security note above. Distinguishes
+ * three independent configuration facts (account credentials, the
+ * explicit primary WhatsApp sender, and the OTP Content Template) so the
+ * UI can tell "Broadcast can't send at all" apart from "Broadcast is fine
+ * but OTP verification specifically is unavailable" — these are NOT the
+ * same failure and must never be reported as if they were.
  */
 export function getWhatsAppReadiness(): WhatsAppReadiness {
   const accountSid = present(process.env.TWILIO_ACCOUNT_SID)
   const authToken = present(process.env.TWILIO_AUTH_TOKEN)
+  const primarySender = present(process.env.TWILIO_WHATSAPP_PRIMARY_FROM)
+  const otpContentSid = present(process.env.TWILIO_WHATSAPP_OTP_CONTENT_SID)
 
   const missing: string[] = []
   if (!accountSid) missing.push('TWILIO_ACCOUNT_SID')
   if (!authToken) missing.push('TWILIO_AUTH_TOKEN')
+  if (!primarySender) missing.push('TWILIO_WHATSAPP_PRIMARY_FROM')
+  if (!otpContentSid) missing.push('TWILIO_WHATSAPP_OTP_CONTENT_SID')
+
+  const canSend = accountSid && authToken && primarySender
 
   return {
-    canSend: accountSid && authToken,
+    canSend,
     // Twilio signs status callbacks with the SAME Auth Token used to send
     // (X-Twilio-Signature, see lib/webhooks/verify.ts's verifyTwilioSignature) —
     // unlike Meta's separate access-token/app-secret split, there is no
     // second credential to check here.
     canReceiveStatusCallbacks: authToken,
+    // OTP needs everything Broadcast needs, plus its own approved
+    // Content Template — never the other way around.
+    canSendOtp: canSend && otpContentSid,
     checks: {
       twilioAccountSid: accountSid ? 'PRESENT' : 'MISSING',
       twilioAuthToken: authToken ? 'PRESENT' : 'MISSING',
+      primarySender: primarySender ? 'PRESENT' : 'MISSING',
+      otpContentSid: otpContentSid ? 'PRESENT' : 'MISSING',
     },
     missing,
   }
