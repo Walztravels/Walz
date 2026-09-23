@@ -102,25 +102,38 @@ const mockPrisma = {
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma, prisma: mockPrisma }))
 
-let metaConfigured = true
-let otpTemplateConfigured = true
-jest.mock('@/lib/whatsapp/config', () => ({
+// WhatsApp Broadcast V1.2.1: OTP delivery moved from direct Meta Cloud API
+// to Twilio's approved Content Template sender (lib/twilio-whatsapp.ts).
+// Twilio's readiness is a SINGLE combined check (twilioOtpConfigured()) —
+// unlike Meta's separate phoneNumberId/accessToken + template checks — so
+// one toggle covers what used to need two.
+let otpConfigured = true
+let otpSendResult: { ok: boolean; sid?: string; errorCode?: string; errorMessage?: string } = { ok: true, sid: 'SM-test' }
+const sendOtpViaTwilioMock = jest.fn(async (_toPhone: string, _code: string, fetchImpl?: typeof fetch) => {
+  // Mirrors the real function's contract of driving the injected fetchImpl
+  // (or a no-op) rather than silently ignoring it, without re-testing the
+  // real HTTP body shape here — that belongs to lib/twilio-whatsapp's own
+  // coverage and __tests__/whatsapp-broadcast-core.test.ts.
+  if (fetchImpl) await fetchImpl('https://api.twilio.com/mock', { method: 'POST' } as RequestInit)
+  return otpSendResult
+})
+jest.mock('@/lib/twilio-whatsapp', () => ({
   __esModule: true,
-  getMetaSendCredentials: jest.fn(() => (metaConfigured ? { phoneNumberId: 'pn-test', accessToken: 'token-test' } : null)),
-  getOtpTemplateConfig: jest.fn(() => (otpTemplateConfigured ? { templateName: 'wa_otp_v1', templateLanguage: 'en_US', hasCodeButton: false } : null)),
+  twilioOtpConfigured: jest.fn(() => otpConfigured),
+  sendOtpViaTwilio: (toPhone: string, code: string, fetchImpl?: typeof fetch) => sendOtpViaTwilioMock(toPhone, code, fetchImpl),
 }))
 
 import { sendOtp, verifyOtp, OTP_MAX_ATTEMPTS, OTP_RESEND_COOLDOWN_MS, OTP_MAX_SENDS_PER_WINDOW } from '@/lib/whatsapp/consent-otp'
 import { decideEligibility } from '@/lib/whatsapp/broadcast/consent'
 
-const okFetch = jest.fn(async () => ({ ok: true, json: async () => ({ messages: [{ id: 'wamid.OTP' }] }) })) as unknown as typeof fetch
+const okFetch = jest.fn(async () => ({ ok: true, json: async () => ({ sid: 'SM-test', status: 'queued' }) })) as unknown as typeof fetch
 
 beforeEach(() => {
   jest.clearAllMocks()
   verifications = []
   consentStore.clear()
-  metaConfigured = true
-  otpTemplateConfigured = true
+  otpConfigured = true
+  otpSendResult = { ok: true, sid: 'SM-test' }
 })
 
 const NUMBER = '+2348012345678'
@@ -132,27 +145,21 @@ describe('sendOtp', () => {
     expect(verifications[0].codeHash).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it('FAILS CLOSED when the OTP template is not configured — never sends free text, never creates a row', async () => {
-    otpTemplateConfigured = false
+  it('FAILS CLOSED when Twilio is not configured (missing credentials or approved OTP Content SID) — never sends, never creates a row', async () => {
+    otpConfigured = false
     const outcome = await sendOtp({ normalizedNumber: NUMBER, capturePage: null, disclosureVersion: null, ipAddress: null, userAgent: null, fetchImpl: okFetch })
     expect(outcome.outcome).toBe('NOT_CONFIGURED')
     expect(verifications).toHaveLength(0)
+    expect(sendOtpViaTwilioMock).not.toHaveBeenCalled()
     expect(okFetch).not.toHaveBeenCalled()
   })
 
-  it('FAILS CLOSED when Meta send credentials are not configured', async () => {
-    metaConfigured = false
-    const outcome = await sendOtp({ normalizedNumber: NUMBER, capturePage: null, disclosureVersion: null, ipAddress: null, userAgent: null, fetchImpl: okFetch })
-    expect(outcome.outcome).toBe('NOT_CONFIGURED')
-    expect(verifications).toHaveLength(0)
-  })
-
-  it('never sends as free-form text — always type:"template"', async () => {
+  it('delegates OTP delivery exclusively to Twilio\'s approved-Content-Template sender — never a free-text fallback', async () => {
     await sendOtp({ normalizedNumber: NUMBER, capturePage: null, disclosureVersion: null, ipAddress: null, userAgent: null, fetchImpl: okFetch })
-    const [, init] = (okFetch as unknown as jest.Mock).mock.calls[0]
-    const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.type).toBe('template')
-    expect(body.text).toBeUndefined()
+    expect(sendOtpViaTwilioMock).toHaveBeenCalledTimes(1)
+    const [calledNumber, calledCode] = sendOtpViaTwilioMock.mock.calls[0]
+    expect(calledNumber).toBe(NUMBER)
+    expect(calledCode).toMatch(/^\d{6}$/)
   })
 
   it('enforces a resend cooldown — a second send too soon is rejected without creating a new row', async () => {
@@ -401,13 +408,13 @@ describe('routes: send-code / verify-code wiring', () => {
 })
 
 describe('routes: no plaintext OTP in logs', () => {
-  it('a Meta send failure logs only a MASKED number, never the raw number or the code', async () => {
-    const failingFetch = jest.fn(async () => ({ ok: false, json: async () => ({ error: { message: 'template not approved' } }) })) as unknown as typeof fetch
+  it('a Twilio send failure logs only a MASKED number, never the raw number or the code', async () => {
+    otpSendResult = { ok: false, errorCode: '63016', errorMessage: 'template not approved' }
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    await sendOtp({ normalizedNumber: NUMBER, capturePage: null, disclosureVersion: null, ipAddress: null, userAgent: null, fetchImpl: failingFetch })
+    await sendOtp({ normalizedNumber: NUMBER, capturePage: null, disclosureVersion: null, ipAddress: null, userAgent: null, fetchImpl: okFetch })
     const loggedArgs = warnSpy.mock.calls.flat().map(String).join(' ')
     expect(loggedArgs).not.toContain(NUMBER)
-    // codeHash never logged either — only the masked number and Meta's own error body.
+    // codeHash never logged either — only the masked number and Twilio's own error body.
     expect(loggedArgs).toContain('template not approved')
     warnSpy.mockRestore()
   })

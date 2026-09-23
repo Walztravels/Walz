@@ -14,13 +14,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import prisma from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { normalizePhoneE164 } from '@/lib/identity/normalize'
 import { verifyMetaSignature } from '@/lib/webhooks/verify'
-import { applyBroadcastStatusCallbacks } from '@/lib/whatsapp/broadcast/status-callbacks'
-import { isOptOutKeyword } from '@/lib/whatsapp/opt-out-keywords'
-import { WHATSAPP_UNSUBSCRIBE_CONFIRMATION } from '@/lib/whatsapp/preferences-disclosure'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,16 +72,12 @@ export async function POST(req: Request) {
         await supabase.from('messages').update({ read_at: new Date().toISOString() }).eq('external_id', s.id)
       }
 
-      // ADDED (WhatsApp Broadcast V1) — attribute sent/delivered/read/
-      // failed callbacks to whatsapp_broadcast_recipients rows. A message
-      // id belonging to a 1:1 reply matches no recipient row, so this is a
-      // no-op for every pre-existing flow. Wrapped so a broadcast-side
-      // failure can never change the response Meta receives.
-      try {
-        await applyBroadcastStatusCallbacks(value.statuses)
-      } catch (e) {
-        console.warn('[wa-webhook] broadcast status handling failed:', (e as Error)?.message)
-      }
+      // WhatsApp Broadcast V1.2.1: Broadcast no longer sends via Meta, so
+      // its status callbacks no longer arrive here — see
+      // app/api/webhooks/twilio-whatsapp/broadcast-status/route.ts, and
+      // lib/whatsapp/broadcast/status-callbacks.ts's unmodified, no-longer-
+      // called applyBroadcastStatusCallbacks() (kept, not deleted, in case
+      // any historical Meta-sent row ever needs re-reconciling).
 
       return NextResponse.json({ ok: true })
     }
@@ -202,19 +193,12 @@ export async function POST(req: Request) {
         }
       }
 
-      // Opt-out ──────────────────────────────────────────────────────────────
-      // WhatsApp Broadcast V1.2. Checked BEFORE Jade so an opt-out command
-      // never gets an AI reply — it gets the fixed confirmation below and
-      // nothing else. The inbound STOP/UNSUBSCRIBE message itself was
-      // already saved above like any other message, so staff still see it
-      // in the Inbox thread.
-      const isOptOutMessage = message.type === 'text' && isOptOutKeyword(msgBody)
-      if (isOptOutMessage) {
-        await handleWhatsAppOptOut({ fromNumber, messageId: message.id, leadId, supabase })
-      }
-
       // Jade auto-reply ──────────────────────────────────────────────────────
-      if (message.type === 'text' && msgBody && !isOptOutMessage) {
+      // WhatsApp Broadcast V1.2.1: opt-out (STOP/UNSUBSCRIBE) processing
+      // moved to app/api/webhooks/twilio-whatsapp/route.ts, the webhook
+      // that actually carries Walz's real WhatsApp marketing traffic — see
+      // that file's own opt-out section for why.
+      if (message.type === 'text' && msgBody) {
         await maybeJadeReply({ leadId, fromNumber, msgBody, supabase })
       }
     }
@@ -224,73 +208,6 @@ export async function POST(req: Request) {
     console.error('[wa-webhook] Error:', err)
     // Always 200 — Meta retries on non-200 and will flood the endpoint
     return NextResponse.json({ ok: true })
-  }
-}
-
-// ── Opt-out (WhatsApp Broadcast V1.2) ───────────────────────────────────────────
-/**
- * Record an inbound STOP/UNSUBSCRIBE as an immediate, canonical-number
- * WhatsApp opt-out, and send a fixed confirmation. This is the SAME
- * WhatsAppConsent table `decideEligibility()` already reads for every
- * broadcast source (Lead, VisaApplication, manual) — writing OPTED_OUT
- * here excludes the number from ALL of them immediately, regardless of
- * which source(s) later try to select it (see
- * lib/whatsapp/broadcast/consent.ts and audience-multi.ts: the eligibility
- * lookup is one consent row per canonical number, never per source, so
- * this override cannot be bypassed by re-adding the number a different way).
- *
- * Never throws to the caller — a failure here must not break inbound
- * message processing or the webhook's 200 response to Meta.
- */
-async function handleWhatsAppOptOut({
-  fromNumber, messageId, leadId, supabase,
-}: { fromNumber: string; messageId: string; leadId: string; supabase: ReturnType<typeof getSupabaseAdmin> }) {
-  try {
-    const normalizedNumber = normalizePhoneE164(fromNumber)
-    if (!normalizedNumber) return
-
-    await prisma.whatsAppConsent.upsert({
-      where: { normalizedNumber },
-      create: {
-        normalizedNumber,
-        status: 'OPTED_OUT',
-        source: 'whatsapp_stop_reply',
-        evidence: messageId,
-        optedOutAt: new Date(),
-      },
-      update: {
-        status: 'OPTED_OUT',
-        source: 'whatsapp_stop_reply',
-        evidence: messageId,
-        optedOutAt: new Date(),
-      },
-    })
-
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
-    const accessToken    = process.env.WHATSAPP_ACCESS_TOKEN
-    if (!phoneNumberId || !accessToken) return
-
-    const waRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        messaging_product: 'whatsapp',
-        to:   fromNumber,
-        type: 'text',
-        text: { body: WHATSAPP_UNSUBSCRIBE_CONFIRMATION },
-      }),
-    })
-    const waData = await waRes.json() as { messages?: Array<{ id: string }> }
-
-    await supabase.from('messages').insert({
-      lead_id:     leadId,
-      channel:     'whatsapp',
-      direction:   'outbound',
-      body:        WHATSAPP_UNSUBSCRIBE_CONFIRMATION,
-      external_id: waData.messages?.[0]?.id ?? null,
-    })
-  } catch (err) {
-    console.error('[wa-webhook] opt-out handling error:', (err as Error)?.message)
   }
 }
 

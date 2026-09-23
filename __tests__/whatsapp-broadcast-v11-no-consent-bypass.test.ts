@@ -237,10 +237,11 @@ describe('V1 internals this release must not have touched', () => {
     expect(code).not.toMatch(/ignoreConsent|forceSend|skipConsentCheck/)
   })
 
-  it('the sender still builds only a Meta template payload', () => {
+  it('the sender still builds only an approved Content Template payload (V1.2.1: Twilio, not Meta)', () => {
     const code = readCode('lib/whatsapp/broadcast/sender.ts')
-    expect(code).toMatch(/buildTemplatePayload/)
+    expect(code).toMatch(/sendWhatsAppContentTemplate/)
     expect(code).not.toMatch(/type:\s*'text'/)
+    expect(code).not.toContain('graph.facebook.com')
   })
 
   it('the provider-readiness gate still blocks queueing', () => {

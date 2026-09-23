@@ -137,7 +137,7 @@ export interface ResolvedRecipient {
   leadId: string
   normalizedNumber: string | null
   waId: string | null
-  templateParamsSnapshot: string[]
+  templateParamsSnapshot: Record<string, string>
   status: string
   skipReason: SkipReason | null
 }
@@ -305,15 +305,15 @@ export async function resolveAudience(input: {
         leadId: c.lead.id,
         normalizedNumber: c.normalizedNumber,
         waId: null,
-        templateParamsSnapshot: [],
+        templateParamsSnapshot: {},
         status: SKIP_REASON_TO_STATUS[decision.reason],
         skipReason: decision.reason,
       })
       continue
     }
 
-    // ── 6. Freeze the template parameters for this person. ──────────────
-    let paramValues: string[] = []
+    // ── 6. Freeze the template variables for this person. ──────────────
+    let paramValues: Record<string, string> = {}
     if (input.template) {
       const leadFields: Partial<Record<LeadTemplateField, string | null>> = {
         name: c.lead.name,
@@ -321,9 +321,9 @@ export async function resolveAudience(input: {
         service: c.lead.service,
         travelDate: c.lead.travelDate,
       }
-      const resolved = resolveTemplateParams(input.template.params, leadFields)
+      const resolved = resolveTemplateParams(input.template.variables, leadFields)
       if (resolved.missing.length > 0) {
-        // A parameter Meta would reject. Never sent as a half-rendered
+        // A variable WhatsApp would reject. Never sent as a half-rendered
         // message and never downgraded to free text — recorded as a
         // failure of THIS recipient so the rest of the campaign proceeds.
         breakdown.templateUnresolvable += 1
@@ -331,7 +331,7 @@ export async function resolveAudience(input: {
           leadId: c.lead.id,
           normalizedNumber: c.normalizedNumber,
           waId: null,
-          templateParamsSnapshot: [],
+          templateParamsSnapshot: {},
           status: 'FAILED',
           skipReason: null,
         })
@@ -344,7 +344,8 @@ export async function resolveAudience(input: {
     recipients.push({
       leadId: c.lead.id,
       normalizedNumber: c.normalizedNumber,
-      // Meta's wa_id is the number with no '+'.
+      // The dispatch id is the number with no '+' (sender.ts reconstructs
+      // "whatsapp:+E164" from this at send time).
       waId: (c.normalizedNumber as string).replace(/^\+/, ''),
       templateParamsSnapshot: paramValues,
       status: 'QUEUED',

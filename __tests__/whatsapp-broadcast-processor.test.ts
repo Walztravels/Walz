@@ -4,7 +4,7 @@
  * A small in-memory store sits behind the Prisma mock so the status
  * transitions are REAL, which is what makes the claim/idempotency/
  * concurrency assertions meaningful rather than assertions about call
- * arguments. Meta is mocked at the fetch boundary.
+ * arguments. Twilio is mocked at the fetch boundary.
  */
 
 interface Recip {
@@ -13,9 +13,9 @@ interface Recip {
   leadId: string | null
   normalizedNumber: string | null
   waId: string | null
-  templateParamsSnapshot: string[]
+  templateParamsSnapshot: Record<string, string>
   status: string
-  metaMessageId: string | null
+  providerMessageId: string | null
   failureCode: string | null
   failureReason: string | null
   attempts: number
@@ -31,8 +31,7 @@ interface Recip {
 interface Bcast {
   id: string
   status: string
-  templateName: string | null
-  templateLanguage: string | null
+  contentSid: string | null
   scheduledAt: Date | null
   queuedAt: Date | null
   startedAt: Date | null
@@ -162,8 +161,8 @@ let leadOptOutOverrides = new Set<string>()
 let visaOptOutOverrides = new Set<string>()
 
 // Credentials are always "present" so the sender reaches the fetch mock.
-process.env.WHATSAPP_PHONE_NUMBER_ID = 'pn-test'
-process.env.WHATSAPP_ACCESS_TOKEN = 'token-test'
+process.env.TWILIO_ACCOUNT_SID = 'AC-test'
+process.env.TWILIO_AUTH_TOKEN = 'token-test'
 
 import {
   processWhatsAppBroadcasts, recomputeBroadcastCounts,
@@ -172,9 +171,13 @@ import {
 
 const NOW = new Date('2026-09-22T12:00:00.000Z')
 
+// A syntactically-valid-looking approved Content SID (HX + 32 hex chars) —
+// matches lib/whatsapp/broadcast/template.ts's CONTENT_SID_RE.
+const TEST_CONTENT_SID = 'HX' + '0'.repeat(32)
+
 function bcast(over: Partial<Bcast> = {}): Bcast {
   return {
-    id: 'b1', status: 'QUEUED', templateName: 'summer_visa_offer', templateLanguage: 'en',
+    id: 'b1', status: 'QUEUED', contentSid: TEST_CONTENT_SID,
     scheduledAt: null, queuedAt: NOW, startedAt: null, completedAt: null, sentAt: null,
     createdAt: NOW, recipientCount: 0, sentCount: 0, deliveredCount: 0, readCount: 0,
     failedCount: 0, skippedCount: 0, ...over,
@@ -184,23 +187,25 @@ function bcast(over: Partial<Bcast> = {}): Bcast {
 function recip(over: Partial<Recip> = {}): Recip {
   return {
     id: 'r1', broadcastId: 'b1', leadId: 'l1', normalizedNumber: '+2348011111111',
-    waId: '2348011111111', templateParamsSnapshot: ['Ada'], status: 'QUEUED',
-    metaMessageId: null, failureCode: null, failureReason: null, attempts: 0,
+    waId: '2348011111111', templateParamsSnapshot: { '1': 'Ada' }, status: 'QUEUED',
+    providerMessageId: null, failureCode: null, failureReason: null, attempts: 0,
     nextAttemptAt: null, queuedAt: NOW, sentAt: null, deliveredAt: null, readAt: null,
     failedAt: null, createdAt: NOW, ...over,
   }
 }
 
-const okFetch = (id = 'wamid.OK') =>
+/** A successful Twilio Messages.json response (201, {sid, status}). */
+const okFetch = (sid = 'SM_OK') =>
   jest.fn(async () => ({
-    ok: true, status: 200,
-    json: async () => ({ messages: [{ id }] }),
+    ok: true, status: 201,
+    json: async () => ({ sid, status: 'queued' }),
   })) as unknown as typeof fetch
 
+/** A failing Twilio Messages.json response ({code, message}, no nested "error"). */
 const errFetch = (status: number, code: number, message = 'nope') =>
   jest.fn(async () => ({
     ok: false, status,
-    json: async () => ({ error: { code, message } }),
+    json: async () => ({ code, message }),
   })) as unknown as typeof fetch
 
 beforeEach(() => {
@@ -283,12 +288,12 @@ describe('idempotent claiming', () => {
 
 // ── The message-id gate ─────────────────────────────────────────────────
 
-describe('a row with a Meta message id is NEVER re-sent', () => {
-  it('refuses to call Meta even when the row was re-queued', async () => {
+describe('a row with a provider message id is NEVER re-sent', () => {
+  it('refuses to call Twilio even when the row was re-queued', async () => {
     broadcasts = [bcast()]
-    // The pathological case: a crash left the row QUEUED after Meta had
-    // already accepted it. The wamid is the proof, and it wins.
-    recipients = [recip({ status: 'QUEUED', metaMessageId: 'wamid.ALREADY' })]
+    // The pathological case: a crash left the row QUEUED after Twilio had
+    // already accepted it. The Message SID is the proof, and it wins.
+    recipients = [recip({ status: 'QUEUED', providerMessageId: 'SM.ALREADY' })]
     const f = okFetch()
 
     const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
@@ -297,19 +302,19 @@ describe('a row with a Meta message id is NEVER re-sent', () => {
     expect(summary.sent).toBe(0)
     expect(summary.skippedAlreadyDispatched).toBe(1)
     expect(recipients[0].status).toBe('SENT')
-    expect(recipients[0].metaMessageId).toBe('wamid.ALREADY')
+    expect(recipients[0].providerMessageId).toBe('SM.ALREADY')
   })
 
   it('the gate is checked before the send call in the source', () => {
     const s = require('fs').readFileSync(
       require('path').join(process.cwd(), 'lib/whatsapp/broadcast/processor.ts'), 'utf8')
-    expect(s.indexOf('if (row.metaMessageId)')).toBeLessThan(s.indexOf('sendBroadcastTemplate({'))
+    expect(s.indexOf('if (row.providerMessageId)')).toBeLessThan(s.indexOf('sendBroadcastTemplate({'))
   })
 })
 
 // ── Retry / backoff ─────────────────────────────────────────────────────
 
-describe('Meta failure handling', () => {
+describe('Twilio failure handling', () => {
   it('a TRANSIENT failure re-queues behind a backoff, keeping the attempt count', async () => {
     broadcasts = [bcast()]
     recipients = [recip()]
@@ -322,7 +327,7 @@ describe('Meta failure handling', () => {
     expect(recipients[0].attempts).toBe(1)
     expect(recipients[0].nextAttemptAt).toBeInstanceOf(Date)
     expect(recipients[0].nextAttemptAt!.getTime()).toBeGreaterThan(Date.now())
-    expect(recipients[0].metaMessageId).toBeNull()
+    expect(recipients[0].providerMessageId).toBeNull()
   })
 
   it('a backed-off row is not picked up before its time', async () => {
@@ -338,12 +343,12 @@ describe('Meta failure handling', () => {
     broadcasts = [bcast()]
     recipients = [recip()]
 
-    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: errFetch(400, 132001, 'template not found') })
+    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: errFetch(400, 63032, 'template not found') })
 
     expect(summary.failed).toBe(1)
     expect(summary.retried).toBe(0)
     expect(recipients[0].status).toBe('FAILED')
-    expect(recipients[0].failureCode).toBe('132001')
+    expect(recipients[0].failureCode).toBe('63032')
     expect(recipients[0].failureReason).toContain('template not found')
   })
 
@@ -364,14 +369,14 @@ describe('Meta failure handling', () => {
     expect(recipients[0].status).toBe('QUEUED')
   })
 
-  it('a 200 with no message id is treated as transient, never as a send', async () => {
+  it('a 200 with no message SID is treated as transient, never as a send', async () => {
     broadcasts = [bcast()]
     recipients = [recip()]
     const weird = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })) as unknown as typeof fetch
     const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: weird })
     expect(summary.sent).toBe(0)
     expect(summary.retried).toBe(1)
-    expect(recipients[0].metaMessageId).toBeNull()
+    expect(recipients[0].providerMessageId).toBeNull()
   })
 })
 
@@ -496,7 +501,7 @@ describe('aggregate count correctness', () => {
   })
 
   it('a broadcast with no template is failed rather than sent as anything else', async () => {
-    broadcasts = [bcast({ templateName: null, templateLanguage: null })]
+    broadcasts = [bcast({ contentSid: null })]
     recipients = [recip()]
     const f = okFetch()
     await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
@@ -516,7 +521,7 @@ describe('aggregate count correctness', () => {
     // deliberately wrong counters here — if this test passes, it is because
     // recomputeBroadcastCounts() actually ran as part of this branch.
     broadcasts = [bcast({
-      templateName: null, templateLanguage: null,
+      contentSid: null,
       recipientCount: 99, sentCount: 7, deliveredCount: 6, readCount: 5, failedCount: 4, skippedCount: 3,
     })]
     recipients = [
@@ -548,32 +553,33 @@ describe('aggregate count correctness', () => {
 
 // ── The payload actually sent ───────────────────────────────────────────
 
-describe('what reaches Meta', () => {
-  it('is a template message on the v20.0 graph endpoint with a Bearer token', async () => {
+describe('what reaches Twilio', () => {
+  it('is an approved Content Template message via Twilio\'s REST API with Basic auth', async () => {
     broadcasts = [bcast()]
-    recipients = [recip({ templateParamsSnapshot: ['Ada', 'July'] })]
+    recipients = [recip({ templateParamsSnapshot: { '1': 'Ada', '2': 'July' } })]
     const f = okFetch()
     await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
 
     const [url, init] = (f as unknown as jest.Mock).mock.calls[0]
-    expect(url).toBe('https://graph.facebook.com/v20.0/pn-test/messages')
-    expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer token-test' })
+    expect(url).toBe('https://api.twilio.com/2010-04-01/Accounts/AC-test/Messages.json')
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: expect.stringContaining('Basic ') })
+    expect((init as RequestInit).headers).toMatchObject({ 'Content-Type': 'application/x-www-form-urlencoded' })
 
-    const body = JSON.parse((init as RequestInit).body as string)
-    expect(body.type).toBe('template')
-    expect(body.text).toBeUndefined()
-    expect(body.to).toBe('2348011111111')
-    expect(body.template.name).toBe('summer_visa_offer')
-    expect(body.template.components[0].parameters.map((p: { text: string }) => p.text)).toEqual(['Ada', 'July'])
+    const body = new URLSearchParams((init as RequestInit).body as string)
+    expect(body.get('To')).toBe('whatsapp:+2348011111111')
+    expect(body.get('ContentSid')).toBe(TEST_CONTENT_SID)
+    expect(JSON.parse(body.get('ContentVariables')!)).toEqual({ '1': 'Ada', '2': 'July' })
+    // No free-text fallback exists on this path at all.
+    expect(body.has('Body')).toBe(false)
   })
 
   it('uses the FROZEN snapshot parameters, never re-derived lead data', async () => {
     broadcasts = [bcast()]
-    recipients = [recip({ templateParamsSnapshot: ['FrozenName'] })]
+    recipients = [recip({ templateParamsSnapshot: { '1': 'FrozenName' } })]
     const f = okFetch()
     await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
-    const body = JSON.parse(((f as unknown as jest.Mock).mock.calls[0][1] as RequestInit).body as string)
-    expect(body.template.components[0].parameters[0].text).toBe('FrozenName')
+    const body = new URLSearchParams(((f as unknown as jest.Mock).mock.calls[0][1] as RequestInit).body as string)
+    expect(JSON.parse(body.get('ContentVariables')!)).toEqual({ '1': 'FrozenName' })
     // WhatsApp Broadcast V1.2: the processor DOES now read the lead row —
     // but ONLY for the pre-dispatch consent recheck's marketingOptOut
     // field, never to re-derive a template parameter. Pin the query shape
@@ -584,11 +590,24 @@ describe('what reaches Meta', () => {
       select: { marketingOptOut: true },
     })
   })
+
+  it('a legacy V1/V1.1 row (array-shaped templateParamsSnapshot) degrades to empty variables rather than throwing', async () => {
+    broadcasts = [bcast()]
+    // Cast past the interface on purpose — this simulates a pre-V1.2.1
+    // row shape that, per processor.ts's doc comment, has zero such rows
+    // in production but must still degrade safely rather than crash.
+    recipients = [recip({ templateParamsSnapshot: ['Ada', 'July'] as unknown as Record<string, string> })]
+    const f = okFetch()
+    const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
+    expect(summary.sent).toBe(1)
+    const body = new URLSearchParams((((f as unknown as jest.Mock).mock.calls[0][1]) as RequestInit).body as string)
+    expect(JSON.parse(body.get('ContentVariables')!)).toEqual({})
+  })
 })
 
 // ── WhatsApp Broadcast V1.2: pre-dispatch consent recheck ────────────────
 describe('pre-dispatch consent recheck (V1.2)', () => {
-  it('excludes a recipient whose WhatsAppConsent flipped to OPTED_OUT after scheduling, without calling Meta', async () => {
+  it('excludes a recipient whose WhatsAppConsent flipped to OPTED_OUT after scheduling, without calling Twilio', async () => {
     broadcasts = [bcast()]
     recipients = [recip()]
     consentOverrides.set('+2348011111111', 'OPTED_OUT')
@@ -598,7 +617,7 @@ describe('pre-dispatch consent recheck (V1.2)', () => {
 
     expect((f as unknown as jest.Mock)).not.toHaveBeenCalled()
     expect(recipients[0].status).toBe('SKIPPED_OPT_OUT')
-    expect(recipients[0].metaMessageId).toBeNull()
+    expect(recipients[0].providerMessageId).toBeNull()
     expect(summary.skippedConsentChangedAtSend).toBe(1)
     expect(summary.sent).toBe(0)
   })
@@ -659,7 +678,7 @@ describe('pre-dispatch consent recheck (V1.2)', () => {
   })
 })
 
-// ── ADVERSARIAL: the recheck-read → Meta-call window ─────────────────────
+// ── ADVERSARIAL: the recheck-read → Twilio-call window ────────────────────
 // V1.2's recheck reads WhatsAppConsent/Lead/VisaApplication, THEN calls
 // sendBroadcastTemplate() (an external HTTP call, so it cannot share a
 // transaction with the read). Anything that opts out in that exact gap is
@@ -671,22 +690,22 @@ describe('pre-dispatch consent recheck (V1.2)', () => {
 // (b) it is strictly smaller than the V1 window it replaces, which was
 // "however long the broadcast sat QUEUED/SCHEDULED", i.e. potentially
 // hours or days with NO recheck at all.
-describe('ADVERSARIAL: recheck-read-to-Meta-call window', () => {
-  it('a real gap exists: an opt-out written DURING the Meta call for THIS recipient still gets sent to (inherent TOCTOU, not a batch-wide gap)', async () => {
+describe('ADVERSARIAL: recheck-read-to-Twilio-call window', () => {
+  it('a real gap exists: an opt-out written DURING the Twilio call for THIS recipient still gets sent to (inherent TOCTOU, not a batch-wide gap)', async () => {
     broadcasts = [bcast()]
     recipients = [recip()]
     // Simulate the opt-out landing at the worst possible instant: exactly
-    // while the Meta HTTP call for this very row is in flight, i.e. AFTER
+    // while the Twilio HTTP call for this very row is in flight, i.e. AFTER
     // the recheck read already returned "still SUBSCRIBED".
     const f = jest.fn(async () => {
       consentOverrides.set('+2348011111111', 'OPTED_OUT')
-      return { ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.RACE' }] }) }
+      return { ok: true, status: 201, json: async () => ({ sid: 'SM.RACE', status: 'queued' }) }
     }) as unknown as typeof fetch
 
     const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
 
     // This message DOES go out — the recheck read happened before the
-    // opt-out was written, and nothing rolls back an already-sent Meta
+    // opt-out was written, and nothing rolls back an already-sent Twilio
     // call. This is the honest, unavoidable shape of the gap: it can only
     // be closed by not sending at all, which is not what a recheck design
     // buys you.
@@ -701,14 +720,15 @@ describe('ADVERSARIAL: recheck-read-to-Meta-call window', () => {
       recip({ id: 'r1', normalizedNumber: '+2348011111111', waId: '2348011111111' }),
       recip({ id: 'r2', normalizedNumber: '+2348022222222', waId: '2348022222222' }),
     ]
-    // r1's OWN Meta call flips consent for r2's number — simulating a
+    // r1's OWN Twilio call flips consent for r2's number — simulating a
     // completely independent event (e.g. r2's number sends an inbound
     // STOP) landing in the gap between the batch being claimed and r2's
     // turn in the sequential dispatch loop.
     const f = jest.fn(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(init.body as string)
-      if (body.to === '2348011111111') consentOverrides.set('+2348022222222', 'OPTED_OUT')
-      return { ok: true, status: 200, json: async () => ({ messages: [{ id: `wamid.${body.to}` }] }) }
+      const body = new URLSearchParams(init.body as string)
+      const to = body.get('To') // "whatsapp:+2348011111111"
+      if (to === 'whatsapp:+2348011111111') consentOverrides.set('+2348022222222', 'OPTED_OUT')
+      return { ok: true, status: 201, json: async () => ({ sid: `SM.${to}`, status: 'queued' }) }
     }) as unknown as typeof fetch
 
     const summary = await processWhatsAppBroadcasts({ now: NOW, fetchImpl: f })
@@ -721,7 +741,7 @@ describe('ADVERSARIAL: recheck-read-to-Meta-call window', () => {
     expect(recipients.find(r => r.id === 'r2')!.status).toBe('SKIPPED_OPT_OUT')
     expect(summary.sent).toBe(1)
     expect(summary.skippedConsentChangedAtSend).toBe(1)
-    // Only ONE Meta call was made — r2 was never dispatched to.
+    // Only ONE Twilio call was made — r2 was never dispatched to.
     expect((f as unknown as jest.Mock)).toHaveBeenCalledTimes(1)
   })
 })

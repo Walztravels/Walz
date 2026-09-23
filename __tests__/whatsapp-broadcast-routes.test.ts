@@ -40,9 +40,8 @@ interface Bcast {
   message: string
   status: string
   targetFilter: Record<string, string>
-  templateName: string | null
-  templateLanguage: string | null
-  templateParams: unknown
+  contentSid: string | null
+  contentVariables: unknown
   scheduledAt: Date | null
   recipientCount: number
   skippedCount: number
@@ -134,10 +133,14 @@ function lead(over: Record<string, unknown> = {}) {
   }
 }
 
+// A syntactically-valid-looking approved Content SID (HX + 32 hex chars) —
+// matches lib/whatsapp/broadcast/template.ts's CONTENT_SID_RE.
+const TEST_CONTENT_SID = 'HX' + '2'.repeat(32)
+
 function bcast(over: Partial<Bcast> = {}): Bcast {
   return {
     id: 'b1', name: 'Campaign', message: 'internal', status: 'DRAFT', targetFilter: {},
-    templateName: 'summer_visa_offer', templateLanguage: 'en', templateParams: [],
+    contentSid: TEST_CONTENT_SID, contentVariables: {},
     scheduledAt: null, recipientCount: 0, skippedCount: 0, failedCount: 0,
     queuedAt: null, snapshotAt: null, approvedBy: null, audienceSnapshot: null,
     cancelledAt: null, cancelledBy: null, ...over,
@@ -148,10 +151,10 @@ beforeEach(() => {
   jest.clearAllMocks()
   broadcasts = []; leads = []; consents = []; createdRecipients = []; recipientRows = []
   mockSession.mockResolvedValue(SUPER)
-  process.env.WHATSAPP_PHONE_NUMBER_ID = 'pn'
-  process.env.WHATSAPP_ACCESS_TOKEN = 'tok'
-  process.env.WHATSAPP_APP_SECRET = 'sec'
-  process.env.WHATSAPP_WEBHOOK_SECRET = 'wh'
+  // WhatsApp Broadcast V1.2.1: readiness/send-gating now checks Twilio's
+  // credentials, not Meta's — see lib/whatsapp/config.ts.
+  process.env.TWILIO_ACCOUNT_SID = 'AC-test'
+  process.env.TWILIO_AUTH_TOKEN = 'tok'
 })
 
 // ── RBAC ────────────────────────────────────────────────────────────────
@@ -212,40 +215,41 @@ describe('RBAC — the pre-existing marketing_whatsapp_broadcast permission', ()
 
 describe('the readiness endpoint', () => {
   it('reports PRESENT/MISSING without leaking any value', async () => {
-    process.env.WHATSAPP_ACCESS_TOKEN = 'super-secret-token-value'
+    process.env.TWILIO_AUTH_TOKEN = 'super-secret-token-value'
     const res = (await (readinessGET() as unknown as Promise<Response>))
     const body = await res.json()
 
     expect(body.canSend).toBe(true)
     expect(body.canReceiveStatusCallbacks).toBe(true)
     expect(body.checks).toEqual({
-      phoneNumberId: 'PRESENT', accessToken: 'PRESENT', appSecret: 'PRESENT', webhookSecret: 'PRESENT',
+      twilioAccountSid: 'PRESENT', twilioAuthToken: 'PRESENT',
     })
     expect(body.missing).toEqual([])
     expect(JSON.stringify(body)).not.toContain('super-secret-token-value')
-    expect(JSON.stringify(body)).not.toContain('pn')
+    expect(JSON.stringify(body)).not.toContain('AC-test')
   })
 
   it('names the MISSING variables only, never a value', async () => {
-    delete process.env.WHATSAPP_ACCESS_TOKEN
-    delete process.env.WHATSAPP_WEBHOOK_SECRET
+    delete process.env.TWILIO_ACCOUNT_SID
+    delete process.env.TWILIO_AUTH_TOKEN
     const body = await (await (readinessGET() as unknown as Promise<Response>)).json()
 
     expect(body.canSend).toBe(false)
     expect(body.canReceiveStatusCallbacks).toBe(false)
-    expect(body.checks.accessToken).toBe('MISSING')
-    expect(body.missing.sort()).toEqual(['WHATSAPP_ACCESS_TOKEN', 'WHATSAPP_WEBHOOK_SECRET'])
+    expect(body.checks.twilioAuthToken).toBe('MISSING')
+    expect(body.missing.sort()).toEqual(['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN'])
   })
 
-  it('falls back to META_APP_SECRET, as the webhook does', async () => {
-    delete process.env.WHATSAPP_APP_SECRET
-    process.env.META_APP_SECRET = 'fallback'
-    const body = await (await (readinessGET() as unknown as Promise<Response>)).json()
-    expect(body.checks.appSecret).toBe('PRESENT')
-    delete process.env.META_APP_SECRET
-  })
+  // WhatsApp Broadcast V1.2.1: the old Meta-specific
+  // WHATSAPP_APP_SECRET/META_APP_SECRET fallback this test covered lived
+  // in the now-removed getMetaAppSecret() — Twilio signs with the SAME
+  // Auth Token used to send, so there is no second credential or fallback
+  // left to test here. See lib/whatsapp/config.ts's canReceiveStatusCallbacks
+  // doc comment. Coverage of the app/api/webhooks/whatsapp/route.ts legacy
+  // Meta webhook's OWN (untouched, unrelated) app-secret fallback is not
+  // this file's concern.
 
-  it('never claims Meta template approval was verified', async () => {
+  it('never claims template approval was verified structurally — that can only be confirmed against a live account', async () => {
     const body = await (await (readinessGET() as unknown as Promise<Response>)).json()
     expect(body.templateApprovalVerified).toBe(false)
   })
@@ -281,7 +285,7 @@ describe('campaign CRUD refuses to be a send trigger', () => {
 
   it('POST rejects an invalid template rather than storing it', async () => {
     const res = (await (createPOST(req({
-      name: 'n', message: 'm', templateName: 'Bad Name', templateLanguage: 'english',
+      name: 'n', message: 'm', contentSid: 'not-a-valid-sid',
     })) as unknown as Promise<Response>))
     expect(res.status).toBe(422)
     expect((await res.json()).details.length).toBeGreaterThan(0)
@@ -373,7 +377,7 @@ describe('schedule — the snapshot and its guards', () => {
   })
 
   it('a MISSING template blocks scheduling with a clear, non-degrading error', async () => {
-    broadcasts = [bcast({ templateName: null, templateLanguage: null })]
+    broadcasts = [bcast({ contentSid: null })]
     const res = (await (schedulePOST(req({ mode: 'send' }), { params: { id: 'b1' } }) as unknown as Promise<Response>))
     const body = await res.json()
     expect(res.status).toBe(422)
@@ -383,7 +387,7 @@ describe('schedule — the snapshot and its guards', () => {
   })
 
   it('a MALFORMED template blocks scheduling', async () => {
-    broadcasts = [bcast({ templateName: 'Bad Name', templateLanguage: 'english' })]
+    broadcasts = [bcast({ contentSid: 'not-a-valid-sid' })]
     const res = (await (schedulePOST(req({ mode: 'send' }), { params: { id: 'b1' } }) as unknown as Promise<Response>))
     expect(res.status).toBe(422)
     expect(createdRecipients).toHaveLength(0)
@@ -401,10 +405,10 @@ describe('schedule — the snapshot and its guards', () => {
   })
 
   it('refuses to queue when the server has no send credentials', async () => {
-    delete process.env.WHATSAPP_ACCESS_TOKEN
+    delete process.env.TWILIO_AUTH_TOKEN
     const res = (await (schedulePOST(req({ mode: 'send' }), { params: { id: 'b1' } }) as unknown as Promise<Response>))
     expect(res.status).toBe(503)
-    expect((await res.json()).missing).toContain('WHATSAPP_ACCESS_TOKEN')
+    expect((await res.json()).missing).toContain('TWILIO_AUTH_TOKEN')
   })
 
   it('a stale confirmed count is refused — the audience is re-checked server-side', async () => {
@@ -520,9 +524,10 @@ describe('Jade can never trigger a send', () => {
       expect(s).not.toContain('tool_choice')
       expect(s).not.toMatch(/JADE_[A-Z_]*TOOL/)
     }
-    // The sender's URL is hard-coded — nothing supplies it.
-    expect(read('lib/whatsapp/broadcast/sender.ts'))
-      .toContain('`https://graph.facebook.com/${GRAPH_VERSION}/${creds.phoneNumberId}/messages`')
+    // The destination URL is hard-coded in the shared Twilio helper —
+    // nothing Jade (or any other caller) supplies reaches it.
+    expect(read('lib/twilio-whatsapp.ts'))
+      .toContain('https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json')
   })
 
   it('the only send path is a CRON_SECRET-gated route over already-approved rows', () => {
@@ -545,7 +550,14 @@ describe('Jade can never trigger a send', () => {
 // ── Protected workstreams ───────────────────────────────────────────────
 
 describe('protected workstreams are untouched', () => {
-  it('Twilio is nowhere in the broadcast path', () => {
+  // WhatsApp Broadcast V1.2.1: a provider audit found Broadcast/OTP had
+  // been built against direct Meta Cloud API credentials while the rest of
+  // Walz's WhatsApp infrastructure already ran through Twilio, and this
+  // release corrected that — so "Twilio is nowhere in the broadcast path"
+  // is now the WRONG invariant; the codebase deliberately inverted it. The
+  // invariant actually worth protecting going forward is the opposite one:
+  // no direct Meta Cloud API call is left anywhere in the broadcast path.
+  it('no direct Meta Cloud API call remains anywhere in the broadcast path — Twilio is now the sole provider', () => {
     const walk = (dir: string, out: string[] = []): string[] => {
       const abs = path.join(process.cwd(), dir)
       for (const e of fs.readdirSync(abs, { withFileTypes: true })) {
@@ -561,17 +573,26 @@ describe('protected workstreams are untouched', () => {
       'app/admin/marketing/whatsapp/page.tsx',
     ]
     for (const f of files) {
-      expect(read(f).toLowerCase()).not.toContain('twilio')
+      // readCode() strips comments — this file's own header and
+      // lib/whatsapp/broadcast/sender.ts's header legitimately DISCUSS the
+      // replaced graph.facebook.com sender in prose; only executable code
+      // must be clean.
+      expect(readCode(f)).not.toContain('graph.facebook.com')
     }
   })
 
-  it('the Jade daily-brief Twilio integration is byte-identical to HEAD', () => {
-    // Guarded by the git check in the release report; here we assert the
-    // broadcast feature does not import it.
+  it('the Jade daily-brief WhatsApp cron is a separate caller of the SAME shared Twilio helper, not something this feature wraps or depends on', () => {
+    // Both Broadcast and the Jade daily brief now call
+    // lib/twilio-whatsapp.ts — that is REUSE of one shared credential/send
+    // helper, not a dependency between the two features. Neither imports
+    // the other.
     for (const f of ['lib/whatsapp/broadcast/sender.ts', 'lib/whatsapp/broadcast/processor.ts']) {
-      expect(read(f)).not.toContain('twilio-whatsapp')
       expect(read(f)).not.toContain('jade-brief-whatsapp')
+      expect(read(f)).not.toContain('lib/jade/brief-email')
     }
+    const brief = read('app/api/cron/jade-brief-whatsapp/route.ts')
+    expect(brief).not.toContain('whatsapp/broadcast')
+    expect(brief).not.toContain('whatsAppBroadcast')
   })
 
   it('the 1:1 Inbox send route is not imported or wrapped by this feature', () => {

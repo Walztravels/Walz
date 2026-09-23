@@ -290,14 +290,14 @@ describe('cross-source de-duplication', () => {
     const { recipients } = await resolveMultiSourceAudience({
       selection: { leadIds: ['l1'], visaApplicationIds: ['v1'] },
       template: {
-        name: 'x', language: 'en',
-        params: [{ type: 'lead_field', field: 'name' }, { type: 'lead_field', field: 'destination' }],
+        contentSid: 'HX98c6c9a03dc7155b1b743e09de56b9b2',
+        variables: { '1': { type: 'lead_field', field: 'name' }, '2': { type: 'lead_field', field: 'destination' } },
       },
     })
 
     // Lead wins `destination`; the Lead's null `name` falls through to the
     // visa applicant's real name rather than failing the send.
-    expect(recipients[0].templateParamsSnapshot).toEqual(['Ada Obi', 'Paris'])
+    expect(recipients[0].templateParamsSnapshot).toEqual({ '1': 'Ada Obi', '2': 'Paris' })
   })
 })
 

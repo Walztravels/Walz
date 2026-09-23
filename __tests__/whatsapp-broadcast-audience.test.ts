@@ -200,21 +200,20 @@ describe('duplicate-recipient handling', () => {
 
 describe('audience resolution — template parameter snapshotting', () => {
   const template = {
-    name: 'summer_visa_offer',
-    language: 'en',
-    params: [
-      { type: 'lead_field' as const, field: 'name' as const, fallback: 'there' },
-      { type: 'static' as const, value: 'July' },
-    ],
+    contentSid: 'HX98c6c9a03dc7155b1b743e09de56b9b2',
+    variables: {
+      '1': { type: 'lead_field' as const, field: 'name' as const, fallback: 'there' },
+      '2': { type: 'static' as const, value: 'July' },
+    },
   }
 
-  it('freezes resolved parameter VALUES onto each eligible recipient', async () => {
+  it('freezes resolved variable VALUES onto each eligible recipient', async () => {
     leadStore = [lead({ id: 'a', name: 'Ada', whatsapp: '+2348011111111' })]
     consentStore = [subscribed('+2348011111111')]
 
     const { recipients } = await resolveAudience({ filter: {}, template })
-    expect(recipients[0].templateParamsSnapshot).toEqual(['Ada', 'July'])
-    expect(recipients[0].waId).toBe('2348011111111')   // Meta's no-'+' form
+    expect(recipients[0].templateParamsSnapshot).toEqual({ '1': 'Ada', '2': 'July' })
+    expect(recipients[0].waId).toBe('2348011111111')   // no leading '+'
     expect(recipients[0].status).toBe('QUEUED')
   })
 
@@ -222,11 +221,11 @@ describe('audience resolution — template parameter snapshotting', () => {
     leadStore = [lead({ id: 'a', name: null, whatsapp: '+2348011111111' })]
     consentStore = [subscribed('+2348011111111')]
     const { recipients } = await resolveAudience({ filter: {}, template })
-    expect(recipients[0].templateParamsSnapshot).toEqual(['there', 'July'])
+    expect(recipients[0].templateParamsSnapshot).toEqual({ '1': 'there', '2': 'July' })
   })
 
-  it('an unresolvable parameter FAILS that recipient — never a half-rendered send', async () => {
-    const noFallback = { ...template, params: [{ type: 'lead_field' as const, field: 'destination' as const }] }
+  it('an unresolvable variable FAILS that recipient — never a half-rendered send', async () => {
+    const noFallback = { ...template, variables: { '1': { type: 'lead_field' as const, field: 'destination' as const } } }
     leadStore = [lead({ id: 'a', destination: null, whatsapp: '+2348011111111' })]
     consentStore = [subscribed('+2348011111111')]
 
@@ -234,14 +233,14 @@ describe('audience resolution — template parameter snapshotting', () => {
     expect(breakdown.templateUnresolvable).toBe(1)
     expect(breakdown.eligible).toBe(0)
     expect(recipients[0].status).toBe('FAILED')
-    expect(recipients[0].templateParamsSnapshot).toEqual([])
+    expect(recipients[0].templateParamsSnapshot).toEqual({})
   })
 
   it('skipped recipients carry no parameters and no waId', async () => {
     leadStore = [lead({ id: 'a', whatsapp: '+2348011111111', marketingOptOut: true })]
     const { recipients } = await resolveAudience({ filter: {}, template })
     expect(recipients[0].status).toBe('SKIPPED_OPT_OUT')
-    expect(recipients[0].templateParamsSnapshot).toEqual([])
+    expect(recipients[0].templateParamsSnapshot).toEqual({})
     expect(recipients[0].waId).toBeNull()
   })
 })

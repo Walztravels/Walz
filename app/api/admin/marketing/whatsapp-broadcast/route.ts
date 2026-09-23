@@ -51,9 +51,8 @@ export async function POST(req: NextRequest) {
     mediaUrl?: string
     targetFilter?: unknown
     audienceSelection?: unknown
-    templateName?: string
-    templateLanguage?: string
-    templateParams?: unknown
+    contentSid?: string
+    variables?: unknown
     templateCategory?: unknown
     scheduledAt?: string
   }
@@ -69,28 +68,25 @@ export async function POST(req: NextRequest) {
 
   // A template may be supplied at creation or added later; it is only
   // MANDATORY at schedule time. Validate whatever was given.
-  let templateName: string | null = null
-  let templateLanguage: string | null = null
-  let templateParams: unknown = []
-  if (body.templateName || body.templateLanguage || body.templateParams) {
+  let contentSid: string | null = null
+  let contentVariables: unknown = {}
+  if (body.contentSid || body.variables) {
     const validation = validateTemplateDefinition({
-      name: body.templateName,
-      language: body.templateLanguage,
-      params: body.templateParams,
+      contentSid: body.contentSid,
+      variables: body.variables,
     })
     if (!validation.ok) {
       return NextResponse.json({ error: 'Template is not valid', details: validation.errors }, { status: 422 })
     }
-    templateName = validation.definition!.name
-    templateLanguage = validation.definition!.language
-    templateParams = validation.definition!.params
+    contentSid = validation.definition!.contentSid
+    contentVariables = validation.definition!.variables
   }
 
   const broadcast = await prisma.whatsAppBroadcast.create({
     data: {
       name: body.name.trim(),
-      // Internal description of the campaign. NEVER sent to Meta — the
-      // outbound payload is always the approved template.
+      // Internal description of the campaign. NEVER sent to Twilio — the
+      // outbound payload is always the approved Content Template.
       message: body.message.trim(),
       mediaUrl: body.mediaUrl?.trim() || null,
       targetFilter: parseTargetFilter(body.targetFilter) as object,
@@ -99,9 +95,8 @@ export async function POST(req: NextRequest) {
       // to a record, a name, a count or an eligibility claim. Re-resolved
       // against the live database on every preview and at snapshot time.
       audienceSelection: parseAudienceSelection(body.audienceSelection) as object,
-      templateName,
-      templateLanguage,
-      templateParams: templateParams as object,
+      contentSid,
+      contentVariables: contentVariables as object,
       // RECORDED FOR BOOKKEEPING ONLY. Never read by any eligibility code
       // path — see lib/whatsapp/broadcast/sources.ts.
       templateCategory: parseTemplateCategory(body.templateCategory),
@@ -127,9 +122,8 @@ export async function PATCH(req: NextRequest) {
     mediaUrl?: string | null
     targetFilter?: unknown
     audienceSelection?: unknown
-    templateName?: string
-    templateLanguage?: string
-    templateParams?: unknown
+    contentSid?: string
+    variables?: unknown
     templateCategory?: unknown
     scheduledAt?: string | null
   }
@@ -168,18 +162,16 @@ export async function PATCH(req: NextRequest) {
   if (body.templateCategory !== undefined) data.templateCategory = parseTemplateCategory(body.templateCategory)
   if (body.scheduledAt !== undefined) data.scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : null
 
-  if (body.templateName !== undefined || body.templateLanguage !== undefined || body.templateParams !== undefined) {
+  if (body.contentSid !== undefined || body.variables !== undefined) {
     const validation = validateTemplateDefinition({
-      name: body.templateName,
-      language: body.templateLanguage,
-      params: body.templateParams,
+      contentSid: body.contentSid,
+      variables: body.variables,
     })
     if (!validation.ok) {
       return NextResponse.json({ error: 'Template is not valid', details: validation.errors }, { status: 422 })
     }
-    data.templateName = validation.definition!.name
-    data.templateLanguage = validation.definition!.language
-    data.templateParams = validation.definition!.params
+    data.contentSid = validation.definition!.contentSid
+    data.contentVariables = validation.definition!.variables
   }
 
   // NOTE: there is intentionally no `status` branch. Status changes happen

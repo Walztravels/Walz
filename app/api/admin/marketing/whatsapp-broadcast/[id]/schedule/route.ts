@@ -80,17 +80,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // ── Template is MANDATORY before anything is queued. No fallback. ─────
   const templateValidation = validateTemplateDefinition({
-    name: broadcast.templateName,
-    language: broadcast.templateLanguage,
-    params: broadcast.templateParams,
+    contentSid: broadcast.contentSid,
+    variables: broadcast.contentVariables,
   })
   if (!templateValidation.ok) {
     return NextResponse.json(
       {
-        error: 'This broadcast cannot be sent: its Meta template is missing or invalid.',
+        error: 'This broadcast cannot be sent: its WhatsApp template is missing or invalid.',
         details: templateValidation.errors,
         // Said plainly so nobody expects a graceful degradation.
-        note: 'Broadcasts are only ever sent as approved Meta templates. There is no free-text fallback.',
+        note: 'Broadcasts are only ever sent as approved WhatsApp templates. There is no free-text fallback.',
       },
       { status: 422 },
     )
@@ -132,7 +131,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     displayName: string | null
     normalizedNumber: string | null
     waId: string | null
-    templateParamsSnapshot: string[]
+    templateParamsSnapshot: Record<string, string>
     status: string
   }
 

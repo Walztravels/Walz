@@ -14,7 +14,6 @@ import { normalizePhoneE164 } from '@/lib/identity/normalize'
 import {
   validateTemplateDefinition,
   resolveTemplateParams,
-  buildTemplatePayload,
   MAX_TEMPLATE_PARAMS,
 } from '@/lib/whatsapp/broadcast/template'
 import {
@@ -22,7 +21,7 @@ import {
   canTransitionRecipient, isForwardProgress, BROADCAST_STATUSES, RECIPIENT_STATUSES,
 } from '@/lib/whatsapp/broadcast/lifecycle'
 import { matchesCountry, parseTargetFilter, maskNumber } from '@/lib/whatsapp/broadcast/audience'
-import { classifyMetaError } from '@/lib/whatsapp/broadcast/sender'
+import { classifyTwilioError } from '@/lib/whatsapp/broadcast/sender'
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 
@@ -171,93 +170,66 @@ describe('derived country filter', () => {
 // ── Template validation ─────────────────────────────────────────────────
 
 describe('template validation blocks scheduling', () => {
-  const ok = { name: 'summer_visa_offer', language: 'en_US', params: [] }
+  const CONTENT_SID = 'HX98c6c9a03dc7155b1b743e09de56b9b2'
+  const ok = { contentSid: CONTENT_SID, variables: {} }
 
   it('accepts a well-formed definition', () => {
     const r = validateTemplateDefinition(ok)
     expect(r.ok).toBe(true)
-    expect(r.definition).toEqual({ name: 'summer_visa_offer', language: 'en_US', params: [] })
+    expect(r.definition).toEqual({ contentSid: CONTENT_SID, variables: {} })
   })
 
-  it('a MISSING template name is rejected', () => {
-    const r = validateTemplateDefinition({ language: 'en', params: [] })
+  it('a MISSING content SID is rejected', () => {
+    const r = validateTemplateDefinition({ variables: {} })
     expect(r.ok).toBe(false)
     expect(r.definition).toBeNull()
-    expect(r.errors.join(' ')).toMatch(/Template name is required/)
+    expect(r.errors.join(' ')).toMatch(/WhatsApp template is required/)
   })
 
-  it('a MALFORMED template name is rejected', () => {
-    expect(validateTemplateDefinition({ ...ok, name: 'Summer Visa Offer' }).ok).toBe(false)
-    expect(validateTemplateDefinition({ ...ok, name: 'summer-visa' }).ok).toBe(false)
+  it('a MALFORMED content SID is rejected', () => {
+    expect(validateTemplateDefinition({ ...ok, contentSid: 'not-a-sid' }).ok).toBe(false)
+    expect(validateTemplateDefinition({ ...ok, contentSid: 'HXshort' }).ok).toBe(false)
+    expect(validateTemplateDefinition({ ...ok, contentSid: 'summer_visa_offer' }).ok).toBe(false)
   })
 
-  it('a malformed language is rejected', () => {
-    expect(validateTemplateDefinition({ ...ok, language: 'english' }).ok).toBe(false)
-    expect(validateTemplateDefinition({ ...ok, language: '' }).ok).toBe(false)
-  })
-
-  it('malformed parameters are rejected, and every problem is reported at once', () => {
+  it('malformed variables are rejected, and every problem is reported at once', () => {
     const r = validateTemplateDefinition({
-      name: 'BAD NAME', language: 'english',
-      params: [{ type: 'static', value: '' }, { type: 'lead_field', field: 'salary' }, 'nope'],
+      contentSid: 'BAD SID',
+      variables: { '1': { type: 'static', value: '' }, '2': { type: 'lead_field', field: 'salary' }, '3': 'nope' },
     })
     expect(r.ok).toBe(false)
     expect(r.errors.length).toBeGreaterThanOrEqual(4)
   })
 
-  it('rejects characters Meta rejects inside a parameter', () => {
-    expect(validateTemplateDefinition({ ...ok, params: [{ type: 'static', value: 'line\nbreak' }] }).ok).toBe(false)
-    expect(validateTemplateDefinition({ ...ok, params: [{ type: 'static', value: 'four    spaces' }] }).ok).toBe(false)
+  it('rejects characters WhatsApp rejects inside a variable', () => {
+    expect(validateTemplateDefinition({ ...ok, variables: { '1': { type: 'static', value: 'line\nbreak' } } }).ok).toBe(false)
+    expect(validateTemplateDefinition({ ...ok, variables: { '1': { type: 'static', value: 'four    spaces' } } }).ok).toBe(false)
   })
 
-  it('rejects more parameters than Meta allows', () => {
-    const many = Array.from({ length: MAX_TEMPLATE_PARAMS + 1 }, () => ({ type: 'static', value: 'x' }))
-    expect(validateTemplateDefinition({ ...ok, params: many }).ok).toBe(false)
+  it('rejects more variables than the practical cap allows', () => {
+    const many = Object.fromEntries(Array.from({ length: MAX_TEMPLATE_PARAMS + 1 }, (_, i) => [String(i + 1), { type: 'static', value: 'x' }]))
+    expect(validateTemplateDefinition({ ...ok, variables: many }).ok).toBe(false)
   })
 
-  it('resolves lead fields, applies fallbacks, and reports unresolvable positions', () => {
-    const params = [
-      { type: 'lead_field' as const, field: 'name' as const, fallback: 'there' },
-      { type: 'static' as const, value: 'July' },
-      { type: 'lead_field' as const, field: 'destination' as const },
-    ]
-    expect(resolveTemplateParams(params, { name: 'Ada', destination: 'London' }))
-      .toEqual({ values: ['Ada', 'July', 'London'], missing: [] })
+  it('resolves lead fields, applies fallbacks, and reports unresolvable keys', () => {
+    const variables = {
+      '1': { type: 'lead_field' as const, field: 'name' as const, fallback: 'there' },
+      '2': { type: 'static' as const, value: 'July' },
+      '3': { type: 'lead_field' as const, field: 'destination' as const },
+    }
+    expect(resolveTemplateParams(variables, { name: 'Ada', destination: 'London' }))
+      .toEqual({ values: { '1': 'Ada', '2': 'July', '3': 'London' }, missing: [] })
     // Missing name falls back; missing destination has no fallback → reported.
-    expect(resolveTemplateParams(params, { name: '  ', destination: null }))
-      .toEqual({ values: ['there', 'July', ''], missing: [3] })
+    expect(resolveTemplateParams(variables, { name: '  ', destination: null }))
+      .toEqual({ values: { '1': 'there', '2': 'July', '3': '' }, missing: ['3'] })
   })
 })
 
 describe('the no-free-text-fallback guarantee', () => {
-  it('buildTemplatePayload always emits type:"template" with the Meta shape', () => {
-    const payload = buildTemplatePayload({
-      to: '2348012345678', templateName: 'summer_visa_offer', templateLanguage: 'en_US',
-      paramValues: ['Ada', 'July'],
-    })
-    expect(payload).toEqual({
-      messaging_product: 'whatsapp',
-      recipient_type: 'individual',
-      to: '2348012345678',
-      type: 'template',
-      template: {
-        name: 'summer_visa_offer',
-        language: { code: 'en_US' },
-        components: [{ type: 'body', parameters: [{ type: 'text', text: 'Ada' }, { type: 'text', text: 'July' }] }],
-      },
-    })
-  })
-
-  it('a parameterless template omits components but stays a template', () => {
-    const payload = buildTemplatePayload({ to: '1', templateName: 't', templateLanguage: 'en', paramValues: [] })
-    expect(payload.type).toBe('template')
-    expect(payload.template.components).toBeUndefined()
-  })
-
-  it('NO broadcast module can emit a free-form MESSAGE payload', () => {
-    // A message-level free-text send is `messaging_product` + `type:'text'`
-    // + `text: { body }`. (`{ type: 'text', text }` inside a template's
-    // body components is a template PARAMETER and is required.)
+  it('NO broadcast module can emit a free-form Twilio Body send', () => {
+    // A free-text Twilio send sets `Body` with no `ContentSid`. Every
+    // broadcast module must only ever build a ContentSid + ContentVariables
+    // request.
     for (const f of [
       'lib/whatsapp/broadcast/template.ts',
       'lib/whatsapp/broadcast/sender.ts',
@@ -265,17 +237,14 @@ describe('the no-free-text-fallback guarantee', () => {
       'lib/whatsapp/broadcast/audience.ts',
     ]) {
       const s = read(f)
-      expect(s).not.toMatch(/text:\s*\{\s*body/)
-      expect(s).not.toMatch(/type:\s*['"]text['"]\s*,\s*\n\s*text:/)
+      expect(s).not.toMatch(/params\.set\(['"]Body['"]/)
     }
-    // And the one payload builder hard-codes the literal.
-    expect(read('lib/whatsapp/broadcast/template.ts')).toContain("type: 'template',")
   })
 
-  it('the sender has exactly one payload builder and it is the template one', () => {
+  it('the sender calls the Content Template sender, never the free-form one', () => {
     const s = read('lib/whatsapp/broadcast/sender.ts')
-    expect(s).toContain('buildTemplatePayload')
-    expect(s).not.toContain('text: { body')
+    expect(s).toContain('sendWhatsAppContentTemplate')
+    expect(s).not.toContain('sendWhatsAppBody')
   })
 })
 
@@ -433,31 +402,31 @@ describe('the Prisma schema and the hand-run migration agree', () => {
   })
 })
 
-// ── Meta error classification ───────────────────────────────────────────
+// ── Twilio error classification ─────────────────────────────────────────
 
-describe('Meta API failure classification', () => {
+describe('Twilio API failure classification', () => {
   it('treats rate limits and 5xx as TRANSIENT (retryable)', () => {
-    expect(classifyMetaError({ httpStatus: 429, code: 130429, message: 'rate limit' }).kind).toBe('TRANSIENT')
-    expect(classifyMetaError({ httpStatus: 500, code: null, message: 'boom' }).kind).toBe('TRANSIENT')
-    expect(classifyMetaError({ httpStatus: 503, code: 1, message: 'unknown' }).kind).toBe('TRANSIENT')
-    expect(classifyMetaError({ httpStatus: 400, code: 80007, message: 'throttled' }).kind).toBe('TRANSIENT')
+    expect(classifyTwilioError({ httpStatus: 429, code: 20429, message: 'rate limit' }).kind).toBe('TRANSIENT')
+    expect(classifyTwilioError({ httpStatus: 500, code: null, message: 'boom' }).kind).toBe('TRANSIENT')
+    expect(classifyTwilioError({ httpStatus: 503, code: 1, message: 'unknown' }).kind).toBe('TRANSIENT')
+    expect(classifyTwilioError({ httpStatus: 400, code: 21611, message: 'throttled' }).kind).toBe('TRANSIENT')
   })
 
   it('treats template and recipient errors as PERMANENT (never retried)', () => {
-    expect(classifyMetaError({ httpStatus: 400, code: 132001, message: 'template not found' }).kind).toBe('PERMANENT')
-    expect(classifyMetaError({ httpStatus: 400, code: 132000, message: 'param mismatch' }).kind).toBe('PERMANENT')
-    expect(classifyMetaError({ httpStatus: 400, code: 132015, message: 'paused' }).kind).toBe('PERMANENT')
-    expect(classifyMetaError({ httpStatus: 400, code: 131026, message: 'undeliverable' }).kind).toBe('PERMANENT')
-    expect(classifyMetaError({ httpStatus: 401, code: 190, message: 'token expired' }).kind).toBe('PERMANENT')
-    expect(classifyMetaError({ httpStatus: 403, code: 10, message: 'permission' }).kind).toBe('PERMANENT')
+    expect(classifyTwilioError({ httpStatus: 400, code: 63032, message: 'template not found' }).kind).toBe('PERMANENT')
+    expect(classifyTwilioError({ httpStatus: 400, code: 63015, message: 'template mismatch' }).kind).toBe('PERMANENT')
+    expect(classifyTwilioError({ httpStatus: 400, code: 21610, message: 'opted out' }).kind).toBe('PERMANENT')
+    expect(classifyTwilioError({ httpStatus: 400, code: 21211, message: 'invalid to' }).kind).toBe('PERMANENT')
+    expect(classifyTwilioError({ httpStatus: 401, code: 20003, message: 'auth failed' }).kind).toBe('PERMANENT')
+    expect(classifyTwilioError({ httpStatus: 403, code: 20003, message: 'permission' }).kind).toBe('PERMANENT')
   })
 
   it('an unknown 4xx code biases to TRANSIENT, bounded by the attempt cap', () => {
-    expect(classifyMetaError({ httpStatus: 400, code: 999999, message: 'who knows' }).kind).toBe('TRANSIENT')
+    expect(classifyTwilioError({ httpStatus: 400, code: 999999, message: 'who knows' }).kind).toBe('TRANSIENT')
   })
 
-  it('never echoes more than 300 characters of Meta’s message', () => {
+  it('never echoes more than 300 characters of Twilio’s message', () => {
     const long = 'x'.repeat(5000)
-    expect(classifyMetaError({ httpStatus: 400, code: 1, message: long }).reason.length).toBe(300)
+    expect(classifyTwilioError({ httpStatus: 400, code: 1, message: long }).reason.length).toBe(300)
   })
 })

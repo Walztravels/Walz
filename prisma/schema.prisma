@@ -3671,15 +3671,33 @@ model WhatsAppBroadcast {
   failedCount    Int       @default(0)
   skippedCount   Int       @default(0)
 
-  // ── V1: Meta approved-template definition ────────────────────────────
-  // A broadcast is ALWAYS sent as type:'template'. There is no free-form
-  // fallback anywhere in the send path.
+  // ── V1: Meta approved-template definition — LEGACY, V1/V1.1 ONLY ─────
+  // WhatsApp Broadcast V1.2.1 moved sending to Twilio (see contentSid
+  // below); no new code path writes these three columns. Kept, unmodified,
+  // for read-compatibility with any historical V1/V1.1 broadcast row that
+  // used them — deleting them would be a destructive, non-additive change
+  // this release does not need to make.
   templateName     String?
   templateLanguage String?
   // Ordered body-parameter MAPPING (not values): an array of
   // { type:'lead_field', field:'name', fallback?:string } | { type:'static', value:string }.
   // Resolved per-recipient into templateParamsSnapshot at approval time.
   templateParams   Json      @default("[]")
+  // ── V1.2.1: Twilio approved Content Template ─────────────────────────
+  // The Twilio Content SID (e.g. "HX...") staff selected for this
+  // broadcast, from the server-side approved-template catalogue — see
+  // app/api/admin/marketing/whatsapp-broadcast/templates/route.ts. A
+  // broadcast is ALWAYS sent as an approved Content Template; there is no
+  // free-form fallback anywhere in the Twilio send path either.
+  contentSid       String?
+  // Named-variable MAPPING for the content template: { [variableKey]:
+  // { type:'lead_field', field:'name', fallback?:string } | { type:'static', value:string } }.
+  // Twilio Content Templates declare their own variable keys (commonly
+  // "1","2",... but template-defined), so this is a plain object keyed by
+  // whatever the selected template actually declares — resolved
+  // per-recipient into templateParamsSnapshot (now an object, not an
+  // array) at approval time.
+  contentVariables Json      @default("{}")
 
   // ── V1: the approved audience SNAPSHOT summary ───────────────────────
   // The full computed preview breakdown, frozen at approve/schedule time.
@@ -3770,17 +3788,29 @@ model WhatsAppBroadcastRecipient {
   // Meta's wa_id form — the same number with no '+' — stored so the send
   // payload never re-derives it from possibly-changed lead data.
   waId                   String?   @map("wa_id")
-  // The RESOLVED ordered body parameter VALUES for this recipient, frozen
-  // at approval time (e.g. ["Ada","July"]). Never re-resolved at send time.
+  // The RESOLVED template parameter VALUES for this recipient, frozen at
+  // approval time. V1/V1.1 (Meta) wrote an ORDERED ARRAY (e.g.
+  // ["Ada","July"]); V1.2.1 (Twilio) writes a named OBJECT (e.g.
+  // {"1":"Ada"}) matching the selected Content Template's own variable
+  // keys — this column is untyped Json, so both shapes coexist without a
+  // migration; the processor reads whichever shape the broadcast's own
+  // provider implies. Never re-resolved at send time.
   templateParamsSnapshot Json      @default("[]") @map("template_params_snapshot")
   // 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
   // | 'SKIPPED_OPT_OUT' | 'SKIPPED_NO_CONSENT' | 'SKIPPED_INVALID_NUMBER'
   // — CHECK-constrained in SQL.
   status                 String    @default("QUEUED") @map("status")
-  // Meta's wamid. Its presence is the hard "already dispatched" proof: the
-  // processor refuses to call Meta for any row that already has one, no
-  // matter what triggered the retry.
+  // ── LEGACY, V1/V1.1 ONLY — Meta's wamid ───────────────────────────────
+  // No new code path writes this column; kept for read-compatibility with
+  // any historical Meta-sent row. See providerMessageId below.
   metaMessageId          String?   @map("meta_message_id")
+  // ── V1.2.1: provider-neutral message id (Twilio's MessageSid) ────────
+  // Its presence is the hard "already dispatched" proof going forward: the
+  // processor refuses to call Twilio for any row that already has one, no
+  // matter what triggered the retry. Named provider-neutrally (not
+  // "twilioMessageId") because a dispatch-identity/idempotency field
+  // should not need renaming again if the provider ever changes once more.
+  providerMessageId      String?   @map("provider_message_id")
   failureCode            String?   @map("failure_code")
   failureReason          String?   @map("failure_reason")
   attempts               Int       @default(0) @map("attempts")
@@ -3803,8 +3833,10 @@ model WhatsAppBroadcastRecipient {
   // real production duplicate). Keying on leadId would therefore let one
   // person receive the same campaign twice; keying on the number cannot.
   @@unique([broadcastId, normalizedNumber])
-  // Webhook status callbacks look a recipient up by Meta's message id.
+  // LEGACY — Meta status callbacks looked a recipient up by wamid.
   @@unique([metaMessageId])
+  // V1.2.1 — Twilio status callbacks look a recipient up by MessageSid.
+  @@unique([providerMessageId])
   @@index([broadcastId, status])
   @@index([status, nextAttemptAt])
   @@index([leadId])

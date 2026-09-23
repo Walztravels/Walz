@@ -1,43 +1,48 @@
 /**
- * WhatsApp Broadcast V1 — Meta approved-template handling.
+ * WhatsApp Broadcast V1.2.1 — Twilio approved Content Template handling.
  *
  * Pure (no I/O, no env, no Prisma) so every rule here is unit-testable.
+ * Replaces the V1/V1.1 Meta template-name/language model — see the git
+ * history of this file for that version, still readable via
+ * WhatsAppBroadcast.templateName/templateLanguage/templateParams, which
+ * this release keeps unmodified for read-compatibility with historical
+ * rows but no longer writes.
  *
- * THE NO-FALLBACK GUARANTEE. A broadcast message is ALWAYS built as
- * Meta's `type: 'template'` payload. There is deliberately no code path
- * anywhere in lib/whatsapp/broadcast/** that can produce a `type: 'text'`
- * payload: buildTemplatePayload() is the only payload builder, it takes a
- * validated template definition, and validateTemplateDefinition() throws
- * the send/schedule request away with a clear error rather than degrading
- * to free-form text. The broadcast record's legacy `message` column is
- * kept purely as the human-readable internal description of the campaign
- * and is NEVER sent to Meta.
+ * THE NO-FALLBACK GUARANTEE. A broadcast message is ALWAYS built as a
+ * Twilio Content Template send (ContentSid + ContentVariables). There is
+ * no code path anywhere in lib/whatsapp/broadcast/** or lib/twilio-
+ * whatsapp.ts's sendWhatsAppContentTemplate() that can produce a free-form
+ * Body send for a broadcast: validateTemplateDefinition() throws the send/
+ * schedule request away with a clear error rather than degrading.
  *
- * WHAT CANNOT BE VALIDATED HERE. Meta owns template approval. Whether a
- * template NAME actually exists on the WhatsApp Business Account, whether
- * it is in APPROVED (vs PENDING/REJECTED/PAUSED/DISABLED) status, and
- * whether its real body has exactly N placeholders can only be confirmed
- * by calling Meta's Message Templates API with live credentials
- * (GET /{waba-id}/message_templates). That call is impossible in this
- * sandbox, so this module validates everything that is structurally
- * checkable and the send path surfaces Meta's own rejection (error code
- * 132000/132001/132012/132015) as a PERMANENT per-recipient failure with
- * the real reason attached — never as a silent downgrade.
+ * WHAT CANNOT BE VALIDATED HERE. Twilio (and, beneath it, Meta/WhatsApp)
+ * owns template approval. Whether a Content SID actually exists on this
+ * Twilio account, is APPROVED (vs PENDING/REJECTED/PAUSED) for the WhatsApp
+ * channel, and declares exactly the variable keys this definition maps,
+ * can only be confirmed by calling Twilio's Content API with live
+ * credentials (GET https://content.twilio.com/v1/Content/{sid}) — see
+ * app/api/admin/marketing/whatsapp-broadcast/templates/route.ts, which
+ * does that call server-side to populate a catalogue for staff to pick
+ * from, rather than accepting an arbitrary hand-typed SID. This module
+ * validates everything structurally checkable (SID shape, variable-map
+ * shape); the send path surfaces Twilio's own rejection as a PERMANENT
+ * per-recipient failure with the real reason attached — never a silent
+ * downgrade.
  */
 
-/** A single ordered body parameter MAPPING stored on the broadcast. */
+/** A single variable-key MAPPING stored on the broadcast. */
 export type TemplateParamMapping =
   | { type: 'static'; value: string }
   | { type: 'lead_field'; field: LeadTemplateField; fallback?: string }
 
-/** Lead columns a template parameter is allowed to read. */
+/** Lead columns a template variable is allowed to read. */
 export const LEAD_TEMPLATE_FIELDS = ['name', 'destination', 'service', 'travelDate'] as const
 export type LeadTemplateField = (typeof LEAD_TEMPLATE_FIELDS)[number]
 
 export interface TemplateDefinition {
-  name: string
-  language: string
-  params: TemplateParamMapping[]
+  contentSid: string
+  /** Keyed by whatever variable keys the selected Content Template declares (commonly "1","2",...). */
+  variables: Record<string, TemplateParamMapping>
 }
 
 export interface TemplateValidationResult {
@@ -46,17 +51,13 @@ export interface TemplateValidationResult {
   definition: TemplateDefinition | null
 }
 
-/**
- * Meta template names: lowercase letters, digits and underscores only,
- * 1-512 chars. Documented constraint, and cheap to enforce before we
- * waste a Meta call.
- */
-const TEMPLATE_NAME_RE = /^[a-z0-9_]{1,512}$/
-/** e.g. 'en', 'en_US', 'pt_BR'. */
-const TEMPLATE_LANGUAGE_RE = /^[a-z]{2,3}(_[A-Z]{2})?$/
-/** Meta rejects newlines, tabs and 4+ consecutive spaces inside a parameter. */
+/** Twilio Content SIDs: "HX" followed by 32 lowercase hex characters. */
+const CONTENT_SID_RE = /^HX[0-9a-f]{32}$/
+/** Twilio Content Template variable keys are short alphanumeric identifiers. */
+const VARIABLE_KEY_RE = /^[A-Za-z0-9_]{1,64}$/
+/** Meta/WhatsApp rejects newlines, tabs and 4+ consecutive spaces inside a variable value. */
 const ILLEGAL_PARAM_RE = /[\n\r\t]|\s{4,}/
-/** Meta's hard cap on body parameters. */
+/** Twilio's practical cap on Content Template variables. */
 export const MAX_TEMPLATE_PARAMS = 10
 
 function isLeadField(v: unknown): v is LeadTemplateField {
@@ -69,148 +70,103 @@ function isLeadField(v: unknown): v is LeadTemplateField {
  * them together rather than one per round-trip.
  */
 export function validateTemplateDefinition(input: {
-  name?: unknown
-  language?: unknown
-  params?: unknown
+  contentSid?: unknown
+  variables?: unknown
 }): TemplateValidationResult {
   const errors: string[] = []
 
-  const name = typeof input.name === 'string' ? input.name.trim() : ''
-  if (!name) {
-    errors.push('Template name is required — a broadcast can only be sent as an approved Meta template.')
-  } else if (!TEMPLATE_NAME_RE.test(name)) {
-    errors.push('Template name must be lowercase letters, digits and underscores only (Meta requirement).')
+  const contentSid = typeof input.contentSid === 'string' ? input.contentSid.trim() : ''
+  if (!contentSid) {
+    errors.push('A WhatsApp template is required — a broadcast can only be sent as an approved template.')
+  } else if (!CONTENT_SID_RE.test(contentSid)) {
+    errors.push('That does not look like an approved WhatsApp template. Pick one from the template list.')
   }
 
-  const language = typeof input.language === 'string' ? input.language.trim() : ''
-  if (!language) {
-    errors.push('Template language is required (e.g. "en" or "en_US").')
-  } else if (!TEMPLATE_LANGUAGE_RE.test(language)) {
-    errors.push('Template language must look like "en" or "en_US".')
-  }
+  const rawVariables = input.variables ?? {}
+  const variables: Record<string, TemplateParamMapping> = {}
 
-  const rawParams = input.params ?? []
-  const params: TemplateParamMapping[] = []
-
-  if (!Array.isArray(rawParams)) {
-    errors.push('Template parameters must be an ordered list.')
-  } else if (rawParams.length > MAX_TEMPLATE_PARAMS) {
-    errors.push(`A template body may carry at most ${MAX_TEMPLATE_PARAMS} parameters.`)
+  if (!rawVariables || typeof rawVariables !== 'object' || Array.isArray(rawVariables)) {
+    errors.push('Template variables must be a key-value mapping.')
   } else {
-    rawParams.forEach((raw, i) => {
-      const position = i + 1
-      if (!raw || typeof raw !== 'object') {
-        errors.push(`Parameter {{${position}}} is malformed.`)
-        return
+    const entries = Object.entries(rawVariables as Record<string, unknown>)
+    if (entries.length > MAX_TEMPLATE_PARAMS) {
+      errors.push(`A template may carry at most ${MAX_TEMPLATE_PARAMS} variables.`)
+    } else {
+      for (const [key, raw] of entries) {
+        if (!VARIABLE_KEY_RE.test(key)) {
+          errors.push(`Variable key "${key}" is not a valid template variable name.`)
+          continue
+        }
+        if (!raw || typeof raw !== 'object') {
+          errors.push(`Variable {{${key}}} is malformed.`)
+          continue
+        }
+        const p = raw as Record<string, unknown>
+        if (p.type === 'static') {
+          if (typeof p.value !== 'string' || !p.value.trim()) {
+            errors.push(`Variable {{${key}}} is a fixed value but has no text.`)
+            continue
+          }
+          if (ILLEGAL_PARAM_RE.test(p.value)) {
+            errors.push(`Variable {{${key}}} contains newlines, tabs or 4+ spaces, which WhatsApp rejects.`)
+            continue
+          }
+          variables[key] = { type: 'static', value: p.value }
+        } else if (p.type === 'lead_field') {
+          if (!isLeadField(p.field)) {
+            errors.push(`Variable {{${key}}} reads an unknown lead field. Allowed: ${LEAD_TEMPLATE_FIELDS.join(', ')}.`)
+            continue
+          }
+          if (p.fallback !== undefined && typeof p.fallback !== 'string') {
+            errors.push(`Variable {{${key}}} has a malformed fallback.`)
+            continue
+          }
+          if (typeof p.fallback === 'string' && ILLEGAL_PARAM_RE.test(p.fallback)) {
+            errors.push(`Variable {{${key}}}'s fallback contains characters WhatsApp rejects.`)
+            continue
+          }
+          variables[key] = {
+            type: 'lead_field',
+            field: p.field,
+            ...(typeof p.fallback === 'string' ? { fallback: p.fallback } : {}),
+          }
+        } else {
+          errors.push(`Variable {{${key}}} must be a fixed value or a lead field.`)
+        }
       }
-      const p = raw as Record<string, unknown>
-      if (p.type === 'static') {
-        if (typeof p.value !== 'string' || !p.value.trim()) {
-          errors.push(`Parameter {{${position}}} is a fixed value but has no text.`)
-          return
-        }
-        if (ILLEGAL_PARAM_RE.test(p.value)) {
-          errors.push(`Parameter {{${position}}} contains newlines, tabs or 4+ spaces, which Meta rejects.`)
-          return
-        }
-        params.push({ type: 'static', value: p.value })
-      } else if (p.type === 'lead_field') {
-        if (!isLeadField(p.field)) {
-          errors.push(
-            `Parameter {{${position}}} reads an unknown lead field. Allowed: ${LEAD_TEMPLATE_FIELDS.join(', ')}.`,
-          )
-          return
-        }
-        if (p.fallback !== undefined && typeof p.fallback !== 'string') {
-          errors.push(`Parameter {{${position}}} has a malformed fallback.`)
-          return
-        }
-        if (typeof p.fallback === 'string' && ILLEGAL_PARAM_RE.test(p.fallback)) {
-          errors.push(`Parameter {{${position}}}'s fallback contains characters Meta rejects.`)
-          return
-        }
-        params.push({
-          type: 'lead_field',
-          field: p.field,
-          ...(typeof p.fallback === 'string' ? { fallback: p.fallback } : {}),
-        })
-      } else {
-        errors.push(`Parameter {{${position}}} must be a fixed value or a lead field.`)
-      }
-    })
+    }
   }
 
   if (errors.length > 0) return { ok: false, errors, definition: null }
-  return { ok: true, errors: [], definition: { name, language, params } }
+  return { ok: true, errors: [], definition: { contentSid, variables } }
 }
 
 /**
- * Resolve the ordered parameter VALUES for one lead. Called ONCE, at
+ * Resolve the variable VALUES for one lead/identity. Called ONCE, at
  * approval time, and frozen into the recipient row — never re-resolved at
  * send time, so a later edit to the lead cannot change what was approved.
  *
- * A lead_field with no value and no fallback yields '' — which Meta
- * rejects — so resolveTemplateParams reports it and the caller treats the
- * recipient as a template failure rather than sending a broken message.
+ * A lead_field with no value and no fallback yields '' — which WhatsApp
+ * rejects — so resolveTemplateParams reports the missing KEY and the
+ * caller treats the recipient as a template failure rather than sending a
+ * broken message.
  */
 export function resolveTemplateParams(
-  params: TemplateParamMapping[],
+  variables: Record<string, TemplateParamMapping>,
   lead: Partial<Record<LeadTemplateField, string | null | undefined>>,
-): { values: string[]; missing: number[] } {
-  const values: string[] = []
-  const missing: number[] = []
-  params.forEach((p, i) => {
+): { values: Record<string, string>; missing: string[] } {
+  const values: Record<string, string> = {}
+  const missing: string[] = []
+  for (const [key, p] of Object.entries(variables)) {
     if (p.type === 'static') {
-      values.push(p.value)
-      return
+      values[key] = p.value
+      continue
     }
     const raw = lead[p.field]
     const resolved = (typeof raw === 'string' ? raw.trim() : '') || (p.fallback ?? '').trim()
-    if (!resolved) missing.push(i + 1)
-    // Collapse anything Meta would reject rather than emitting it verbatim.
-    values.push(resolved.replace(/[\n\r\t]+/g, ' ').replace(/\s{4,}/g, '   '))
-  })
+    if (!resolved) missing.push(key)
+    // Collapse anything WhatsApp would reject rather than emitting it verbatim.
+    values[key] = resolved.replace(/[\n\r\t]+/g, ' ').replace(/\s{4,}/g, '   ')
+  }
   return { values, missing }
-}
-
-/** Meta Cloud API `type: 'template'` message payload. The ONLY shape sent. */
-export interface MetaTemplatePayload {
-  messaging_product: 'whatsapp'
-  recipient_type: 'individual'
-  to: string
-  type: 'template'
-  template: {
-    name: string
-    language: { code: string }
-    components?: Array<{ type: 'body'; parameters: Array<{ type: 'text'; text: string }> }>
-  }
-}
-
-/**
- * Build the outbound payload. Note the total absence of any `text` branch:
- * there is no argument, flag or data shape that makes this emit a
- * free-form message.
- */
-export function buildTemplatePayload(input: {
-  to: string
-  templateName: string
-  templateLanguage: string
-  paramValues: string[]
-}): MetaTemplatePayload {
-  const payload: MetaTemplatePayload = {
-    messaging_product: 'whatsapp',
-    recipient_type: 'individual',
-    to: input.to,
-    type: 'template',
-    template: {
-      name: input.templateName,
-      language: { code: input.templateLanguage },
-    },
-  }
-  if (input.paramValues.length > 0) {
-    payload.template.components = [
-      { type: 'body', parameters: input.paramValues.map(text => ({ type: 'text', text })) },
-    ]
-  }
-  return payload
 }

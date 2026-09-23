@@ -95,7 +95,7 @@ export interface MultiSourceRecipient {
   displayName: string | null
   normalizedNumber: string | null
   waId: string | null
-  templateParamsSnapshot: string[]
+  templateParamsSnapshot: Record<string, string>
   status: string
   skipReason: SkipReason | null
   /** A sentence a staff member can act on. Null when the recipient is sendable. */
@@ -479,7 +479,7 @@ export async function resolveMultiSourceAudience(input: {
       displayName: c.displayName,
       normalizedNumber: null,
       waId: null,
-      templateParamsSnapshot: [],
+      templateParamsSnapshot: {},
       status: SKIP_REASON_TO_STATUS.INVALID_NUMBER,
       skipReason: 'INVALID_NUMBER',
       exclusionReason: describeExclusion('INVALID_NUMBER', c.sourceType),
@@ -535,7 +535,7 @@ export async function resolveMultiSourceAudience(input: {
       recipients.push({
         ...base,
         waId: null,
-        templateParamsSnapshot: [],
+        templateParamsSnapshot: {},
         status: SKIP_REASON_TO_STATUS[decision.reason],
         skipReason: decision.reason,
         exclusionReason: describeExclusion(decision.reason, winner.sourceType),
@@ -543,22 +543,22 @@ export async function resolveMultiSourceAudience(input: {
       continue
     }
 
-    // ── 8. Freeze the template parameters for this identity. ────────────
-    let paramValues: string[] = []
+    // ── 8. Freeze the template variables for this identity. ─────────────
+    let paramValues: Record<string, string> = {}
     if (input.template) {
-      const resolved = resolveTemplateParams(input.template.params, fields)
+      const resolved = resolveTemplateParams(input.template.variables, fields)
       if (resolved.missing.length > 0) {
         breakdown.templateUnresolvable += 1
         recipients.push({
           ...base,
           waId: null,
-          templateParamsSnapshot: [],
+          templateParamsSnapshot: {},
           status: 'FAILED',
           skipReason: null,
           exclusionReason:
-            `Template parameter ${resolved.missing.map(n => `{{${n}}}`).join(', ')} could not be filled from this ` +
+            `Template variable ${resolved.missing.map(n => `{{${n}}}`).join(', ')} could not be filled from this ` +
             `recipient's ${winner.sourceType === 'MANUAL' ? 'manual entry' : 'record'} and has no fallback. ` +
-            'Meta rejects an empty parameter, so this message is not sent rather than sent half-rendered.',
+            'WhatsApp rejects an empty variable, so this message is not sent rather than sent half-rendered.',
         })
         continue
       }
@@ -569,7 +569,8 @@ export async function resolveMultiSourceAudience(input: {
     breakdown.sendableBySource[winner.sourceType] += 1
     recipients.push({
       ...base,
-      // Meta's wa_id is the number with no '+'.
+      // The dispatch id is the number with no '+' (sender.ts reconstructs
+      // "whatsapp:+E164" from this at send time).
       waId: normalizedNumber.replace(/^\+/, ''),
       templateParamsSnapshot: paramValues,
       status: 'QUEUED',

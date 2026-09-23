@@ -1,5 +1,5 @@
 /**
- * WhatsApp Broadcast V1 — the cron PROCESSOR.
+ * WhatsApp Broadcast V1 (V1.2.1: Twilio transport) — the cron PROCESSOR.
  *
  * Drained by /api/cron/whatsapp-broadcast (Vercel Cron). Architecturally
  * the same shape as lib/team/email-processor.ts: bounded scan → atomic
@@ -24,15 +24,16 @@
  *      other sees count === 0. Only the winner proceeds. No row is ever
  *      handed to two senders.
  *
- *  (b) THE MESSAGE-ID GATE. Before any Meta call, the row is re-read and
- *      refused if it already carries a metaMessageId. This is checked
+ *  (b) THE MESSAGE-ID GATE. Before any Twilio call, the row is re-read and
+ *      refused if it already carries a providerMessageId. This is checked
  *      regardless of status and regardless of what triggered the attempt —
  *      a crash-recovery sweep, an operator re-queue, a duplicated cron —
- *      so a recipient that Meta has already accepted can never be sent a
- *      second message.
+ *      so a recipient that Twilio has already accepted can never be sent a
+ *      second message. (V1/V1.1's legacy metaMessageId column is no longer
+ *      written; see providerMessageId's doc comment in prisma/schema.prisma.)
  *
  * ── RATE LIMITING ───────────────────────────────────────────────────────
- * Meta Cloud API's raw throughput (80 msg/s by default) is NOT the binding
+ * Twilio's raw throughput is NOT the binding
  * constraint. The binding constraint is the WhatsApp Business Account's
  * messaging TIER, which caps business-initiated conversations per rolling
  * 24 hours (1K / 10K / 100K, and 250/day for an unverified number). A new
@@ -213,7 +214,7 @@ async function closeBroadcastIfDone(
 /** Dispatch ONE claimed recipient row. Assumes the claim already won. */
 async function dispatchClaimed(
   recipientId: string,
-  broadcast: { templateName: string; templateLanguage: string },
+  broadcast: { contentSid: string },
   summary: TickSummary,
   fetchImpl?: typeof fetch,
 ): Promise<void> {
@@ -222,13 +223,13 @@ async function dispatchClaimed(
     where: { id: recipientId },
     select: {
       id: true, waId: true, normalizedNumber: true, leadId: true, visaApplicationId: true,
-      metaMessageId: true, attempts: true, templateParamsSnapshot: true,
+      providerMessageId: true, attempts: true, templateParamsSnapshot: true,
     },
   })
   if (!row) return
 
-  if (row.metaMessageId) {
-    // Already accepted by Meta at some point. Never send again — just
+  if (row.providerMessageId) {
+    // Already accepted by Twilio at some point. Never send again — just
     // restore the row to a truthful state.
     summary.skippedAlreadyDispatched += 1
     await prisma.whatsAppBroadcastRecipient.updateMany({
@@ -296,17 +297,25 @@ async function dispatchClaimed(
     return
   }
 
-  const paramValues = Array.isArray(row.templateParamsSnapshot)
-    ? (row.templateParamsSnapshot as unknown[]).map(v => String(v))
-    : []
+  // V1.2.1: templateParamsSnapshot is now a named object (Twilio
+  // ContentVariables), not the V1/V1.1 ordered array — see
+  // lib/whatsapp/broadcast/template.ts. A legacy V1/V1.1 row (array shape)
+  // has no meaningful named variables to send under the new provider, so
+  // it degrades to an empty variable map rather than throwing; there are
+  // zero such rows in production as of this release (whatsapp_broadcast_
+  // recipients was confirmed empty at the V1.2 migration gate).
+  const snapshot = row.templateParamsSnapshot
+  const contentVariables: Record<string, string> =
+    snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? Object.fromEntries(Object.entries(snapshot as Record<string, unknown>).map(([k, v]) => [k, String(v)]))
+      : {}
 
   let outcome: SendOutcome
   try {
     outcome = await sendBroadcastTemplate({
       waId: row.waId,
-      templateName: broadcast.templateName,
-      templateLanguage: broadcast.templateLanguage,
-      paramValues,
+      contentSid: broadcast.contentSid,
+      contentVariables,
       fetchImpl,
     })
   } catch (e) {
@@ -318,7 +327,7 @@ async function dispatchClaimed(
       where: { id: recipientId, status: 'SENDING' },
       data: {
         status: 'SENT',
-        metaMessageId: outcome.metaMessageId,
+        providerMessageId: outcome.providerMessageId,
         sentAt: new Date(),
         failureCode: null,
         failureReason: null,
@@ -392,7 +401,7 @@ export async function processWhatsAppBroadcasts(options: {
     where: { status: { in: ['QUEUED', 'SENDING'] } },
     orderBy: [{ queuedAt: 'asc' }, { createdAt: 'asc' }],
     take: MAX_BROADCASTS_PER_TICK,
-    select: { id: true, status: true, templateName: true, templateLanguage: true },
+    select: { id: true, status: true, contentSid: true },
   })
   if (broadcasts.length === 0) return summary
 
@@ -401,7 +410,7 @@ export async function processWhatsAppBroadcasts(options: {
   for (const broadcast of broadcasts) {
     if (budget <= 0) break
 
-    if (!broadcast.templateName || !broadcast.templateLanguage) {
+    if (!broadcast.contentSid) {
       // Defensive only — believed unreachable in production. The ONLY
       // writers of QUEUED/SCHEDULED status are the schedule route
       // (app/api/.../[id]/schedule/route.ts), which validates the
@@ -497,7 +506,7 @@ export async function processWhatsAppBroadcasts(options: {
 
       await dispatchClaimed(
         candidate.id,
-        { templateName: broadcast.templateName, templateLanguage: broadcast.templateLanguage },
+        { contentSid: broadcast.contentSid },
         summary,
         options.fetchImpl,
       )

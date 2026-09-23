@@ -55,9 +55,8 @@ export async function POST(req: NextRequest) {
     broadcastId?: string
     targetFilter?: unknown
     audienceSelection?: unknown
-    templateName?: string
-    templateLanguage?: string
-    templateParams?: unknown
+    contentSid?: string
+    variables?: unknown
   }
   try {
     body = (await req.json()) as typeof body
@@ -77,26 +76,24 @@ export async function POST(req: NextRequest) {
       where: { id: body.broadcastId },
       select: {
         targetFilter: true, audienceSelection: true,
-        templateName: true, templateLanguage: true, templateParams: true,
+        contentSid: true, contentVariables: true,
       },
     })
     if (!broadcast) return NextResponse.json({ error: 'Broadcast not found' }, { status: 404 })
     filter = parseTargetFilter(broadcast.targetFilter)
     selection = parseAudienceSelection(broadcast.audienceSelection)
-    if (broadcast.templateName) {
+    if (broadcast.contentSid) {
       const v = validateTemplateDefinition({
-        name: broadcast.templateName,
-        language: broadcast.templateLanguage,
-        params: broadcast.templateParams,
+        contentSid: broadcast.contentSid,
+        variables: broadcast.contentVariables,
       })
       template = v.definition
       templateErrors = v.errors
     }
-  } else if (body.templateName || body.templateLanguage || body.templateParams) {
+  } else if (body.contentSid || body.variables) {
     const v = validateTemplateDefinition({
-      name: body.templateName,
-      language: body.templateLanguage,
-      params: body.templateParams,
+      contentSid: body.contentSid,
+      variables: body.variables,
     })
     template = v.definition
     templateErrors = v.errors

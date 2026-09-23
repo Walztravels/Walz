@@ -19,9 +19,8 @@ interface Bcast {
   status: string
   targetFilter: Record<string, string>
   audienceSelection: Record<string, unknown>
-  templateName: string | null
-  templateLanguage: string | null
-  templateParams: unknown
+  contentSid: string | null
+  contentVariables: unknown
   templateCategory: string | null
   scheduledAt: Date | null
   recipientCount: number
@@ -297,7 +296,7 @@ async function makeBroadcast(selection: Record<string, unknown>, category?: stri
   const res = await createBroadcast(post('/api/admin/marketing/whatsapp-broadcast', {
     name: 'C', message: 'm',
     audienceSelection: selection,
-    templateName: 'hello_there', templateLanguage: 'en', templateParams: [],
+    contentSid: 'HX' + '1'.repeat(32), variables: {},
     ...(category ? { templateCategory: category } : {}),
   }))
   const d = await res.json()

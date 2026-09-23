@@ -29,8 +29,7 @@
 
 import { createHash, randomInt, randomUUID, timingSafeEqual } from 'crypto'
 import prisma from '@/lib/db'
-import { getMetaSendCredentials, getOtpTemplateConfig } from './config'
-import { buildOtpTemplatePayload } from './otp-template'
+import { sendOtpViaTwilio, twilioOtpConfigured } from '@/lib/twilio-whatsapp'
 import { maskPhone } from '@/lib/secure-lookup/masking'
 
 export const OTP_PURPOSE = 'WHATSAPP_MARKETING_SUBSCRIBE' as const
@@ -41,8 +40,6 @@ export const OTP_RESEND_COOLDOWN_MS = 60 * 1000
 /** Hard cap on how many codes one number may be sent in the window below. */
 export const OTP_MAX_SENDS_PER_WINDOW = 5
 export const OTP_SEND_WINDOW_MS = 60 * 60 * 1000 // 1 hour
-
-const GRAPH_VERSION = 'v20.0'
 
 function hashOtp(code: string, verificationId: string): string {
   return createHash('sha256').update(`${code}:${verificationId}`).digest('hex')
@@ -64,14 +61,22 @@ export type SendOtpOutcome =
 /**
  * Generate, persist (hashed), and attempt delivery of a fresh OTP.
  *
- * FAILS CLOSED: returns NOT_CONFIGURED (never a silent free-text send, never
- * a fake success) when either the Meta send credentials or the
- * AUTHENTICATION template are not configured — see getOtpTemplateConfig()'s
- * doc comment for why this must be an approved template, never free text.
+ * WhatsApp Broadcast V1.2.1: delivery moved from direct Meta Cloud API to
+ * Twilio (the provider actually used for the rest of Walz's WhatsApp
+ * infrastructure — see lib/twilio-whatsapp.ts's sendOtpViaTwilio()). The
+ * OTP security engine below (hashing, expiry, attempts, lockout, resend
+ * cooldown, atomic consumption) is completely UNCHANGED by this — only the
+ * transport call changed.
  *
- * Deliberately does NOT distinguish "Meta rejected this specific number"
+ * FAILS CLOSED: returns NOT_CONFIGURED (never a silent free-text send, never
+ * a fake success) when either Twilio's credentials or the approved OTP
+ * Content Template (TWILIO_WHATSAPP_OTP_CONTENT_SID) are not configured —
+ * see sendOtpViaTwilio()'s doc comment for why this must be an approved
+ * template, never free text.
+ *
+ * Deliberately does NOT distinguish "Twilio rejected this specific number"
  * from a genuine send — both return SENT to the caller, and the route
- * layer answers the HTTP caller identically either way, so a failed Meta
+ * layer answers the HTTP caller identically either way, so a failed Twilio
  * delivery for an exotic reason never becomes a signal about the number.
  * COOLDOWN and MAX_SENDS_EXCEEDED are safe to report distinctly: both are
  * facts about requests already made (by whoever is calling now), not about
@@ -86,9 +91,7 @@ export async function sendOtp(input: {
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch
 }): Promise<SendOtpOutcome> {
-  const config = getOtpTemplateConfig()
-  const creds = getMetaSendCredentials()
-  if (!config || !creds) return { outcome: 'NOT_CONFIGURED' }
+  if (!twilioOtpConfigured()) return { outcome: 'NOT_CONFIGURED' }
 
   const now = Date.now()
   const recent = await prisma.whatsAppConsentVerification.findMany({
@@ -126,23 +129,16 @@ export async function sendOtp(input: {
     },
   })
 
-  const payload = buildOtpTemplatePayload({ to: input.normalizedNumber.replace(/^\+/, ''), code, config })
-  const doFetch = input.fetchImpl ?? fetch
   try {
-    const res = await doFetch(`https://graph.facebook.com/${GRAPH_VERSION}/${creds.phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${creds.accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
+    const result = await sendOtpViaTwilio(input.normalizedNumber, code, input.fetchImpl)
+    if (!result.ok) {
       // NEVER log the code or the full number — masked only.
-      console.warn('[whatsapp-otp] Meta send failed for', maskPhone(input.normalizedNumber), JSON.stringify(body).slice(0, 200))
+      console.warn('[whatsapp-otp] Twilio send failed for', maskPhone(input.normalizedNumber), result.errorCode, result.errorMessage)
     }
   } catch (e) {
-    console.warn('[whatsapp-otp] Meta send threw for', maskPhone(input.normalizedNumber), (e as Error)?.message)
+    console.warn('[whatsapp-otp] Twilio send threw for', maskPhone(input.normalizedNumber), (e as Error)?.message)
   }
-  // Outcome is SENT regardless of the Meta result above — see doc comment.
+  // Outcome is SENT regardless of the Twilio result above — see doc comment.
   return { outcome: 'SENT' }
 }
 

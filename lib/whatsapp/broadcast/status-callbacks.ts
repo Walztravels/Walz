@@ -158,3 +158,118 @@ export async function applyBroadcastStatusCallbacks(
 
   return result
 }
+
+// ── WhatsApp Broadcast V1.2.1: Twilio delivery-status callback handling ────
+//
+// Twilio POSTs ONE status per request (unlike Meta's batched array), to
+// app/api/webhooks/twilio-whatsapp/broadcast-status/route.ts, which does
+// signature verification and form-parsing (mirroring the proven shell of
+// the existing app/api/webhooks/twilio-whatsapp/status/route.ts) and then
+// calls this function with the parsed MessageSid/MessageStatus/error
+// fields. The RECIPIENT UPDATE LOGIC below reuses the exact same
+// forward-progress + recompute-counts discipline as
+// applyBroadcastStatusCallbacks() above, adapted to match by
+// providerMessageId (Twilio's SID) instead of metaMessageId, and to
+// Twilio's lowercase status vocabulary.
+
+/** The Twilio WhatsApp status values we act on. */
+export type TwilioStatusValue = 'sent' | 'delivered' | 'read' | 'failed' | 'undelivered'
+
+function isHandledTwilioStatus(v: string): v is TwilioStatusValue {
+  return v === 'sent' || v === 'delivered' || v === 'read' || v === 'failed' || v === 'undelivered'
+}
+
+const TWILIO_STATUS_MAP: Record<TwilioStatusValue, 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'> = {
+  sent: 'SENT',
+  delivered: 'DELIVERED',
+  read: 'READ',
+  failed: 'FAILED',
+  // Twilio's 'undelivered' has no separate recipient status in this
+  // schema — it means the same thing operationally as 'failed' (the
+  // message did not reach the recipient) and is recorded as FAILED with
+  // its own real error code/reason preserved, never silently merged away.
+  undelivered: 'FAILED',
+}
+
+export interface ApplyTwilioStatusResult {
+  matched: boolean
+  applied: boolean
+  broadcastId: string | null
+}
+
+/**
+ * Apply ONE Twilio status callback to the matching broadcast recipient
+ * row. Returns quietly (matched: false) for a MessageSid that belongs to
+ * no broadcast recipient — every visa-thread and chat-drawer Twilio send
+ * uses a different SID space, so this can never collide with them.
+ * Never throws: the webhook must keep returning 200/TwiML or Twilio
+ * floods the endpoint with retries. Idempotent/replay-safe: a redelivered
+ * identical callback finds the row already at or past that status and the
+ * conditional updateMany matches zero rows.
+ */
+export async function applyTwilioBroadcastStatusCallback(event: {
+  messageSid: string
+  status: string
+  errorCode?: string | null
+  errorMessage?: string | null
+  now?: Date
+}): Promise<ApplyTwilioStatusResult> {
+  const now = event.now ?? new Date()
+  if (!isHandledTwilioStatus(event.status)) return { matched: false, applied: false, broadcastId: null }
+
+  let row: { id: string; broadcastId: string; status: string } | null
+  try {
+    row = await prisma.whatsAppBroadcastRecipient.findUnique({
+      where: { providerMessageId: event.messageSid },
+      select: { id: true, broadcastId: true, status: true },
+    })
+  } catch (e) {
+    console.warn('[twilio-broadcast-status] lookup failed:', (e as Error)?.message)
+    return { matched: false, applied: false, broadcastId: null }
+  }
+  if (!row) return { matched: false, applied: false, broadcastId: null }
+
+  const next = TWILIO_STATUS_MAP[event.status as TwilioStatusValue]
+  let applied = false
+
+  try {
+    if (next === 'FAILED') {
+      // A failure is authoritative from any non-terminal state — same
+      // exclusion set as the Meta version.
+      const res = await prisma.whatsAppBroadcastRecipient.updateMany({
+        where: { id: row.id, status: { in: ['SENDING', 'SENT', 'DELIVERED'] } },
+        data: {
+          status: 'FAILED',
+          failedAt: now,
+          failureCode: event.errorCode ?? 'TWILIO_FAILED',
+          failureReason: (event.errorMessage ?? 'Twilio reported failure').slice(0, 300),
+        },
+      })
+      applied = res.count > 0
+    } else if (isForwardProgress(row.status, next)) {
+      const timestampField =
+        next === 'SENT' ? { sentAt: now } : next === 'DELIVERED' ? { deliveredAt: now } : { readAt: now }
+      // Conditional on the status we read, so two concurrent webhook
+      // deliveries (or a replay) cannot both apply the same transition.
+      const res = await prisma.whatsAppBroadcastRecipient.updateMany({
+        where: { id: row.id, status: row.status },
+        data: { status: next, ...timestampField },
+      })
+      applied = res.count > 0
+    }
+    // else: not forward progress (stale/duplicate/out-of-order callback) — a silent no-op.
+  } catch (e) {
+    console.warn('[twilio-broadcast-status] update failed:', (e as Error)?.message)
+    return { matched: true, applied: false, broadcastId: row.broadcastId }
+  }
+
+  if (applied) {
+    try {
+      await recomputeBroadcastCounts(row.broadcastId)
+    } catch (e) {
+      console.warn('[twilio-broadcast-status] count recompute failed:', (e as Error)?.message)
+    }
+  }
+
+  return { matched: true, applied, broadcastId: row.broadcastId }
+}

@@ -47,6 +47,10 @@ type Broadcast = {
   readCount: number
   failedCount: number
   skippedCount: number
+  // V1.2.1: Twilio Content SID. Null on a legacy V1/V1.1 broadcast, which
+  // instead has templateName/templateLanguage populated (kept for read
+  // compatibility — see prisma/schema.prisma).
+  contentSid: string | null
   templateName: string | null
   templateLanguage: string | null
   status: string
@@ -232,7 +236,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const STEPS = [
   { label: 'Recipients', sub: 'Choose who receives this' },
-  { label: 'Template',   sub: 'Approved Meta template' },
+  { label: 'Template',   sub: 'Approved WhatsApp template' },
   { label: 'Preview',    sub: 'Real eligible counts' },
   { label: 'Schedule',   sub: 'Now or later' },
   { label: 'Confirm',    sub: 'Final check' },
@@ -242,6 +246,7 @@ type Step = 1 | 2 | 3 | 4 | 5
 type RecipientTab = 'leads' | 'visa' | 'manual'
 
 type ParamRow = { kind: 'static' | 'lead_field'; value: string; fallback: string }
+type ApprovedTemplate = { contentSid: string; friendlyName: string; category: string | null; variableKeys: string[] }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
@@ -381,8 +386,14 @@ export default function WhatsAppPage() {
   const [message, setMessage]           = useState('')
   const [filterCountry, setFilterCountry] = useState('')
   const [filterService, setFilterService] = useState('')
-  const [templateName, setTemplateName]   = useState('')
-  const [templateLanguage, setTemplateLanguage] = useState('en')
+  // V1.2.1: staff pick an approved WhatsApp template from a server-side
+  // catalogue (Twilio Content API, listed via GET .../templates) rather
+  // than typing a name — see that route for why a hand-typed value can
+  // never be trusted as "approved".
+  const [contentSid, setContentSid] = useState('')
+  const [templates, setTemplates] = useState<ApprovedTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templatesError, setTemplatesError] = useState('')
   const [templateCategory, setTemplateCategory] = useState('')
   const [params, setParams]             = useState<ParamRow[]>([])
 
@@ -458,6 +469,21 @@ export default function WhatsAppPage() {
       .then(r => (r.ok ? r.json() : null))
       .then((d: Readiness | null) => setReadiness(d))
       .catch(() => setReadiness(null))
+  }, [])
+
+  useEffect(() => {
+    // Server-resolved approved-template catalogue (Twilio Content API) —
+    // never a hand-typed name/SID. Loaded once; the wizard's Template step
+    // picks FROM this list.
+    setTemplatesLoading(true)
+    fetch('/api/admin/marketing/whatsapp-broadcast/templates')
+      .then(r => r.json())
+      .then((d: { templates?: ApprovedTemplate[]; error?: string }) => {
+        setTemplates(d.templates ?? [])
+        setTemplatesError(d.error ?? '')
+      })
+      .catch(() => setTemplatesError('Could not load the approved template list.'))
+      .finally(() => setTemplatesLoading(false))
   }, [])
 
   useEffect(() => {
@@ -547,13 +573,16 @@ export default function WhatsAppPage() {
   const trayCount = selectedLeads.length + selectedVisa.length + manualAccepted.length
 
   const templatePayload = {
-    templateName: templateName.trim(),
-    templateLanguage: templateLanguage.trim(),
-    templateParams: params.map(p =>
+    contentSid: contentSid.trim(),
+    // Twilio Content Templates use {{1}},{{2}},… placeholders — the
+    // existing ordered parameter list maps directly onto those numbered
+    // keys, so the mapping UI itself did not need to change.
+    variables: Object.fromEntries(params.map((p, i) => [
+      String(i + 1),
       p.kind === 'static'
         ? { type: 'static' as const, value: p.value }
         : { type: 'lead_field' as const, field: p.value, ...(p.fallback ? { fallback: p.fallback } : {}) },
-    ),
+    ])),
     // Recorded for the operator's own bookkeeping. The server does not use
     // it to relax any check — every broadcast here is consent-gated in full.
     templateCategory: templateCategory || undefined,
@@ -665,7 +694,7 @@ export default function WhatsAppPage() {
 
   function resetWizard() {
     setStep(1); setName(''); setMessage(''); setFilterCountry(''); setFilterService('')
-    setTemplateName(''); setTemplateLanguage('en'); setTemplateCategory(''); setParams([]); setScheduledAt('')
+    setContentSid(''); setTemplateCategory(''); setParams([]); setScheduledAt('')
     setSendMode('send'); setPreview(null); setConfirmPreview(null); setWizardError('')
     setTab('leads')
     setLeadQuery(''); setLeadResults([]); setSelectedLeads([]); setUseLeadFilter(false)
@@ -776,9 +805,16 @@ export default function WhatsAppPage() {
   // explicitly resolved filter, or a manual number. There is no shape here
   // that means "everyone".
   const step1Valid = name.trim().length > 0 && message.trim().length > 0 && hasAnySelection
-  const step2Valid = /^[a-z0-9_]{1,512}$/.test(templateName.trim()) &&
-                     /^[a-z]{2,3}(_[A-Z]{2})?$/.test(templateLanguage.trim()) &&
-                     params.every(p => (p.kind === 'static' ? p.value.trim().length > 0 : LEAD_FIELDS.includes(p.value as typeof LEAD_FIELDS[number])))
+  const selectedTemplate = templates.find(t => t.contentSid === contentSid)
+  const step2Valid = /^HX[0-9a-f]{32}$/.test(contentSid.trim()) &&
+                     params.every(p => (p.kind === 'static' ? p.value.trim().length > 0 : LEAD_FIELDS.includes(p.value as typeof LEAD_FIELDS[number]))) &&
+                     // A selected catalogue template's variable count must match the
+                     // params rows exactly — otherwise Twilio rejects EVERY recipient
+                     // at actual dispatch time, after the audience snapshot is already
+                     // spent. Skipped when the template isn't in the loaded catalogue
+                     // (e.g. an existing draft's contentSid predates this account's
+                     // current catalogue) rather than blocking on a fetch that may fail.
+                     (!selectedTemplate || params.length === selectedTemplate.variableKeys.length)
   const step3Valid = !!preview && preview.templateValid && preview.breakdown.finalSendCount > 0
   const step4Valid = sendMode === 'send' || (!!scheduledAt && new Date(scheduledAt).getTime() > Date.now())
 
@@ -796,7 +832,7 @@ export default function WhatsAppPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">WhatsApp Broadcasts</h1>
-            <p className="text-sm text-gray-500">Consent-checked campaigns sent as approved Meta templates</p>
+            <p className="text-sm text-gray-500">Consent-checked campaigns sent as approved WhatsApp templates</p>
           </div>
         </div>
         <button
@@ -815,9 +851,7 @@ export default function WhatsAppPage() {
             <div>
               <p className="text-xs font-semibold text-emerald-700">WhatsApp sending is configured</p>
               <p className="text-xs text-emerald-600 mt-0.5">
-                {readiness.canReceiveStatusCallbacks
-                  ? 'Delivery and read receipts will be recorded from Meta’s status callbacks.'
-                  : 'Delivery receipts are unavailable: the webhook secrets are not both set, so sent/delivered/read callbacks cannot be authenticated.'}
+                Delivery and read receipts will be recorded from Twilio’s status callbacks.
               </p>
             </div>
           </div>
@@ -891,7 +925,7 @@ export default function WhatsAppPage() {
                     className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-400/50 resize-none"
                   />
                   <p className="text-[11px] text-gray-400 mt-1">
-                    Internal note only — never sent. The message clients receive is the approved Meta template chosen in the next step.
+                    Internal note only — never sent. The message clients receive is the approved WhatsApp template chosen in the next step.
                   </p>
                 </div>
 
@@ -1337,37 +1371,61 @@ export default function WhatsAppPage() {
               <>
                 <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
                   <p className="text-xs text-gray-600">
-                    Broadcasts are sent only as templates Meta has already approved on your WhatsApp Business Account.
-                    There is no free-text fallback: if the template is rejected, the send fails and is reported — it is
-                    never downgraded to a plain message.
+                    Broadcasts are sent only as WhatsApp templates already approved on your account. There is no
+                    free-text fallback: if the template is rejected, the send fails and is reported — it is never
+                    downgraded to a plain message.
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className={labelCls}>Template Name</label>
-                    <input
-                      value={templateName}
-                      onChange={e => setTemplateName(e.target.value)}
-                      placeholder="summer_visa_offer"
-                      className={inputCls}
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">Lowercase letters, digits and underscores.</p>
-                  </div>
-                  <div>
-                    <label className={labelCls}>Language</label>
-                    <input
-                      value={templateLanguage}
-                      onChange={e => setTemplateLanguage(e.target.value)}
-                      placeholder="en or en_US"
-                      className={inputCls}
-                    />
-                  </div>
+                <div>
+                  <label className={labelCls}>WhatsApp Template</label>
+                  {templatesLoading && <p className="text-xs text-gray-400">Loading approved templates…</p>}
+                  {!templatesLoading && templatesError && (
+                    <p className="text-xs text-red-600">{templatesError}</p>
+                  )}
+                  {!templatesLoading && !templatesError && templates.length === 0 && (
+                    <p className="text-xs text-gray-400">No approved WhatsApp templates found on this account yet.</p>
+                  )}
+                  {!templatesLoading && templates.length > 0 && (
+                    <div className="relative sm:max-w-md">
+                      <select
+                        value={contentSid}
+                        onChange={e => {
+                          const sid = e.target.value
+                          setContentSid(sid)
+                          // Switching templates invalidates whatever param rows were
+                          // built for the PREVIOUS template's variable count — reset
+                          // to exactly the new template's count rather than leaving
+                          // stale rows that silently mismatch at dispatch time.
+                          const t = templates.find(x => x.contentSid === sid)
+                          setParams(t ? t.variableKeys.map(() => ({ kind: 'lead_field', value: 'name', fallback: 'there' })) : [])
+                        }}
+                        className="w-full appearance-none border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400/50 pr-8"
+                      >
+                        <option value="">Select an approved template…</option>
+                        {templates.map(t => (
+                          <option key={t.contentSid} value={t.contentSid}>
+                            {t.friendlyName}{t.category ? ` (${t.category})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  )}
+                  {contentSid && selectedTemplate && (
+                    <p className={`text-[11px] mt-1 ${params.length === selectedTemplate.variableKeys.length ? 'text-gray-400' : 'text-amber-600'}`}>
+                      {selectedTemplate.variableKeys.length
+                        ? `This template has ${selectedTemplate.variableKeys.length} placeholder${selectedTemplate.variableKeys.length === 1 ? '' : 's'} — add exactly that many parameters below, in order.`
+                        : 'This template has no placeholders — no parameters needed below.'}
+                      {params.length !== selectedTemplate.variableKeys.length &&
+                        ` You currently have ${params.length}.`}
+                    </p>
+                  )}
                 </div>
 
-                {/* ── Recorded Meta category — bookkeeping ONLY ──────── */}
+                {/* ── Recorded template category — bookkeeping ONLY ──────── */}
                 <div>
-                  <label className={labelCls}>Meta Template Category (recorded only)</label>
+                  <label className={labelCls}>WhatsApp Template Category (recorded only)</label>
                   <div className="relative sm:max-w-xs">
                     <select
                       value={templateCategory}
@@ -1382,9 +1440,9 @@ export default function WhatsAppPage() {
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
                     <p className="text-[11px] text-amber-700 leading-snug">
                       This is stored for your own records and changes nothing about who can be messaged. Every broadcast
-                      built here requires full recorded WhatsApp consent, whichever category you pick — Meta decides a
-                      template’s real category at approval, and a category typed here cannot be verified, so it is never
-                      used to relax a consent check.
+                      built here requires full recorded WhatsApp consent, whichever category you pick — WhatsApp decides
+                      a template’s real category at approval, and a category picked here cannot be verified, so it is
+                      never used to relax a consent check.
                     </p>
                   </div>
                 </div>
@@ -1455,8 +1513,9 @@ export default function WhatsAppPage() {
                     ))}
                   </div>
                   <p className="text-[11px] text-gray-400 mt-2">
-                    Whether this template is actually APPROVED on Meta’s side cannot be checked from here — only Meta can
-                    confirm that. A rejected template produces a reported failure, never a silent plain-text send.
+                    The list above already only shows templates WhatsApp has approved — but approval status can change
+                    between now and send time. If that happens, the send fails and is reported here, never silently
+                    downgraded to a plain-text message.
                   </p>
                 </div>
               </>
@@ -1599,7 +1658,7 @@ export default function WhatsAppPage() {
                     <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 space-y-1">
                       <p className="text-xs text-gray-600"><b>Campaign:</b> {name}</p>
                       <p className="text-xs text-gray-600">
-                        <b>Template:</b> {templateName} ({templateLanguage})
+                        <b>Template:</b> {templates.find(t => t.contentSid === contentSid)?.friendlyName ?? contentSid}
                         {templateCategory ? ` · recorded as ${templateCategory}` : ''}
                       </p>
                       <p className="text-xs text-gray-600">
@@ -1708,9 +1767,11 @@ export default function WhatsAppPage() {
             <div>
               <h2 className="font-semibold text-gray-900 text-sm">{detail.broadcast.name}</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                {detail.broadcast.templateName
-                  ? `Template ${detail.broadcast.templateName} (${detail.broadcast.templateLanguage})`
-                  : 'No template set'}
+                {detail.broadcast.contentSid
+                  ? `Template ${templates.find(t => t.contentSid === detail.broadcast.contentSid)?.friendlyName ?? detail.broadcast.contentSid}`
+                  : detail.broadcast.templateName
+                    ? `Template ${detail.broadcast.templateName} (${detail.broadcast.templateLanguage}) · legacy`
+                    : 'No template set'}
               </p>
             </div>
             <button onClick={() => setDetailId(null)} className="text-gray-400 hover:text-gray-600">
@@ -1803,7 +1864,9 @@ export default function WhatsAppPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 text-sm truncate">{b.name}</p>
                   <p className="text-xs text-gray-400 mt-0.5 truncate">
-                    {b.templateName ? `${b.templateName} · ${b.templateLanguage}` : 'No template'} · {b.message.slice(0, 60)}
+                    {b.contentSid
+                      ? (templates.find(t => t.contentSid === b.contentSid)?.friendlyName ?? b.contentSid)
+                      : b.templateName ? `${b.templateName} · ${b.templateLanguage} · legacy` : 'No template'} · {b.message.slice(0, 60)}
                   </p>
                 </div>
                 <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full shrink-0 ${STATUS_COLORS[b.status] ?? 'bg-gray-100 text-gray-600'}`}>

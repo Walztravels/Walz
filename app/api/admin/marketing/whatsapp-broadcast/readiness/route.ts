@@ -34,8 +34,9 @@ export async function GET() {
     missing: readiness.missing,
     // Structurally checkable configuration only. Whether a given template
     // is APPROVED on the WhatsApp Business Account can ONLY be confirmed
-    // by calling Meta's message-templates API with live credentials, and
-    // is therefore never asserted here.
+    // by calling Twilio's Content API with live credentials (see
+    // listApprovedWhatsAppContentTemplates() in lib/twilio-whatsapp.ts,
+    // used by the /templates route below) — never asserted here.
     templateApprovalVerified: false,
   })
 }
