@@ -5,6 +5,8 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle, Plane, Loader2, AlertTriangle, ArrowRight } from 'lucide-react'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -334,6 +336,7 @@ function EmptyLegsSection({ onSelect }: {
 
 export function CharterForm() {
   const [form,     setForm]     = useState<FormState>(EMPTY)
+  const sms = useSmsConsent()
   const [status,   setStatus]   = useState<'idle' | 'submitting' | 'done' | 'error'>('idle')
   const [reference, setRef]     = useState<string>('')
   const [errMsg,   setErrMsg]   = useState<string>('')
@@ -434,6 +437,10 @@ export function CharterForm() {
       })
       const json = await res.json() as { reference?: string; error?: string }
       if (!res.ok) { setErrMsg(json.error ?? 'Something went wrong. Please try again.'); setStatus('error'); return }
+      // Optional SMS consent (fire-and-forget; never gates the enquiry).
+      if (form.clientPhone.trim()) {
+        void sms.record({ phone: form.clientPhone, capturePage: '/concierge/private-aviation', source: CONSENT_SOURCE_WEB_FORM })
+      }
       setRef(json.reference ?? '')
       setStatus('done')
     } catch {
@@ -653,6 +660,7 @@ export function CharterForm() {
                   placeholder:text-white/25 text-sm focus:outline-none focus:border-[#C9A84C]/60
                   focus:ring-1 focus:ring-[#C9A84C]/30 transition-colors"
               />
+              <div className="mt-3 rounded-xl bg-white p-4">{sms.fields}</div>
             </div>
           </div>
 

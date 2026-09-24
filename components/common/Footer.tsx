@@ -6,6 +6,7 @@ import { Mail, MapPin, MessageCircle, Award, Lock } from 'lucide-react'
 import { useSettings } from '@/lib/settings-context'
 import { whatsappLink } from '@/lib/whatsapp-link'
 import { BUSINESS } from '@/lib/config/business'
+import { CORPORATE_DISCLOSURE, ENTITY_DISPLAY_LINES } from '@/lib/config/legal-entities'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL  = 60 * 60 * 1000
@@ -341,6 +342,15 @@ export function Footer() {
       {/* Bottom bar */}
       <div className="border-t border-walz-slate/50">
         <div className="container-walz py-6">
+          {/* Corporate disclosure — one brand, two locally registered entities */}
+          <div
+            className="mb-5 pb-5 border-b border-walz-slate/30 text-center sm:text-left text-[11px] leading-relaxed text-walz-muted/80"
+            data-footer-corporate-disclosure=""
+          >
+            <p className="max-w-3xl mx-auto sm:mx-0">{CORPORATE_DISCLOSURE}</p>
+            <p className="mt-1.5">{ENTITY_DISPLAY_LINES.canada}</p>
+            <p>{ENTITY_DISPLAY_LINES.uk}</p>
+          </div>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
               {[
@@ -360,7 +370,7 @@ export function Footer() {
 
             <div className="text-center sm:text-right">
               <p className="text-walz-muted text-xs">
-                © {currentYear} Walz Travels Ltd. All rights reserved.
+                © {currentYear} Walz Travels. All rights reserved.
               </p>
               <address className="not-italic text-walz-muted/60 text-[10px] mt-0.5">
                 {settings.business_address}

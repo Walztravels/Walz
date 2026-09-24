@@ -78,7 +78,7 @@ const GROUPS: Array<{ title: string; description: string; icon: 'phone' | 'globe
     icon:        'map',
     fields: [
       { key: 'business_name',    label: 'Business name',    hint: 'e.g. Walz Travels Ltd',                                                       type: 'text'  },
-      { key: 'business_address', label: 'Business address', hint: 'e.g. THE WALZ TRAVELS INC · Ontario, Canada · Registered in England & Wales', type: 'text'  },
+      { key: 'business_address', label: 'Business address', hint: 'e.g. The Walz Travels Inc. · Ontario, Canada', type: 'text'  },
       { key: 'website_url',      label: 'Website URL',      hint: 'e.g. https://walztravels.com',                                                type: 'url'   },
     ],
   },

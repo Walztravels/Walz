@@ -38,7 +38,7 @@ async function getSections(): Promise<LegalSection[]> {
 }
 
 export default async function TermsPage() {
-  const lastUpdated = 'June 2025'
+  const lastUpdated = 'September 2026'
   const sections = await getSections()
 
   const termsSchema = {

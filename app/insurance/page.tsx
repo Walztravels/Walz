@@ -14,6 +14,8 @@ import {
 import { loadStripe }      from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { CountrySelectLight } from '@/components/visa/CountrySelect'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
@@ -163,6 +165,7 @@ function CheckoutModal({
   const [orderRef,      setOrderRef]      = useState('')
   const [creating,      setCreating]      = useState(false)
   const [payErr,        setPayErr]        = useState('')
+  const sms = useSmsConsent()
   const [form, setForm] = useState({
     first_name:    '',
     last_name:     '',
@@ -200,6 +203,9 @@ function CheckoutModal({
 
   async function handleContinue(e: React.FormEvent) {
     e.preventDefault()
+    // A2P 10DLC SMS consent: fire-and-forget on submit, before the order
+    // request; never gates or affects the order.
+    void sms.record({ phone: form.phone, capturePage: '/insurance', source: CONSENT_SOURCE_WEB_FORM })
     setCreating(true)
     setPayErr('')
     try {
@@ -265,6 +271,7 @@ function CheckoutModal({
                 </div>
                 {field('email', 'Email Address', 'email', 'jane@example.com')}
                 {field('phone', 'Phone Number',  'tel',   '+44 7700 000000')}
+                {sms.fields}
                 {field('date_of_birth', 'Date of Birth', 'date')}
                 {field('address', 'Home Address', 'text', '123 High Street')}
                 <div className="grid grid-cols-2 gap-3">

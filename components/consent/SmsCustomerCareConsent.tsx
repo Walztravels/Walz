@@ -25,9 +25,10 @@
  *     this app (app/privacy/page.tsx, app/terms/page.tsx) — never '#'.
  *
  * The wording itself lives in lib/consent/purposes.ts
- * (SMS_CUSTOMER_CARE_DISCLOSURE) so the compliance test asserts one string
- * and the rendered sentence below cannot drift from it — the JSX repeats
- * the same sentence only to wrap two phrases in <Link>s.
+ * (SMS_CUSTOMER_CARE_DISCLOSURE_BODY) and is RENDERED FROM that constant, so
+ * the sentence a person sees cannot drift from the audited string. The
+ * sender is named as the registered entity: "The Walz Travels Inc.,
+ * operating as Walz Travels". The two links follow the constant.
  *
  * Reusable: drop it into any public form that collects a phone number, pass
  * the checked state through to POST /api/consent/sms-customer-care.
@@ -35,6 +36,7 @@
 
 import Link from 'next/link'
 import {
+  SMS_CUSTOMER_CARE_DISCLOSURE_BODY,
   SMS_CUSTOMER_CARE_DISCLOSURE_VERSION,
   PRIVACY_POLICY_PATH,
   TERMS_PATH,
@@ -50,6 +52,8 @@ export interface SmsCustomerCareConsentProps {
   name?: string
   disabled?: boolean
   className?: string
+  /** Show the "Optional — ..." note under the box. Default true. */
+  showOptionalNote?: boolean
 }
 
 /** Exported so call sites and tests refer to one id, not a literal. */
@@ -62,6 +66,7 @@ export function SmsCustomerCareConsent({
   name = SMS_CUSTOMER_CARE_CONSENT_ID,
   disabled = false,
   className = '',
+  showOptionalNote = true,
 }: SmsCustomerCareConsentProps) {
   return (
     <div
@@ -86,13 +91,7 @@ export function SmsCustomerCareConsent({
           className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer accent-walz-gold"
         />
         <label htmlFor={id} className="cursor-pointer text-xs leading-relaxed text-walz-deep-navy/80">
-          I agree to receive SMS messages from Walz Travels regarding my bookings,
-          travel arrangements, visa/application updates, customer support requests,
-          payment reminders, and other service-related communications.{' '}
-          <span className="font-medium">Message frequency varies.</span>{' '}
-          <span className="font-medium">Message and data rates may apply.</span>{' '}
-          <span className="font-medium">Reply STOP to opt out or HELP for help.</span>{' '}
-          Consent is not a condition of purchase. See our{' '}
+          {SMS_CUSTOMER_CARE_DISCLOSURE_BODY} See our{' '}
           <Link
             href={TERMS_PATH}
             target="_blank"
@@ -113,9 +112,11 @@ export function SmsCustomerCareConsent({
           .
         </label>
       </div>
-      <p className="mt-2 pl-7 text-[11px] leading-relaxed text-walz-muted">
-        Optional — leaving this unticked will not affect your booking.
-      </p>
+      {showOptionalNote && (
+        <p className="mt-2 pl-7 text-[11px] leading-relaxed text-walz-muted">
+          Optional — leaving this unticked will not affect your booking or enquiry.
+        </p>
+      )}
     </div>
   )
 }

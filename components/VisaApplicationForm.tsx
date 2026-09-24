@@ -14,6 +14,8 @@ import { PaymentStep } from '@/components/visa/PaymentStep'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
 import { cn } from '@/lib/utils'
 import { BUSINESS, waLink } from '@/lib/config/business'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_VISA_APPLICATION } from '@/lib/consent/purposes'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -273,10 +275,11 @@ function StepPassport({ form, update }: { form: VFormData; update: (k: string, v
   )
 }
 
-function StepContact({ form, update }: { form: VFormData; update: (k: string, v: string | boolean) => void }) {
+function StepContact({ form, update, smsFields }: { form: VFormData; update: (k: string, v: string | boolean) => void; smsFields?: React.ReactNode }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <Field label="Phone Number (with country code)" required><TextInput value={form.phone} onChange={v => update('phone', v)} placeholder="+234 80 0000 0000" /></Field>
+      {smsFields ? <div className="sm:col-span-2">{smsFields}</div> : null}
       <Field label="Email Address" required><TextInput type="email" value={form.email} onChange={v => update('email', v)} placeholder="your@email.com" /></Field>
       <div className="sm:col-span-2"><Field label="Home Address Line 1" required><TextInput value={form.homeAddress} onChange={v => update('homeAddress', v)} placeholder="Street address" /></Field></div>
       <div className="sm:col-span-2"><Field label="Home Address Line 2"><TextInput value={form.homeAddress2} onChange={v => update('homeAddress2', v)} placeholder="Apartment, suite, etc." /></Field></div>
@@ -830,6 +833,12 @@ export function VisaApplicationForm({
   const isManual = isUnsupported || inline
   const countrySlug = ISO2_TO_SLUG[destinationIso2] ?? destinationIso2.toLowerCase()
   const isAdminFlow = Boolean(adminToken)
+  // SMS consent: only the applicant's own ticks count; never render/record in staff (admin-token) mode.
+  const sms = useSmsConsent()
+  const recordSmsConsent = () => {
+    if (isAdminFlow || !form.phone.trim()) return
+    void sms.record({ phone: form.phone.trim(), capturePage: '/visa/apply', source: CONSENT_SOURCE_VISA_APPLICATION, evidence: appId ?? undefined })
+  }
 
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<VFormData>(EMPTY_FORM)
@@ -1120,6 +1129,7 @@ export function VisaApplicationForm({
       })
       if (res.ok) {
         const { referenceNumber } = await res.json()
+        recordSmsConsent()
         setConfirmed({ refNumber: referenceNumber, email: form.email })
         window.scrollTo({ top: 0, behavior: 'smooth' })
       } else {
@@ -1128,7 +1138,10 @@ export function VisaApplicationForm({
       }
       setSubmitting(false)
     } else {
-      if (appId) router.push(`/visa/apply/${countrySlug}/payment?id=${appId}`)
+      if (appId) {
+        recordSmsConsent()
+        router.push(`/visa/apply/${countrySlug}/payment?id=${appId}`)
+      }
     }
   }
 
@@ -1443,7 +1456,7 @@ export function VisaApplicationForm({
 
         {step === 0 && <StepPersonal form={form} update={update} config={config} />}
         {step === 1 && <StepPassport form={form} update={update} />}
-        {step === 2 && <StepContact form={form} update={update} />}
+        {step === 2 && <StepContact form={form} update={update} smsFields={isAdminFlow ? null : sms.fields} />}
         {step === 3 && <StepEmployment form={form} update={update} config={config} />}
         {step === 4 && <StepTravel form={form} update={update} config={config} />}
         {step === 5 && <StepHistory form={form} update={update} />}

@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { X, Clock, ChevronRight, Loader2, CheckCircle, Users, Calendar } from 'lucide-react'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 import { PaymentForm } from '@/components/booking/PaymentForm'
 import { generateBookingReference } from '@/lib/utils'
 import type { ActivityResult, ActivityModality } from './ActivityResultCard'
@@ -31,6 +33,7 @@ export function ActivityBookingModal({ activity, serviceDate, adults, children, 
   const [name,      setName]      = useState('')
   const [email,     setEmail]     = useState('')
   const [phone,     setPhone]     = useState('')
+  const sms = useSmsConsent()
   const [error,     setError]     = useState<string | null>(null)
   const [walzRef,   setWalzRef]   = useState('')
   const [hbRef,     setHbRef]     = useState('')
@@ -51,6 +54,14 @@ export function ActivityBookingModal({ activity, serviceDate, adults, children, 
       setError('Please enter a valid email.'); return false
     }
     setError(null); return true
+  }
+
+  // A2P 10DLC SMS consent: fire-and-forget at the affirmative act (before
+  // payment); never blocks or gates checkout.
+  function handleContinueToPayment() {
+    if (!validate()) return
+    void sms.record({ phone, capturePage: '/activities', source: CONSENT_SOURCE_WEB_FORM })
+    setStep('payment')
   }
 
   async function handlePaymentSuccess(transactionId: string | number, gateway: 'flutterwave' | 'stripe') {
@@ -204,12 +215,13 @@ export function ActivityBookingModal({ activity, serviceDate, adults, children, 
                     />
                   </div>
                 ))}
+                {sms.fields}
               </div>
 
               {error && <p className="text-red-600 text-xs bg-red-50 rounded-xl p-3">{error}</p>}
 
               <button
-                onClick={() => { if (validate()) setStep('payment') }}
+                onClick={handleContinueToPayment}
                 className="w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-3.5 rounded-xl hover:bg-[#d4b45f] transition-colors flex items-center justify-center gap-2"
               >
                 Continue to Payment <ChevronRight className="w-4 h-4" />

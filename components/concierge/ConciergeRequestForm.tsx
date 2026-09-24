@@ -4,6 +4,8 @@ import { useState, useCallback } from 'react'
 import { BUSINESS, waLink } from '@/lib/config/business'
 import type { FormField, FieldGroup } from '@/lib/concierge/form-schema'
 import { STEP_ORDER, groupFields } from '@/lib/concierge/form-schema'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 
 // ── Built-in contact step fields ──────────────────────────────────────────────
 
@@ -104,6 +106,7 @@ export function ConciergeRequestForm({
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null)
+  const sms = useSmsConsent()
 
   const currentStep = steps[stepIdx]
 
@@ -197,6 +200,12 @@ export function ConciergeRequestForm({
         return
       }
 
+      // Optional SMS consent (fire-and-forget; never gates the request).
+      const phone = getValue('contactPhone').trim()
+      if (phone) {
+        void sms.record({ phone, capturePage: `/concierge/${categorySlug}`, source: CONSENT_SOURCE_WEB_FORM })
+      }
+
       const result = data as { reference: string; sla: string }
       setConfirmation({ reference: result.reference, sla: result.sla })
     } catch {
@@ -283,15 +292,19 @@ export function ConciergeRequestForm({
       <form onSubmit={handleSubmit} noValidate>
         <div className="space-y-5 mb-8">
           {currentStep.fields.map(field => (
-            <FieldRenderer
-              key={field.key}
-              field={field}
-              value={getValue(field.key)}
-              multiValue={getMultiValue(field.key)}
-              error={errors[field.key]}
-              onChange={val => setValue(field.key, val)}
-              onToggleMulti={opt => toggleMulti(field.key, opt)}
-            />
+            <div key={field.key} className="space-y-5">
+              <FieldRenderer
+                field={field}
+                value={getValue(field.key)}
+                multiValue={getMultiValue(field.key)}
+                error={errors[field.key]}
+                onChange={val => setValue(field.key, val)}
+                onToggleMulti={opt => toggleMulti(field.key, opt)}
+              />
+              {field.key === 'contactPhone' && (
+                <div className="rounded-xl bg-white p-4">{sms.fields}</div>
+              )}
+            </div>
           ))}
         </div>
 

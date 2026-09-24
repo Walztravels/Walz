@@ -30,6 +30,6 @@ INSERT INTO "SiteSetting" ("id", "key", "value", "label") VALUES
   (gen_random_uuid()::text, 'phone_nigeria',           '+2340000000000',        'Phone Nigeria'),
   (gen_random_uuid()::text, 'phone_ghana',             '+2330000000000',        'Phone Ghana'),
   (gen_random_uuid()::text, 'business_name',           'Walz Travels Ltd',      'Business Name'),
-  (gen_random_uuid()::text, 'business_address',        'THE WALZ TRAVELS INC · Ontario, Canada · Registered in England & Wales', 'Business Address'),
+  (gen_random_uuid()::text, 'business_address',        'The Walz Travels Inc. · Ontario, Canada', 'Business Address'),
   (gen_random_uuid()::text, 'business_email',          'contact@walztravels.com','Business Email')
 ON CONFLICT ("key") DO NOTHING;

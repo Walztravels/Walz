@@ -85,8 +85,11 @@ export function tripRevalidateRateLimit(ip: string): RateLimitResult {
 // enough that a real person correcting a typo and resubmitting is never
 // blocked, tight enough that the endpoint cannot be used to mass-write
 // consent rows for numbers the submitter does not own.
-export function consentCaptureRateLimit(ip: string): RateLimitResult {
-  return rateLimit({ key: `consent-capture:${ip}`, limit: 10, windowMs: 10 * 60 * 1000 })
+// Keyed per consent purpose so each purpose has its own budget, and sized so
+// a shared mobile-carrier / office NAT address does not silently drop
+// genuine consent.
+export function consentCaptureRateLimit(ip: string, purpose = 'sms'): RateLimitResult {
+  return rateLimit({ key: `consent-capture:${purpose}:${ip}`, limit: 20, windowMs: 10 * 60 * 1000 })
 }
 
 // Public WhatsApp marketing preferences (POST /api/whatsapp/preferences).

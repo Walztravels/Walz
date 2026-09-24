@@ -50,7 +50,7 @@ function paystubHtml(params: {
       <p style="color:#718096;font-size:12px;margin:0;">This paystub was generated automatically. Salary is scheduled to be credited tomorrow. For queries contact <a href="mailto:hr@walztravels.com" style="color:#C9A84C;">hr@walztravels.com</a>.</p>
     </td></tr>
     <tr><td style="background:#f8fafc;padding:16px 36px;border-top:1px solid #e8ecf0;">
-      <p style="color:#a0aec0;font-size:11px;margin:0;text-align:center;">The Walz Travels Inc · Ontario, Canada · Registered in England &amp; Wales</p>
+      <p style="color:#a0aec0;font-size:11px;margin:0;text-align:center;">The Walz Travels Inc · Ontario, Canada</p>
     </td></tr>
   </table>
 </body></html>`

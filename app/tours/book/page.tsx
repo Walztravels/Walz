@@ -11,6 +11,8 @@ import NextImage from 'next/image'
 import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySelector'
 import { processorsFor } from '@/lib/payments/processors'
 import { TOUR_ADDONS } from '@/lib/tours/addons'
+import { useSmsConsent, type UseSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_TOUR_BOOKING } from '@/lib/consent/purposes'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -271,8 +273,9 @@ function StepOne({ tour, date, setDate, groupSize, setGroupSize, addons, setAddo
 
 // ── Step 2: Your Details ──────────────────────────────────────────────────────
 
-function StepTwo({ details, setDetails, onNext, onBack }: {
+function StepTwo({ details, setDetails, onNext, onBack, sms }: {
   details: Details; setDetails: (d: Details) => void
+  sms: UseSmsConsent
   onNext: () => void; onBack: () => void
 }) {
   const [errors, setErrors] = useState<Partial<Details>>({})
@@ -343,6 +346,9 @@ function StepTwo({ details, setDetails, onNext, onBack }: {
           {errors.whatsapp && <p className="text-red-500 text-xs mt-1">{errors.whatsapp}</p>}
         </div>
 
+        {/* Optional SMS consent — independent of validation and of the T&C checkbox in step 3 */}
+        {sms.fields}
+
         {/* Country */}
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1.5">Country of Residence *</label>
@@ -397,8 +403,9 @@ function StepTwo({ details, setDetails, onNext, onBack }: {
 
 // ── Step 3: Review & Pay ──────────────────────────────────────────────────────
 
-function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }: {
+function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess, sms }: {
   tour: DbTour; date: string; groupSize: number; addons: string[]
+  sms: UseSmsConsent
   details: Details; onBack: () => void; onSuccess: (ref: string) => void
 }) {
   const [agreed, setAgreed] = useState(false)
@@ -641,6 +648,15 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
       setError('Please accept the terms and conditions to proceed.')
       document.querySelector('[data-terms-error]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
+    }
+    // Single shared pre-payment step: record optional SMS consent once,
+    // fire-and-forget, before any gateway redirect. Never gates payment.
+    if (details.whatsapp.trim()) {
+      void sms.record({
+        phone: `${details.countryCode}${details.whatsapp}`,
+        capturePage: '/tours/book',
+        source: CONSENT_SOURCE_TOUR_BOOKING,
+      })
     }
     if (gateway === 'stripe') { handleStripePay() }
     else if (gateway === 'flutterwave') { handleFlutterwavePay() }
@@ -930,6 +946,7 @@ function BookingContent() {
   const [groupSize, setGroupSize] = useState(2)
   const [addons, setAddons] = useState<string[]>([])
 
+  const sms = useSmsConsent()
   const [details, setDetails] = useState<Details>({
     firstName: '', lastName: '', email: '',
     countryCode: '+44', whatsapp: '',
@@ -1003,13 +1020,13 @@ function BookingContent() {
         {step === 2 && (
           <StepTwo
             details={details} setDetails={setDetails}
-            onNext={() => next(3)} onBack={() => next(1)}
+            onNext={() => next(3)} onBack={() => next(1)} sms={sms}
           />
         )}
         {step === 3 && (
           <StepThree
             tour={tour} date={date} groupSize={groupSize} addons={addons} details={details}
-            onBack={() => next(2)}
+            onBack={() => next(2)} sms={sms}
             onSuccess={(ref) => { setBookingRef(ref); next('success') }}
           />
         )}

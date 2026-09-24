@@ -1,6 +1,8 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from 'next/navigation'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -233,6 +235,7 @@ export default function TripRequestFormPage() {
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState<{ referenceNumber: string } | null>(null)
   const [form, setForm] = useState<FormData>(defaultForm)
+  const sms = useSmsConsent()
 
   useEffect(() => {
     fetch(`/api/trip-request/${params.token}`)
@@ -280,7 +283,10 @@ export default function TripRequestFormPage() {
     })
     const data = await res.json()
     setSubmitting(false)
-    if (data.success) setDone(data)
+    if (data.success) {
+      if (form.phone.trim()) void sms.record({ phone: form.phone.trim(), capturePage: '/trip-request', source: CONSENT_SOURCE_WEB_FORM, evidence: request?.referenceNumber })
+      setDone(data)
+    }
   }
 
   const destImg = Object.entries(DESTINATION_IMAGES).find(
@@ -431,6 +437,7 @@ export default function TripRequestFormPage() {
             <div>
               <label className={lbl}>Phone / WhatsApp</label>
               <input value={form.phone} onChange={e => upd('phone', e.target.value)} placeholder="+44 7XXX XXXXXX" className={inp} />
+              <div className="mt-3">{sms.fields}</div>
             </div>
             <div>
               <label className={lbl}>Destination *</label>

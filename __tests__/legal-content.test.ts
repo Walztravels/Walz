@@ -111,24 +111,26 @@ describe('legal content fidelity', () => {
    * assertion locked (frequency, rates, STOP, HELP, carrier non-liability)
    * is still pinned below, plus the not-a-condition-of-purchase statement.
    */
-  it('terms "SMS Messaging" separates customer care from marketing and keeps every required element', () => {
+  it('terms "SMS Messaging" carries the SMS program sentence, sender, message types and every required element', () => {
     const smsSection = TERMS_SECTIONS.find((s) => s.title.includes('SMS Messaging'))
     expect(smsSection).toBeDefined()
     const body = smsSection!.body
 
-    // The two programmes are described separately and independently.
-    expect(body).toContain('Customer care SMS:')
-    expect(body).toContain('Marketing SMS:')
-    expect(body).toContain('Ticking the box for one does not opt you in to the other')
-    expect(body).toContain('Consent is not a condition of purchase')
-
-    // Every carrier-required element the previous wording carried.
-    expect(body).toContain('message frequency varies')
-    expect(body).toContain('Message and data rates may apply')
-    expect(body).toContain('Reply STOP to opt out at any time, or reply HELP for help')
-    expect(body).toContain('Carriers are not liable for delayed or undelivered messages')
-
-    // The bundled-marketing wording is gone.
+    expect(body).toContain(
+      'SMS communications under the Canadian messaging program are provided by The Walz Travels Inc., operating under the Walz Travels brand.'
+    )
+    expect(body).toContain('Sender:\nThe Walz Travels Inc., operating as Walz Travels.')
+    for (const t of [
+      'travel enquiries', 'booking confirmations', 'booking updates',
+      'itinerary notifications', 'payment reminders', 'visa-service notifications',
+      'appointment and consultation reminders', 'customer-support communications',
+    ]) {
+      expect(body).toContain(t)
+    }
+    expect(body).toContain('Message frequency varies. Message and data rates may apply.')
+    expect(body).toContain('Reply STOP to opt out. Reply HELP for help.')
+    expect(body).toContain('Consent is not a condition of purchase.')
+    expect(body).toContain('with third parties or affiliates for their marketing or promotional purposes')
     expect(body).not.toContain('occasional promotional offers')
   })
 
@@ -143,7 +145,7 @@ describe('legal content fidelity', () => {
     expect(new Set(keys).size).toBe(keys.length)
   })
 
-  it('every original privacy section title is preserved verbatim (1 through 12, unrenumbered)', () => {
+  it('every original privacy section title is preserved verbatim (1 through 12, unrenumbered) and s13 is appended', () => {
     const titles = PRIVACY_SECTIONS.map((s) => s.title)
     expect(titles).toEqual([
       '1. Who We Are',
@@ -158,6 +160,7 @@ describe('legal content fidelity', () => {
       '10. Security',
       '11. Changes to This Policy',
       '12. Contact Us',
+      '13. SMS and Mobile Messaging',
     ])
   })
 
@@ -196,6 +199,9 @@ describe('GET /api/admin/content/site — role gating', () => {
     const res = await GET()
     const body = await res.json()
     expect(body.privacy_s5_body?.group).toBe('privacy')
+    // The new s13 section flows through the admin DEFAULTS pipeline.
+    expect(body.privacy_s13_title?.value).toBe('13. SMS and Mobile Messaging')
+    expect(body.privacy_s13_body?.group).toBe('privacy')
     expect(body.terms_s13_body?.group).toBe('terms')
     expect(body.about_company_story?.group).toBe('about') // existing group unaffected
   })
@@ -257,6 +263,20 @@ describe('POST /api/admin/content/site — role gating', () => {
 // mergeWithDefaults, matching app/privacy/page.tsx and app/terms/page.tsx
 // line for line) re-reads that same row on its next request and overrides
 // the verbatim default with it — everything else stays unchanged.
+
+describe('privacy_s13 renders from the code fallback when the DB has no s13 rows yet', () => {
+  it('a DB holding only the older 12 privacy sections still yields s13 via the code default', async () => {
+    const rows = PRIVACY_SECTIONS.filter((s) => s.key !== 'privacy_s13').flatMap((s) => [
+      { key: `${s.key}_title`, value: s.title, label: '', group: 'privacy' },
+      { key: `${s.key}_body`, value: s.body, label: '', group: 'privacy' },
+    ])
+    const merged = mergeWithDefaults(rows, PRIVACY_SECTIONS)
+    expect(merged).toHaveLength(13)
+    const s13 = merged.find((s) => s.key === 'privacy_s13')!
+    expect(s13.title).toBe('13. SMS and Mobile Messaging')
+    expect(s13.body).toContain('The Walz Travels Inc., operating as Walz Travels')
+  })
+})
 
 describe('super_admin edit is reflected on the public page on next read', () => {
   it('editing one privacy section body updates only that section on re-fetch', async () => {

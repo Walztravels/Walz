@@ -5,6 +5,8 @@ import { X, MessageCircle } from 'lucide-react'
 import { BUSINESS, waLink } from '@/lib/config/business'
 import dynamic from 'next/dynamic'
 import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySelector'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 
 const StripePaymentStep = dynamic(() => import('@/components/payments/StripePaymentStep'), { ssr: false })
 const FlutterwavePaymentStep = dynamic(() => import('@/components/payments/FlutterwavePaymentStep'), { ssr: false })
@@ -197,6 +199,8 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
   const [clientEmail, setClientEmail] = useState('')
   const [dialCode, setDialCode] = useState('+234')
   const [phone, setPhone] = useState('')
+  const sms = useSmsConsent()
+  const { reset: resetSms } = sms
   const [clientCountry, setClientCountry] = useState('')
   const [specialRequests, setSpecialRequests] = useState('')
 
@@ -254,6 +258,7 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
     setClientEmail('')
     setDialCode('+234')
     setPhone('')
+    resetSms()
     setClientCountry('')
     setSpecialRequests('')
     setSelectedGateway(null)
@@ -264,7 +269,7 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
     setFwDepositLocal(0)
     setFwIntent(null)
     setFwIntentError('')
-  }, [pkg.currency])
+  }, [pkg.currency, resetSms])
 
   const closeModal = useCallback(() => {
     if (isControlled) {
@@ -333,6 +338,10 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
       })
       const data = await res.json()
       if (data.bookingRef) {
+        // Optional SMS consent (fire-and-forget; never gates the booking).
+        if (phone.trim()) {
+          void sms.record({ phone: dialCode + phone, capturePage: '/packages', source: CONSENT_SOURCE_WEB_FORM })
+        }
         setBookingRef(data.bookingRef)
         setStep(4)
       } else {
@@ -367,6 +376,10 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
       })
       const data = await res.json()
       if (data.bookingRef) {
+        // Optional SMS consent (fire-and-forget; never gates the booking).
+        if (phone.trim()) {
+          void sms.record({ phone: dialCode + phone, capturePage: '/packages', source: CONSENT_SOURCE_WEB_FORM })
+        }
         setBookingRef(data.bookingRef)
         setStep(5)
       } else {
@@ -590,6 +603,7 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
                     onBlur={e => (e.currentTarget.style.borderColor = '#E2D9CC')}
                   />
                 </div>
+                {sms.fields}
               </div>
               {/* Country */}
               <div>

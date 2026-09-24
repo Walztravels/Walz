@@ -29,6 +29,7 @@ import {
   CONSENT_PURPOSES,
   CONSENT_STATUSES,
   SMS_CUSTOMER_CARE_DISCLOSURE,
+  SMS_CUSTOMER_CARE_DISCLOSURE_BODY,
   SMS_CUSTOMER_CARE_DISCLOSURE_VERSION,
   REQUIRED_DISCLOSURE_ELEMENTS,
   CONSENT_SOURCE_BOOKING_CHECKOUT,
@@ -60,6 +61,10 @@ function code(p: string): string {
 }
 
 const ROUTE_SRC = 'app/api/consent/sms-customer-care/route.ts'
+// The capture logic (rate limit, normalization, strict === true, upsert) now
+// lives in ONE shared helper used by both consent routes; the route files
+// are thin wrappers that each pass a single literal purpose.
+const CAPTURE_SRC = 'lib/consent/capture.ts'
 const PURPOSES_SRC = 'lib/consent/purposes.ts'
 const COMPONENT_SRC = 'components/consent/SmsCustomerCareConsent.tsx'
 const MIGRATION_SRC = 'prisma/migrations/consent_foundation_v1.sql'
@@ -134,6 +139,7 @@ describe('an unchecked consent box creates NO ConsentRecord of any status', () =
     expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
     // And the route source contains no NOT_GRANTED write at all.
     expect(read(ROUTE_SRC)).not.toMatch(/status:\s*['"]NOT_GRANTED['"]/)
+    expect(read(CAPTURE_SRC)).not.toMatch(/status:\s*['"]NOT_GRANTED['"]/)
   })
 
   it('the source uses a strict identity check, not a truthy test', () => {
@@ -141,6 +147,7 @@ describe('an unchecked consent box creates NO ConsentRecord of any status', () =
     // No `if (checked)` / `!!checked` / Boolean(checked) shortcut anywhere.
     expect(read(PURPOSES_SRC)).not.toMatch(/Boolean\(\s*input\.checked\s*\)/)
     expect(read(ROUTE_SRC)).not.toMatch(/consent\s*\?\s*true/)
+    expect(read(CAPTURE_SRC)).not.toMatch(/consent\s*\?\s*true/)
   })
 
   it('the checkbox state is never defaulted to true at any call site', () => {
@@ -149,7 +156,9 @@ describe('an unchecked consent box creates NO ConsentRecord of any status', () =
       'components/booking/PassengerForm.tsx',
       'app/hotels/book/page.tsx',
     ]) {
-      expect(read(src)).toContain('useState(false)')
+      // The hook (components/consent/useSmsConsent.tsx) owns the unticked
+      // default; the call site must use it and never seed state true.
+      expect(read(src)).toContain('useSmsConsent()')
       expect(read(src)).not.toMatch(/useState\(\s*true\s*\)[^\n]*[Cc]onsent/)
     }
   })
@@ -161,7 +170,11 @@ describe('consent is never inferred from the presence of a phone number', () => 
   const featureFiles = [
     PURPOSES_SRC,
     ROUTE_SRC,
+    CAPTURE_SRC,
+    'lib/consent/client.ts',
     COMPONENT_SRC,
+    'components/consent/SmsMarketingConsent.tsx',
+    'components/consent/useSmsConsent.tsx',
     MIGRATION_SRC,
   ]
 
@@ -190,7 +203,7 @@ describe('consent is never inferred from the presence of a phone number', () => 
   })
 
   it('the only Prisma write in the whole feature is a single-row consentRecord upsert', () => {
-    const src = read(ROUTE_SRC)
+    const src = read(CAPTURE_SRC)
     const writes = src.match(/prisma\.\w+\.(create|upsert|update|delete|createMany|updateMany|deleteMany)/g) ?? []
     expect(writes).toEqual(['prisma.consentRecord.upsert'])
   })
@@ -303,12 +316,12 @@ describe('a genuinely checked submission creates exactly one GRANTED record', ()
 // ── 4. Phone normalization reuses the EXISTING utility ──────────────────
 
 describe('phone normalization reuses lib/identity/normalize.ts — no second normalizer', () => {
-  it('the route imports the shared normalizer by name', () => {
-    expect(read(ROUTE_SRC)).toContain("import { normalizePhoneE164 } from '@/lib/identity/normalize'")
+  it('the shared capture helper imports the shared normalizer by name', () => {
+    expect(read(CAPTURE_SRC)).toContain("import { normalizePhoneE164 } from '@/lib/identity/normalize'")
   })
 
   it('no file in this feature defines its own phone normalization', () => {
-    for (const f of [ROUTE_SRC, PURPOSES_SRC, COMPONENT_SRC]) {
+    for (const f of [ROUTE_SRC, CAPTURE_SRC, PURPOSES_SRC, COMPONENT_SRC]) {
       const src = read(f)
       expect(src).not.toMatch(/function\s+normalize\w*Phone/i)
       expect(src).not.toMatch(/replace\(\s*\/\\D\/g/)
@@ -319,7 +332,7 @@ describe('phone normalization reuses lib/identity/normalize.ts — no second nor
   it('it is the SAME function the WhatsApp Broadcast audience resolver uses', () => {
     // Both import the same module path — one idea of who a number is.
     expect(read('lib/whatsapp/broadcast/audience.ts')).toContain("from '@/lib/identity/normalize'")
-    expect(read(ROUTE_SRC)).toContain("from '@/lib/identity/normalize'")
+    expect(read(CAPTURE_SRC)).toContain("from '@/lib/identity/normalize'")
   })
 
   it('the route stores exactly what the shared normalizer produces', async () => {
@@ -408,7 +421,7 @@ describe('WhatsAppConsent and lib/whatsapp/broadcast/consent.ts are untouched', 
   })
 
   it('this feature never reads or writes the whatsapp_consents store', () => {
-    for (const f of [ROUTE_SRC, PURPOSES_SRC, COMPONENT_SRC]) {
+    for (const f of [ROUTE_SRC, CAPTURE_SRC, PURPOSES_SRC, COMPONENT_SRC]) {
       const src = read(f)
       expect(src).not.toMatch(/prisma\.whatsAppConsent/i)
     }
@@ -544,9 +557,11 @@ describe('the SMS consent disclosure carries every carrier-required element', ()
   )
 
   it('identifies the brand and describes SERVICE messages, not marketing', () => {
-    expect(SMS_CUSTOMER_CARE_DISCLOSURE).toContain('SMS messages from Walz Travels')
+    expect(SMS_CUSTOMER_CARE_DISCLOSURE).toContain(
+      'SMS messages from The Walz Travels Inc., operating as Walz Travels,',
+    )
     expect(SMS_CUSTOMER_CARE_DISCLOSURE).toContain('bookings')
-    expect(SMS_CUSTOMER_CARE_DISCLOSURE).toContain('customer support requests')
+    expect(SMS_CUSTOMER_CARE_DISCLOSURE).toContain('customer support')
     // A CUSTOMER_CARE campaign must not promise promotional content.
     expect(SMS_CUSTOMER_CARE_DISCLOSURE).not.toMatch(/promotion|marketing|offers|deals/i)
   })
@@ -555,19 +570,22 @@ describe('the SMS consent disclosure carries every carrier-required element', ()
     expect(SMS_CUSTOMER_CARE_DISCLOSURE).toMatch(/Reply STOP to opt out or HELP for help/)
   })
 
-  it('the rendered component reproduces every element of the disclosure', () => {
+  it('the rendered component is driven by the audited constant and links both policies', () => {
     const jsx = read(COMPONENT_SRC)
-    for (const phrase of [
-      'SMS messages from Walz Travels',
-      'Message frequency varies.',
-      'Message and data rates may apply.',
-      'Reply STOP to opt out or HELP for help.',
-      'Consent is not a condition of purchase.',
-      'Terms &amp; Conditions',
-      'Privacy Policy',
-    ]) {
-      expect(jsx).toContain(phrase)
-    }
+    // The sentence is rendered FROM the constant — it cannot drift.
+    expect(jsx).toContain('{SMS_CUSTOMER_CARE_DISCLOSURE_BODY}')
+    expect(jsx).toContain('Terms &amp; Conditions')
+    expect(jsx).toContain('Privacy Policy')
+  })
+
+  it('the disclosure is EXACTLY the owner-approved wording, at version sms-customer-care-v2', () => {
+    expect(SMS_CUSTOMER_CARE_DISCLOSURE_BODY).toBe(
+      'I agree to receive SMS messages from The Walz Travels Inc., operating as Walz Travels, regarding my travel enquiries, bookings, payments, itinerary updates, visa-service updates and customer support. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase.',
+    )
+    expect(SMS_CUSTOMER_CARE_DISCLOSURE).toBe(
+      SMS_CUSTOMER_CARE_DISCLOSURE_BODY + ' See our Terms & Conditions and Privacy Policy.',
+    )
+    expect(SMS_CUSTOMER_CARE_DISCLOSURE_VERSION).toBe('sms-customer-care-v2')
   })
 })
 
@@ -612,24 +630,28 @@ describe('the consent checkbox is structurally compliant', () => {
       'app/hotels/book/page.tsx',
     ]) {
       const page = read(src)
-      // Its state has exactly one setter call site: the component's onChange.
-      const setters = page.match(/setSmsConsent\(/g) ?? []
-      expect(setters.length).toBe(0)                       // passed by reference only
-      expect(page).toContain('onChange={setSmsConsent}')
+      // The call site never sets consent state itself: the hook's boxes
+      // are rendered via `sms.fields` and are the only thing that toggles it.
+      expect(page).not.toMatch(/setSmsConsent\(/)
+      expect(page).not.toMatch(/sms\.setCustomerCare\(/)
+      expect(page).toContain('{sms.fields}')
     }
   })
 
   it('is wired into all three booking checkouts and posts to the consent route', () => {
+    // Wiring now goes through useSmsConsent (which renders the customer-care
+    // box and posts via lib/consent/client).
+    expect(read('lib/consent/client.ts')).toContain('/api/consent/sms-customer-care')
     for (const src of [
       'app/(public)/flights/traveller/page.tsx',
-      'app/book/page.tsx',
+      'components/booking/PassengerForm.tsx',
       'app/hotels/book/page.tsx',
     ]) {
-      expect(read(src)).toContain("/api/consent/sms-customer-care")
+      expect(read(src)).toContain('useSmsConsent()')
+      expect(read(src)).toContain('sms.record(')
+      expect(read(src)).toContain('{sms.fields}')
     }
-    expect(read('app/(public)/flights/traveller/page.tsx')).toContain('<SmsCustomerCareConsent')
-    expect(read('components/booking/PassengerForm.tsx')).toContain('<SmsCustomerCareConsent')
-    expect(read('app/hotels/book/page.tsx')).toContain('<SmsCustomerCareConsent')
+    expect(read('app/book/page.tsx')).toContain('PassengerForm')
   })
 })
 
@@ -641,25 +663,23 @@ describe('the /hotels/book checkout is a third, additive call site', () => {
   const jsxCode = code(HOTELS_BOOK_SRC)
 
   it('collects a phone number and reuses the SAME reusable component, unmodified', () => {
-    expect(jsx).toContain("import { SmsCustomerCareConsent } from '@/components/consent/SmsCustomerCareConsent'")
-    expect(jsx).toContain('<SmsCustomerCareConsent')
-    expect(jsx).toContain('checked={smsConsent}')
-    expect(jsx).toContain('onChange={setSmsConsent}')
+    expect(jsx).toContain("import { useSmsConsent } from '@/components/consent/useSmsConsent'")
+    expect(jsx).toContain('const sms = useSmsConsent()')
+    expect(jsx).toContain('{sms.fields}')
   })
 
   it('initialises the checkbox state to false, exactly like the other two call sites', () => {
-    expect(jsxCode).toMatch(/const \[smsConsent,\s*setSmsConsent\]\s*=\s*useState\(false\)/)
+    // (the unticked default now lives in the shared hook)
+    expect(jsxCode).toContain('const sms = useSmsConsent()')
+    expect(jsxCode).not.toMatch(/useState\(\s*true\s*\)[^\n]*[Cc]onsent/)
   })
 
   it('fires the SAME fire-and-forget POST to the existing consent route, with the correct capture page', () => {
-    expect(jsxCode).toContain("void fetch('/api/consent/sms-customer-care'")
-    expect(jsxCode).toContain("method: 'POST'")
-    expect(jsxCode).toContain("capturePage: '/hotels/book'")
-    // consent is passed straight from the checkbox state, not a hardcoded
-    // true/false and not coerced.
-    expect(jsxCode).toMatch(/consent:\s*smsConsent,/)
-    // Fire-and-forget: failures are swallowed, never surfaced or thrown.
-    expect(jsxCode).toMatch(/\.catch\(\(\)\s*=>\s*\{/)
+    // Recorded through the hook (fire-and-forget: `void`, never awaited;
+    // the hook posts only ticked boxes via lib/consent/client, which
+    // swallows failures and never throws).
+    expect(jsxCode).toMatch(/void sms\.record\(\{[^}]*capturePage: '\/hotels\/book'/)
+    expect(jsxCode).not.toMatch(/await sms\.record/)
   })
 
   it('introduces no second consent-capture code path — no direct Prisma access, no second route, no second normalizer', () => {
@@ -670,7 +690,7 @@ describe('the /hotels/book checkout is a third, additive call site', () => {
   })
 
   it('the only Prisma write in the whole feature is still the single-row consentRecord upsert, with the third call site added', () => {
-    const src = read(ROUTE_SRC)
+    const src = read(CAPTURE_SRC)
     const writes = src.match(/prisma\.\w+\.(create|upsert|update|delete|createMany|updateMany|deleteMany)/g) ?? []
     expect(writes).toEqual(['prisma.consentRecord.upsert'])
   })
@@ -725,30 +745,25 @@ describe('the legal content closes the Twilio gaps', () => {
     expect(privacyS5.body).toMatch(/marketing or promotional purposes/)
   })
 
-  it('Terms §13 covers frequency, rates, STOP, HELP and carrier non-liability', () => {
+  it('Terms §13 covers frequency, rates, STOP, HELP and not-a-condition-of-purchase', () => {
     expect(termsS13.title).toBe('13. SMS Messaging')
-    expect(termsS13.body).toContain('message frequency varies')
-    expect(termsS13.body).toContain('Message and data rates may apply')
-    expect(termsS13.body).toContain('Reply STOP to opt out')
-    expect(termsS13.body).toContain('reply HELP for help')
-    expect(termsS13.body).toContain('Carriers are not liable')
+    expect(termsS13.body).toContain('Message frequency varies. Message and data rates may apply.')
+    expect(termsS13.body).toContain('Reply STOP to opt out. Reply HELP for help.')
+    expect(termsS13.body).toContain('Consent is not a condition of purchase.')
   })
 
-  it('Terms §13 describes the CUSTOMER CARE programme specifically', () => {
-    expect(termsS13.body).toContain('Customer care SMS')
-    expect(termsS13.body).toContain('Consent is not a condition of purchase')
-    // The old wording bundled promotional offers into the same opt-in,
-    // which contradicts a CUSTOMER_CARE campaign registration.
-    expect(termsS13.body).not.toContain('occasional promotional offers')
-    expect(termsS13.body).toContain('Marketing SMS')
-    expect(termsS13.body).toContain('separate opt-in')
+  it('Terms §13 names the sender entity and describes customer-care messages only', () => {
+    expect(termsS13.body).toContain('Sender:\nThe Walz Travels Inc., operating as Walz Travels.')
+    expect(termsS13.body).not.toMatch(/promotional (messages|SMS)|separate opt-ins|occasional promotional offers/)
   })
 
-  it('the SQL update script carries the SAME text as the TS source of truth', () => {
+  it('the earlier v1 SQL script still carries the Privacy §5 text (unchanged); Terms §13 is superseded by a2p v2', () => {
     const sql = read(LEGAL_SQL_SRC)
-    // Dollar-quoted blocks must reproduce the canonical bodies verbatim.
     expect(sql).toContain(privacyS5.body)
-    expect(sql).toContain(termsS13.body)
+    // consent_legal_content_v1.sql carries the OLD terms_s13 body on purpose
+    // (history); a2p_entity_legal_content_v1.sql supersedes it and is
+    // verified against the current TS source in a2p-entity-consent.test.ts.
+    expect(sql).not.toContain(termsS13.body)
   })
 
   it('the SQL update script is idempotent, scoped to two rows, and unexecuted', () => {
@@ -763,7 +778,7 @@ describe('the legal content closes the Twilio gaps', () => {
   })
 
   it('no other privacy/terms section was disturbed', () => {
-    expect(PRIVACY_SECTIONS).toHaveLength(12)
+    expect(PRIVACY_SECTIONS).toHaveLength(13)   // s13 (SMS and Mobile Messaging) appended
     expect(TERMS_SECTIONS).toHaveLength(14)
     expect(PRIVACY_SECTIONS.map((s) => s.key)).toContain('privacy_s7')
     expect(PRIVACY_SECTIONS.find((s) => s.key === 'privacy_s7')!.anchorId).toBe('data-deletion')

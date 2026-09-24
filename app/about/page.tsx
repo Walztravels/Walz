@@ -40,7 +40,7 @@ const TIMELINE_FALLBACK: TimelineItem[] = [
   { id: '1', icon: 'plane',    title: 'Where It Began',     order: 0, description: 'Walz Travels launched as a boutique travel consultancy in Dubai — serving the African diaspora in the UAE and building a reputation for expert visa processing and travel support.' },
   { id: '2', icon: 'landmark', title: 'Expanding to Europe', order: 1, description: 'Formally registered in the United Kingdom. Expanded visa processing and travel services for Nigerian and Ghanaian diaspora across the UK and Europe.' },
   { id: '3', icon: 'leaf',     title: 'North America',        order: 2, description: 'Opened Canadian operations in Ontario. Launched Niagara Falls private tours and Canada visa processing for diaspora clients across North America.' },
-  { id: '4', icon: 'globe',    title: 'Global Platform',     order: 3, description: 'THE WALZ TRAVELS INC incorporated in Ontario, Canada. Full global travel platform launched at walztravels.com — serving clients across five markets worldwide.' },
+  { id: '4', icon: 'globe',    title: 'Global Platform',     order: 3, description: 'The Walz Travels Inc. incorporated in Ontario, Canada. Full global travel platform launched at walztravels.com — serving clients across five markets worldwide.' },
 ]
 
 const STATS = [
@@ -471,7 +471,7 @@ export default function AboutPage() {
             <div className="space-y-4 text-white/70 text-[15px] leading-relaxed">
               <p>Walz Travels is a global travel and visa consultancy built for the modern international traveller. What began as a boutique consultancy in Dubai has grown into a full service travel platform serving clients across {activeMarketCount} markets — Canada, United Kingdom, UAE, Nigeria, Ghana and beyond.</p>
               <p>Formally registered in London, United Kingdom — Walz Travels expanded its reach across the African diaspora community in the UK, Europe and West Africa.</p>
-              <p>THE WALZ TRAVELS INC was incorporated in Ontario, Canada, marking a new chapter as a truly global travel platform with operations across three continents.</p>
+              <p>The Walz Travels Inc. was incorporated in Ontario, Canada, marking a new chapter as a truly global travel platform with operations across three continents.</p>
               <p>Today Walz Travels handles everything from visa applications and flight bookings to private tours, hotel reservations and corporate travel management — all under one trusted global brand.</p>
             </div>
           </div>

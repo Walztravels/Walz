@@ -127,18 +127,9 @@ function BookPageContent() {
     paxData: BookingPassenger[],
     email: string,
     phone: string,
-    smsConsent: boolean,
   ) => {
-    // Record the SMS customer-care consent at the moment of the
-    // affirmative act. Fire-and-forget: consent is explicitly "not a
-    // condition of purchase", so a failure here must never stop checkout.
-    // The route writes NOTHING unless `consent` is strictly true.
-    void fetch('/api/consent/sms-customer-care', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, consent: smsConsent, capturePage: '/book' }),
-    }).catch(() => { /* never block the booking on a consent side-write */ })
-
+    // Customer-care SMS consent is recorded fire-and-forget by
+    // PassengerForm's submit handler via useSmsConsent (capturePage '/book').
     setPassengers(paxData)
     setContactEmail(email)
     setContactPhone(phone)

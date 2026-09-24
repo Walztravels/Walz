@@ -20,6 +20,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { JadeChat } from '@/components/ui/JadeChat'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_TOUR_BOOKING } from '@/lib/consent/purposes'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -58,6 +60,7 @@ function EnquiryModal({ tourName, onClose }: { tourName: string; onClose: () => 
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const sms = useSmsConsent()
 
   const { register, handleSubmit, formState: { errors } } = useForm<EnquiryFormData>({
     resolver: zodResolver(enquirySchema),
@@ -67,6 +70,10 @@ function EnquiryModal({ tourName, onClose }: { tourName: string; onClose: () => 
   const onSubmit = async (data: EnquiryFormData) => {
     setIsLoading(true)
     setError(null)
+    // Optional SMS consent: fire-and-forget, never gates the enquiry.
+    if (data.phone?.trim()) {
+      void sms.record({ phone: data.phone, capturePage: '/tours', source: CONSENT_SOURCE_TOUR_BOOKING })
+    }
     try {
       const response = await fetch('/api/tours/enquiry', {
         method: 'POST',
@@ -139,6 +146,7 @@ function EnquiryModal({ tourName, onClose }: { tourName: string; onClose: () => 
               <Input type="tel" placeholder="+44 7700 000000" {...register('phone')} className={cn(errors.phone && 'border-walz-error')} />
               {errors.phone && <p className="text-walz-error text-xs mt-1">{errors.phone.message}</p>}
             </div>
+            {sms.fields}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label-walz">Preferred Date *</label>

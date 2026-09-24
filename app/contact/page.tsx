@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { BUSINESS, waLink } from '@/lib/config/business'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_CONTACT_FORM } from '@/lib/consent/purposes'
 
 export default function ContactPage() {
   const [name, setName]       = useState('')
@@ -12,6 +14,7 @@ export default function ContactPage() {
   const [sending, setSending] = useState(false)
   const [sent, setSent]       = useState(false)
   const [error, setError]     = useState('')
+  const sms = useSmsConsent()
 
   async function handleSubmit() {
     if (!name || !email || !subject || !message) {
@@ -27,7 +30,9 @@ export default function ContactPage() {
         body: JSON.stringify({ name, email, phone, subject, message }),
       })
       if (!res.ok) throw new Error('Failed')
+      if (phone.trim()) void sms.record({ phone: phone.trim(), capturePage: '/contact', source: CONSENT_SOURCE_CONTACT_FORM })
       setSent(true)
+      sms.reset()
       setName(''); setEmail(''); setPhone(''); setSubject(''); setMessage('')
     } catch {
       setError('Something went wrong. Please try WhatsApp instead.')
@@ -121,6 +126,7 @@ export default function ContactPage() {
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:border-amber-500/50"
                 placeholder="+44 7700 000000"
               />
+              <div className="mt-3">{sms.fields}</div>
             </div>
 
             <div>

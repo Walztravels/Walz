@@ -7,7 +7,7 @@ import { User, Plus, Trash2, ChevronDown, ChevronUp, MessageCircle } from 'lucid
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { SmsCustomerCareConsent } from '@/components/consent/SmsCustomerCareConsent'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
 import { cn } from '@/lib/utils'
 import type { BookingPassenger } from '@/types/booking'
 
@@ -37,15 +37,10 @@ type FormData = z.infer<typeof formSchema>
 
 interface PassengerFormProps {
   initialPassengerCount?: number
-  /**
-   * `smsConsent` is the user's own tick of the independent A2P 10DLC
-   * customer-care checkbox. It is never true unless they clicked it.
-   */
   onSubmit: (
     passengers: BookingPassenger[],
     contactEmail: string,
     contactPhone: string,
-    smsConsent: boolean,
   ) => void
   isLoading?: boolean
 }
@@ -73,11 +68,11 @@ const COUNTRIES = [
 export function PassengerForm({ initialPassengerCount = 1, onSubmit, isLoading = false }: PassengerFormProps) {
   const [expandedPassengers, setExpandedPassengers] = useState<Set<number>>(new Set([0]))
 
-  // A2P 10DLC CUSTOMER_CARE consent. Initialised FALSE; only the user's
-  // click on its own checkbox ever changes it. Deliberately NOT part of
-  // the zod schema above — it is not a validated, required field, because
-  // consent is not a condition of purchase.
-  const [smsConsent, setSmsConsent] = useState(false)
+  // A2P 10DLC customer-care SMS consent (independent, unticked box).
+  // Both start unticked; deliberately NOT part of the zod schema above —
+  // not a validated, required field, because consent is not a condition
+  // of purchase.
+  const sms = useSmsConsent()
 
   const {
     register,
@@ -116,8 +111,13 @@ export function PassengerForm({ initialPassengerCount = 1, onSubmit, isLoading =
     })
   }
 
-  const handleFormSubmit = (data: FormData) =>
-    onSubmit(data.passengers as BookingPassenger[], data.contactEmail, data.contactPhone, smsConsent)
+  const handleFormSubmit = (data: FormData) => {
+    // Record at the moment of the affirmative act (fire-and-forget; only
+    // ticked boxes POST; never blocks or throws). Attached to the contact
+    // phone the form itself submits.
+    void sms.record({ phone: data.contactPhone, capturePage: '/book' })
+    onSubmit(data.passengers as BookingPassenger[], data.contactEmail, data.contactPhone)
+  }
 
   const today = new Date().toISOString().split('T')[0]
   const minExpiry = new Date()
@@ -170,12 +170,12 @@ export function PassengerForm({ initialPassengerCount = 1, onSubmit, isLoading =
         </div>
 
         {/*
-          A2P 10DLC CUSTOMER_CARE consent — its OWN independent checkbox,
-          unticked by default, not part of the zod schema and therefore
-          never required to submit. Nothing else on this form toggles it.
+          A2P 10DLC customer-care SMS consent — its OWN independent checkbox, unticked
+          by default, not part of the zod schema and therefore never
+          required to submit. Nothing else on this form toggles them.
         */}
         <div className="mt-4">
-          <SmsCustomerCareConsent checked={smsConsent} onChange={setSmsConsent} />
+          {sms.fields}
         </div>
       </div>
 

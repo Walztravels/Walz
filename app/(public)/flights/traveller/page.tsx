@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useFlightStore } from '@/store/flightStore'
 import { formatTime, formatDuration } from '@/lib/flights/utils'
 import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
-import { SmsCustomerCareConsent } from '@/components/consent/SmsCustomerCareConsent'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
 import type { Passenger } from '@/lib/flights/types'
 
 const STEPS        = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
@@ -52,10 +52,9 @@ export default function TravellerPage() {
   const [tried,   setTried]  = useState(false)
   const [meals,   setMeals]  = useState<string[]>(Array(count).fill('No preference'))
 
-  // A2P 10DLC CUSTOMER_CARE consent. Initialised FALSE and never set true
-  // by anything but the user's own click on its own checkbox — no default,
-  // no "select all", no coupling to any other agreement control.
-  const [smsConsent, setSmsConsent] = useState(false)
+  // A2P 10DLC customer-care SMS consent. Unticked by
+  // default; no "select all", no coupling to any other agreement control.
+  const sms = useSmsConsent()
 
   const cur    = pax[active]
   const isLead = active === 0
@@ -102,15 +101,7 @@ export default function TravellerPage() {
     // "not a condition of purchase", so a failure here must never stop the
     // traveller continuing. The route itself writes NOTHING unless
     // `consent` is strictly true (see lib/consent/purposes.ts).
-    void fetch('/api/consent/sms-customer-care', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone: pax[0]?.phone ?? '',
-        consent: smsConsent,
-        capturePage: '/flights/traveller',
-      }),
-    }).catch(() => { /* never block the booking on a consent side-write */ })
+    void sms.record({ phone: pax[0]?.phone ?? '', capturePage: '/flights/traveller' })
 
     setPassengers(pax)
     setStep('extras')
@@ -412,10 +403,7 @@ export default function TravellerPage() {
                       Terms & Conditions tickbox lives on a different step
                       (/flights/review) and has no connection to this one.
                     */}
-                    <SmsCustomerCareConsent
-                      checked={smsConsent}
-                      onChange={setSmsConsent}
-                    />
+                    {sms.fields}
                   </div>
                 </>
               )}

@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 import { ArrowLeft, Search, Loader2, Users, Calendar, Clock, Plane, Check, Plus, Minus, ChevronDown } from 'lucide-react'
 
 // ── Local types (mirrors server types — no server imports in client) ──────────
@@ -219,6 +221,7 @@ function StandardFlow({ type, info }: { type: string; info: typeof SERVICE_INFO[
   const [passengers, setPassengers] = useState<Passenger[]>([{ firstName: '', lastName: '', type: 'adult' }])
   const [leadEmail,  setLeadEmail]  = useState('')
   const [leadPhone,  setLeadPhone]  = useState('')
+  const sms = useSmsConsent()
 
   // Checkout state
   const [checkoutLoading, setCheckoutLoading] = useState(false)
@@ -285,6 +288,10 @@ function StandardFlow({ type, info }: { type: string; info: typeof SERVICE_INFO[
       })
       const data = await res.json() as { reference?: string; checkoutUrl?: string; error?: string }
       if (!data.checkoutUrl) { setError(data.error ?? 'Checkout failed.'); setCheckoutLoading(false); return }
+      // Optional SMS consent: fire-and-forget (keepalive) BEFORE the redirect; never gates checkout.
+      if (leadPhone.trim()) {
+        void sms.record({ phone: leadPhone, capturePage: `/concierge/airport-services/${type}`, source: CONSENT_SOURCE_WEB_FORM })
+      }
       setStep('processing')
       window.location.href = data.checkoutUrl
     } catch {
@@ -435,6 +442,7 @@ function StandardFlow({ type, info }: { type: string; info: typeof SERVICE_INFO[
           <Field label="Phone (optional)">
             <TextInput value={leadPhone} onChange={setLeadPhone} placeholder="+1 234 567 8900" />
           </Field>
+          <div className="rounded-xl bg-white p-4">{sms.fields}</div>
         </div>
 
         {/* Flight details */}
@@ -540,6 +548,7 @@ function BaggageFlow() {
   const [passengers, setPassengers] = useState<Passenger[]>([{ firstName: '', lastName: '', type: 'adult' }])
   const [leadEmail,  setLeadEmail]  = useState('')
   const [leadPhone,  setLeadPhone]  = useState('')
+  const sms = useSmsConsent()
   const [flightNum,  setFlightNum]  = useState('')
   const [delivNotes, setDelivNotes] = useState('')
   const [checkoutLoading, setCheckoutLoading] = useState(false)
@@ -649,6 +658,10 @@ function BaggageFlow() {
       })
       const data = await res.json() as { checkoutUrl?: string; error?: string }
       if (!data.checkoutUrl) { setError(data.error ?? 'Checkout failed.'); setCheckoutLoading(false); return }
+      // Optional SMS consent: fire-and-forget (keepalive) BEFORE the redirect; never gates checkout.
+      if (leadPhone.trim()) {
+        void sms.record({ phone: leadPhone, capturePage: '/concierge/airport-services/baggage', source: CONSENT_SOURCE_WEB_FORM })
+      }
       setStep('processing')
       window.location.href = data.checkoutUrl
     } catch {
@@ -752,6 +765,7 @@ function BaggageFlow() {
           <p className="text-white/60 text-xs font-semibold uppercase tracking-wider">Contact &amp; Delivery</p>
           <Field label="Email"><TextInput type="email" value={leadEmail} onChange={setLeadEmail} placeholder="your@email.com" /></Field>
           <Field label="Phone (optional)"><TextInput value={leadPhone} onChange={setLeadPhone} placeholder="+1 234 567 8900" /></Field>
+          <div className="rounded-xl bg-white p-4">{sms.fields}</div>
           <Field label="Flight number (if applicable)"><TextInput value={flightNum} onChange={setFlightNum} placeholder="EK001" /></Field>
           <Field label="Delivery notes">
             <textarea

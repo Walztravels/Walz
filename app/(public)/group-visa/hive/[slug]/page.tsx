@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { BUSINESS, waLink } from '@/lib/config/business'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_VISA_APPLICATION } from '@/lib/consent/purposes'
 
 type SessionInfo = {
   groupName:     string
@@ -46,6 +48,7 @@ export default function GroupHivePage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError]         = useState<string | null>(null)
+  const sms = useSmsConsent()
 
   const fetchInfo = useCallback(async () => {
     try {
@@ -91,6 +94,7 @@ export default function GroupHivePage() {
         return
       }
 
+      if (form.phone.trim()) void sms.record({ phone: form.phone.trim(), capturePage: '/group-visa/hive', source: CONSENT_SOURCE_VISA_APPLICATION, evidence: slug })
       localStorage.setItem(`hive_${slug}_submitted`, '1')
       setSubmitted(true)
       await fetchInfo()
@@ -313,6 +317,7 @@ export default function GroupHivePage() {
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-400"
               placeholder="+447123456789"
             />
+            <div className="mt-3">{sms.fields}</div>
           </div>
 
           <div className="border border-gray-100 rounded-xl p-4 space-y-3 bg-gray-50">

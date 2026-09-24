@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { X, Calendar, Users, ChevronRight, Loader2, CheckCircle, MapPin, Shield, Star } from 'lucide-react'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_HOTEL_BOOKING } from '@/lib/consent/purposes'
 import { PaymentForm } from '@/components/booking/PaymentForm'
 import { generateBookingReference } from '@/lib/utils'
 import type { HotelResult } from '@/types/booking'
@@ -24,6 +26,7 @@ export function HotelBookingModal({ hotel, checkIn, checkOut, adults, rooms, onC
   const [name,  setName]  = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const sms = useSmsConsent()
 
   const [walzRef, setWalzRef] = useState('')
   const [hbRef,   setHbRef]   = useState('')
@@ -46,6 +49,14 @@ export function HotelBookingModal({ hotel, checkIn, checkOut, adults, rooms, onC
     }
     if (!phone.trim()) { setError('Please enter your phone number.'); return false }
     setError(null); return true
+  }
+
+  // A2P 10DLC SMS consent: fire-and-forget at the affirmative act (before
+  // payment); never blocks or gates checkout.
+  function handleContinueToPayment() {
+    if (!validate()) return
+    void sms.record({ phone, capturePage: '/hotels', source: CONSENT_SOURCE_HOTEL_BOOKING })
+    setStep('payment')
   }
 
   async function handlePaymentSuccess(transactionId: string | number, gateway: 'flutterwave' | 'stripe') {
@@ -161,6 +172,8 @@ export function HotelBookingModal({ hotel, checkIn, checkOut, adults, rooms, onC
                 </div>
               ))}
 
+              {sms.fields}
+
               {/* Price box */}
               <div className="bg-[#F5F0E8] rounded-xl p-4 space-y-2 text-sm">
                 <div className="flex justify-between text-gray-500">
@@ -184,7 +197,7 @@ export function HotelBookingModal({ hotel, checkIn, checkOut, adults, rooms, onC
               {error && <p className="text-red-600 text-xs bg-red-50 rounded-xl p-3">{error}</p>}
 
               <button
-                onClick={() => { if (validate()) setStep('payment') }}
+                onClick={handleContinueToPayment}
                 className="w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-3.5 rounded-xl hover:bg-[#d4b45f] transition-colors flex items-center justify-center gap-2"
               >
                 Continue to Payment <ChevronRight className="w-4 h-4" />

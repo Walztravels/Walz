@@ -56,7 +56,7 @@ function paystubHtml(params: {
     </td></tr>
     <!-- Footer -->
     <tr><td style="background:#f8fafc;padding:16px 36px;border-top:1px solid #e8ecf0;">
-      <p style="color:#a0aec0;font-size:11px;margin:0;text-align:center;">The Walz Travels Inc · Ontario, Canada · Registered in England &amp; Wales</p>
+      <p style="color:#a0aec0;font-size:11px;margin:0;text-align:center;">The Walz Travels Inc · Ontario, Canada</p>
     </td></tr>
   </table>
 </body></html>`

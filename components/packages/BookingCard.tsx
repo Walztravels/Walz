@@ -2,6 +2,8 @@
 
 import { useState, useRef } from 'react'
 import { BUSINESS, waLink } from '@/lib/config/business'
+import { useSmsConsent } from '@/components/consent/useSmsConsent'
+import { CONSENT_SOURCE_WEB_FORM } from '@/lib/consent/purposes'
 import { loadStripe } from '@stripe/stripe-js'
 import {
   Elements,
@@ -122,6 +124,7 @@ export function BookingCard({
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const sms = useSmsConsent()
   const [travelers, setTravelers] = useState(1)
 
   // Step 2 selection
@@ -144,6 +147,7 @@ export function BookingCard({
     setName('')
     setEmail('')
     setPhone('')
+    sms.reset()
     setTravelers(1)
     setPaymentType('deposit')
     setClientSecret(null)
@@ -183,6 +187,10 @@ export function BookingCard({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to create booking')
+      // Optional SMS consent (fire-and-forget; never gates checkout).
+      if (phone.trim()) {
+        void sms.record({ phone, capturePage: '/packages', source: CONSENT_SOURCE_WEB_FORM })
+      }
       setClientSecret(data.clientSecret)
       setBookingReference(data.bookingReference)
       setStep(3)
@@ -317,6 +325,7 @@ export function BookingCard({
                         className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-[#C9A84C] transition-colors"
                       />
                     </div>
+                    <div className="mt-3">{sms.fields}</div>
                   </div>
 
                   <div>

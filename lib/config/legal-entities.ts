@@ -15,7 +15,7 @@ export const LEGAL_ENTITIES = {
     jurisdiction:     'England & Wales',
   },
   canada: {
-    legalName:         '',  // OWNER INPUT REQUIRED — exact legal name
+    legalName:         'The Walz Travels Inc.',  // owner-provided
     corporationNumber: '',  // OWNER INPUT REQUIRED — federal corporation number
     registeredOffice:  '',  // OWNER INPUT REQUIRED — registered office
     province:          'Ontario',
@@ -24,3 +24,31 @@ export const LEGAL_ENTITIES = {
 
 // Brand name used in marketing copy — does not imply a specific entity
 export const BRAND_NAME = 'Walz Travels'
+
+// ── Corporate / SMS-programme disclosure copy — SINGLE SOURCE ─────────────
+// Two legitimate entities operate under one customer-facing brand:
+//   Canada          -> The Walz Travels Inc.  (the A2P SMS programme owner)
+//   United Kingdom  -> Walz Travels Ltd
+// Never imply one entity is the other. Footer, legal pages and SMS consent
+// wording all import from here.
+
+export const CANADA_ENTITY_NAME = LEGAL_ENTITIES.canada.legalName
+export const UK_ENTITY_NAME = LEGAL_ENTITIES.uk.legalName
+
+/** The entity that sends SMS under the registered A2P 10DLC campaign. */
+export const SMS_SENDER_ENTITY_NAME = CANADA_ENTITY_NAME
+
+/** Sender phrase used in every SMS consent disclosure. */
+export const SMS_SENDER_PHRASE = `${SMS_SENDER_ENTITY_NAME}, operating as ${BRAND_NAME}`
+
+export const CORPORATE_DISCLOSURE =
+  'Walz Travels is an international travel services brand operated through locally registered entities in Canada and the United Kingdom.'
+
+export const SMS_PROGRAM_DISCLOSURE =
+  'SMS communications under the Canadian messaging program are provided by ' +
+  'The Walz Travels Inc., operating under the Walz Travels brand.'
+
+export const ENTITY_DISPLAY_LINES = {
+  canada: `Canada: ${CANADA_ENTITY_NAME}`,
+  uk: `United Kingdom: ${UK_ENTITY_NAME}`,
+} as const

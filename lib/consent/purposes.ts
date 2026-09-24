@@ -23,6 +23,8 @@
  * `decideConsentWrite` is the only sanctioned way to reach a write.
  */
 
+import { SMS_SENDER_PHRASE, SMS_SENDER_ENTITY_NAME, BRAND_NAME } from '@/lib/config/legal-entities'
+
 // ── Purpose taxonomy ────────────────────────────────────────────────────
 
 /**
@@ -72,36 +74,85 @@ export function isConsentStatus(v: unknown): v is ConsentStatus {
  */
 export const CONSENT_SOURCE_BOOKING_CHECKOUT = 'booking_checkout_sms_customer_care'
 
+/** RESERVED — not exposed or used by any public UI or route in the customer-care (A2P 30907) release; for a future separate Marketing campaign. Default source for an SMS_MARKETING tick when the caller names none. */
+export const CONSENT_SOURCE_BOOKING_CHECKOUT_MARKETING = 'booking_checkout_sms_marketing'
+
+/**
+ * Allowlisted capture surfaces. A caller may name the surface the box was
+ * ticked on; anything outside this list is IGNORED (the purpose's default
+ * source is stamped instead) so the audit column can never be filled with
+ * arbitrary client-supplied text. Surface names are purpose-neutral: the
+ * `purpose` column already says which consent the row is.
+ */
+export const CONSENT_SOURCE_TOUR_BOOKING = 'tour_booking_sms'
+export const CONSENT_SOURCE_HOTEL_BOOKING = 'hotel_booking_sms'
+export const CONSENT_SOURCE_VISA_APPLICATION = 'visa_application_sms'
+export const CONSENT_SOURCE_CONTACT_FORM = 'contact_form_sms'
+export const CONSENT_SOURCE_WEB_FORM = 'web_form_sms'
+
+export const CONSENT_SOURCE_ALLOWLIST = [
+  CONSENT_SOURCE_BOOKING_CHECKOUT,
+  CONSENT_SOURCE_BOOKING_CHECKOUT_MARKETING,
+  CONSENT_SOURCE_TOUR_BOOKING,
+  CONSENT_SOURCE_HOTEL_BOOKING,
+  CONSENT_SOURCE_VISA_APPLICATION,
+  CONSENT_SOURCE_CONTACT_FORM,
+  CONSENT_SOURCE_WEB_FORM,
+] as const
+
+export type ConsentSource = (typeof CONSENT_SOURCE_ALLOWLIST)[number]
+
+/** Returns the source if allowlisted, otherwise `fallback`. Never throws. */
+export function resolveConsentSource(v: unknown, fallback: ConsentSource): ConsentSource {
+  return typeof v === 'string' && (CONSENT_SOURCE_ALLOWLIST as readonly string[]).includes(v)
+    ? (v as ConsentSource)
+    : fallback
+}
+
 /**
  * Stamped onto every record so a later audit can tell WHICH wording a
- * person actually agreed to. Bump when DISCLOSURE_TEXT changes materially.
+ * person actually agreed to. Bump when the disclosure changes materially.
+ * v2: the sender is now named as the registered legal entity
+ * (The Walz Travels Inc., operating as Walz Travels) — Twilio error 30907.
  */
-export const SMS_CUSTOMER_CARE_DISCLOSURE_VERSION = 'sms-customer-care-v1'
+export const SMS_CUSTOMER_CARE_DISCLOSURE_VERSION = 'sms-customer-care-v2'
+/** RESERVED — not exposed or used by any public UI or route in the customer-care (A2P 30907) release; for a future separate Marketing campaign. */
+export const SMS_MARKETING_DISCLOSURE_VERSION = 'sms-marketing-v1'
 
-// ── The disclosure ──────────────────────────────────────────────────────
+// ── The disclosures ─────────────────────────────────────────────────────
 
 /**
- * The A2P 10DLC CUSTOMER_CARE consent disclosure, verbatim.
+ * The A2P 10DLC CUSTOMER_CARE consent disclosure, verbatim. The sender is
+ * the legal entity that owns the registered campaign
+ * (SMS_SENDER_PHRASE = "The Walz Travels Inc., operating as Walz Travels").
  *
  * This constant is the single source of truth: the checkbox renders it, and
- * __tests__/consent-sms-customer-care.test.ts asserts every carrier-required
- * element is present in it. Editing this string without keeping all of
- * REQUIRED_DISCLOSURE_ELEMENTS satisfied fails the test suite — which is
- * the point, because Twilio rejected campaign error 30896 precisely for a
- * missing element.
- *
- * The Terms & Conditions / Privacy Policy phrases are rendered as real
- * links to /terms and /privacy by the component; the text below is the
- * plain-language equivalent used for auditing and for any non-HTML surface.
+ * the consent tests assert every carrier-required element is present in it.
+ * The Terms & Conditions / Privacy Policy links are rendered by the
+ * component next to this text.
  */
-export const SMS_CUSTOMER_CARE_DISCLOSURE =
-  'I agree to receive SMS messages from Walz Travels regarding my bookings, ' +
-  'travel arrangements, visa/application updates, customer support requests, ' +
-  'payment reminders, and other service-related communications. ' +
+export const SMS_CUSTOMER_CARE_DISCLOSURE_BODY =
+  `I agree to receive SMS messages from ${SMS_SENDER_PHRASE}, regarding my travel enquiries, ` +
+  'bookings, payments, itinerary updates, visa-service updates and customer support. ' +
   'Message frequency varies. Message and data rates may apply. ' +
   'Reply STOP to opt out or HELP for help. ' +
-  'Consent is not a condition of purchase. ' +
-  'See our Terms & Conditions and Privacy Policy.'
+  'Consent is not a condition of purchase.'
+
+/** Plain-language equivalent for audit / non-HTML surfaces (links named). */
+export const SMS_CUSTOMER_CARE_DISCLOSURE =
+  SMS_CUSTOMER_CARE_DISCLOSURE_BODY + ' See our Terms & Conditions and Privacy Policy.'
+
+/** RESERVED — not exposed or used by any public UI or route in the customer-care (A2P 30907) release; for a future separate Marketing campaign. The separate promotional-SMS disclosure. */
+export const SMS_MARKETING_DISCLOSURE_BODY =
+  `I agree to receive recurring promotional SMS messages from ${SMS_SENDER_PHRASE}, ` +
+  'including travel deals, offers and promotions. ' +
+  'Message frequency varies. Message and data rates may apply. ' +
+  'Reply STOP to opt out or HELP for help. ' +
+  'Consent is not a condition of purchase.'
+
+/** RESERVED — not exposed or used by any public UI or route in the customer-care (A2P 30907) release; for a future separate Marketing campaign. */
+export const SMS_MARKETING_DISCLOSURE =
+  SMS_MARKETING_DISCLOSURE_BODY + ' See our Terms & Conditions and Privacy Policy.'
 
 /**
  * Every element Twilio's A2P 10DLC review looks for, as a substring of
@@ -109,8 +160,24 @@ export const SMS_CUSTOMER_CARE_DISCLOSURE =
  * missing compliance element rather than "string did not match".
  */
 export const REQUIRED_DISCLOSURE_ELEMENTS: Record<string, string> = {
-  'brand identified by name': 'Walz Travels',
-  'customer-care (service, not marketing) message types': 'service-related communications',
+  'sender legal entity: The Walz Travels Inc.': SMS_SENDER_ENTITY_NAME,
+  'brand identified by name': `operating as ${BRAND_NAME}`,
+  'customer-care (service, not marketing) message types': 'bookings, payments, itinerary updates, visa-service updates and customer support',
+  'message frequency varies': 'Message frequency varies.',
+  'message and data rates may apply': 'Message and data rates may apply.',
+  'STOP instruction': 'Reply STOP to opt out',
+  'HELP instruction': 'HELP for help',
+  'consent is not a condition of purchase': 'Consent is not a condition of purchase.',
+  'terms link': 'Terms & Conditions',
+  'privacy link': 'Privacy Policy',
+}
+
+/** RESERVED — not exposed or used by any public UI or route in the customer-care (A2P 30907) release; for a future separate Marketing campaign. Same, for SMS_MARKETING_DISCLOSURE. */
+export const REQUIRED_MARKETING_DISCLOSURE_ELEMENTS: Record<string, string> = {
+  'sender legal entity: The Walz Travels Inc.': SMS_SENDER_ENTITY_NAME,
+  'brand identified by name': `operating as ${BRAND_NAME}`,
+  'promotional wording': 'recurring promotional SMS messages',
+  'promotional content described': 'travel deals, offers and promotions',
   'message frequency varies': 'Message frequency varies.',
   'message and data rates may apply': 'Message and data rates may apply.',
   'STOP instruction': 'Reply STOP to opt out',

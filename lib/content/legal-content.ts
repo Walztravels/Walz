@@ -32,6 +32,8 @@
  * too, since they are no longer bound to lib/config/legal-entities.ts.
  */
 
+import { CORPORATE_DISCLOSURE, ENTITY_DISPLAY_LINES } from '../config/legal-entities'
+
 export interface LegalSection {
   /** SiteContent key prefix -> `${key}_title` / `${key}_body` */
   key: string
@@ -45,7 +47,12 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     key: 'privacy_s1',
     title: '1. Who We Are',
-    body: `Walz Travels Ltd ("Walz Travels", "we", "us" or "our") is a travel agency operating in the United Kingdom.
+    body: `${CORPORATE_DISCLOSURE}
+
+${ENTITY_DISPLAY_LINES.canada}
+${ENTITY_DISPLAY_LINES.uk}
+
+In this Privacy Policy, "Walz Travels", "we", "us" and "our" refer to the Walz Travels brand and the locally registered entity that provides the service you use. SMS communications are provided by The Walz Travels Inc. — see Section 13.
 
 We operate the website walztravels.com and related services including flight booking, hotel booking, private tours, visa assistance and gift vouchers.
 
@@ -171,9 +178,28 @@ You can control non-essential cookies through your browser settings. Disabling e
 
 Email: contact@walztravels.com
 WhatsApp: +1 231 790 2336
-Post: Walz Travels Ltd
+${ENTITY_DISPLAY_LINES.canada}
+${ENTITY_DISPLAY_LINES.uk}
 
 If you are unsatisfied with our response, you have the right to lodge a complaint with the Information Commissioner's Office (ICO) at ico.org.uk.`,
+  },
+  {
+    key: 'privacy_s13',
+    title: '13. SMS and Mobile Messaging',
+    body: `SMS communications under the Canadian messaging program are provided by The Walz Travels Inc., operating as Walz Travels.
+
+Mobile information we collect:
+We may collect your mobile phone number and a record of your SMS consent, including the date and time of consent, the version of the consent wording presented to you, and the page or form through which consent was provided. We use this information to provide requested SMS communications, maintain consent records, process opt-outs and support compliance obligations.
+
+If you opt in, SMS messages may include travel enquiry responses, booking confirmations and updates, payment reminders, itinerary updates, visa-service updates, appointment or consultation reminders and customer-support communications.
+
+Message frequency varies. Message and data rates may apply. Consent is not a condition of purchase.
+
+You may reply STOP to opt out or HELP for assistance. You may also contact contact@walztravels.com regarding your SMS preferences.
+
+Mobile information, including your mobile phone number and SMS opt-in consent, will not be shared with third parties or affiliates for their marketing or promotional purposes.
+
+See our Terms of Service for additional information about the SMS messaging programme.`,
   },
 ]
 
@@ -181,7 +207,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     key: 'terms_s1',
     title: '1. About These Terms',
-    body: `These Terms of Service ("Terms") govern your use of the Walz Travels website (walztravels.com) and all related booking services operated by Walz Travels Ltd ("Walz Travels", "we", "us" or "our").
+    body: `These Terms of Service ("Terms") govern your use of the Walz Travels website (walztravels.com) and all related booking services provided under the Walz Travels brand through locally registered entities in Canada (The Walz Travels Inc.) and the United Kingdom (Walz Travels Ltd) ("Walz Travels", "we", "us" or "our"). SMS communications are provided by The Walz Travels Inc. — see Section 13 (SMS Messaging).
 
 By accessing our website or placing a booking, you agree to be bound by these Terms. If you do not agree, please do not use our services.`,
   },
@@ -283,20 +309,31 @@ If you have a complaint, please contact us first at contact@walztravels.com. We 
   {
     key: 'terms_s13',
     title: '13. SMS Messaging',
-    body: `Walz Travels operates separate SMS programmes and you opt in to each one independently. Ticking the box for one does not opt you in to the other, and we will not move you between them without a fresh opt-in.
+    body: `SMS communications under the Canadian messaging program are provided by The Walz Travels Inc., operating under the Walz Travels brand.
 
-Customer care SMS: when you tick the SMS consent box on a Walz Travels booking, enquiry or application form, you agree to receive text messages from Walz Travels about your bookings, travel arrangements, visa and application updates, customer support requests, payment reminders and other service-related communications. Consent is not a condition of purchase — you can complete any booking or application without ticking the box.
+Sender:
+The Walz Travels Inc., operating as Walz Travels.
 
-Marketing SMS: promotional and marketing text messages are a separate opt-in. We will never send them on the basis of your customer care consent alone.
+If you voluntarily opt in, you may receive SMS messages relating to travel enquiries, booking confirmations, booking updates, itinerary notifications, payment reminders, visa-service notifications, appointment and consultation reminders, and customer-support communications.
 
-For both programmes: message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time, or reply HELP for help. You can also email contact@walztravels.com to be removed. Carriers are not liable for delayed or undelivered messages.
+Message frequency varies. Message and data rates may apply.
 
-We do not sell or share your mobile information — including your phone number and your SMS consent — with third parties or affiliates for marketing or promotional purposes. See our Privacy Policy for details.`,
+Reply STOP to opt out. Reply HELP for help.
+
+Consent is not a condition of purchase.
+
+You may also contact contact@walztravels.com regarding your SMS preferences.
+
+We do not sell or share mobile information, including mobile phone numbers and SMS consent information, with third parties or affiliates for their marketing or promotional purposes.
+
+See our Privacy Policy for additional information.`,
   },
   {
     key: 'terms_s14',
     title: '14. Contact',
-    body: `Walz Travels Ltd
+    body: `Walz Travels
+${ENTITY_DISPLAY_LINES.canada}
+${ENTITY_DISPLAY_LINES.uk}
 Email: contact@walztravels.com
 WhatsApp: +1 231 790 2336`,
   },

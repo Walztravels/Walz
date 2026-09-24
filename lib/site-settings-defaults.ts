@@ -48,7 +48,7 @@ export const SETTING_DEFAULTS: SiteSettings = {
   footer_wa_3_number:      '',
   footer_wa_4_label:       '',
   footer_wa_4_number:      '',
-  business_address:        'THE WALZ TRAVELS INC · Ontario, Canada · Registered in England & Wales',
+  business_address:        'The Walz Travels Inc. · Ontario, Canada',
   business_email:          'contact@walztravels.com',
   business_name:           'Walz Travels Ltd',
 }
