@@ -18,7 +18,7 @@ const DEFAULTS: Settings = {
   accentColor:  '#C9A84C',
   brandColor:   '#0B1F3A',
   officeCities: ['London', 'Toronto', 'Dubai', 'Lagos', 'Accra'],
-  phone:        '+1 984 388 0110',
+  phone:        '+1 231 790 2336',
   whatsapp:     '+1 231 790 2336',
   footerNote:   '',
 }
@@ -212,7 +212,7 @@ export default function SignatureSettingsPage() {
                     type="tel"
                     value={form.phone}
                     onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                    placeholder="+1 984 388 0110"
+                    placeholder="+1 231 790 2336"
                     className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[#0B1F3A] focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/30"
                   />
                   <p className="text-gray-400 text-[11px] mt-1">Include country code (e.g. +44 7700 900000). Used for the phone link in the signature.</p>

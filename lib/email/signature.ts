@@ -40,7 +40,7 @@ export async function getSignatureSettings(): Promise<SignatureSettingsRow> {
       accentColor:  '#C9A84C',
       brandColor:   '#0B1F3A',
       officeCities: ['London', 'Toronto', 'Dubai', 'Lagos', 'Accra'],
-      phone:        '+1 984 388 0110',
+      phone:        '+1 231 790 2336',
       whatsapp:     '+1 231 790 2336',
       footerNote:   '',
     },

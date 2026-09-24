@@ -227,7 +227,7 @@ export default async function TrackPage({ params }: Params) {
               href={`tel:+${BUSINESS.contacts.emergencyPhone.e164}`}
               className="flex items-center gap-2 flex-1 justify-center py-2.5 rounded-xl bg-[#0B1F3A] text-[#C9A84C] text-sm font-bold hover:bg-[#162d52] transition-colors"
             >
-              <Phone className="w-4 h-4" /> +1 984-388-0110
+              <Phone className="w-4 h-4" /> {BUSINESS.contacts.emergencyPhone.display}
             </a>
             <a
               href="mailto:contact@walztravels.com"

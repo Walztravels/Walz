@@ -83,7 +83,7 @@ export default function ContactPage() {
         >
           <div className="text-3xl mb-3">📞</div>
           <h3 className="text-white font-semibold mb-1">Phone</h3>
-          <p className="text-white/50 text-sm mb-3">+1 984 388 0110</p>
+          <p className="text-white/50 text-sm mb-3">{BUSINESS.contacts.emergencyPhone.display}</p>
           <p className="text-blue-400 text-xs font-semibold">Mon–Sat 9am–8pm GMT</p>
         </a>
       </div>
