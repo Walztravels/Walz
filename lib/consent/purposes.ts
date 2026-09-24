@@ -89,6 +89,7 @@ export const CONSENT_SOURCE_HOTEL_BOOKING = 'hotel_booking_sms'
 export const CONSENT_SOURCE_VISA_APPLICATION = 'visa_application_sms'
 export const CONSENT_SOURCE_CONTACT_FORM = 'contact_form_sms'
 export const CONSENT_SOURCE_WEB_FORM = 'web_form_sms'
+export const CONSENT_SOURCE_SMS_CONSENT_PAGE = 'sms_consent_page'
 
 export const CONSENT_SOURCE_ALLOWLIST = [
   CONSENT_SOURCE_BOOKING_CHECKOUT,
@@ -98,6 +99,7 @@ export const CONSENT_SOURCE_ALLOWLIST = [
   CONSENT_SOURCE_VISA_APPLICATION,
   CONSENT_SOURCE_CONTACT_FORM,
   CONSENT_SOURCE_WEB_FORM,
+  CONSENT_SOURCE_SMS_CONSENT_PAGE,
 ] as const
 
 export type ConsentSource = (typeof CONSENT_SOURCE_ALLOWLIST)[number]

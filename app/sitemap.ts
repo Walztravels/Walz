@@ -75,6 +75,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${BASE}/help`,            lastModified: new Date(), changeFrequency: 'monthly', priority: 0.4 },
     { url: `${BASE}/privacy`,         lastModified: new Date(), changeFrequency: 'yearly',  priority: 0.3 },
     { url: `${BASE}/terms`,           lastModified: new Date(), changeFrequency: 'yearly',  priority: 0.3 },
+    { url: `${BASE}/sms-consent`,     lastModified: new Date(), changeFrequency: 'yearly',  priority: 0.3 },
     // 16 visa destination pages — priority 0.90 (high commercial intent)
     ...VISA_DESTINATIONS.map(dest => ({
       url:             `${BASE}/visa/apply/${dest}`,
