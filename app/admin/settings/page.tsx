@@ -211,6 +211,7 @@ export default function SettingsPage() {
           { href: '/admin/settings/signature',      icon: Pen,    label: 'Email Signature',    desc: 'Logo, colors, office cities, tagline'  },
           { href: '/admin/settings/inbox-mapping',  icon: Link2,  label: 'Inbox Mapping',      desc: 'Route inbound email to categories'     },
           { href: '/admin/settings/currency',       icon: RefreshCw, label: 'Currency & FX',   desc: 'NGN rates, Monierate, FX adjustment'   },
+          { href: '/admin/settings/sms-test',       icon: Phone,  label: 'SMS Acceptance Test', desc: 'One fixed customer-care test SMS (Super Admin)' },
         ].map(({ href, icon: Icon, label, desc }) => (
           <a
             key={href}
