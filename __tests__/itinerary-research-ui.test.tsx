@@ -212,3 +212,71 @@ describe('hotel rates', () => {
     expect(container.textContent!.toLowerCase()).not.toContain('per night')
   })
 })
+
+describe('flight fallback banner and date guards', () => {
+  const failWith = (body: unknown) => fetchMock.mockImplementation(async (url: string) =>
+    String(url).includes('type=flights') ? json(200, body) : json(200, { offers: [] }))
+  const banner = () => container.querySelector('[role="alert"]')?.textContent ?? ''
+
+  it.each([
+    ['NOT_CONFIGURED', undefined, 'Live flight search is not configured'],
+    ['SUPPLIER_AUTH', undefined, 'The flight supplier rejected our credentials'],
+    ['INVALID_REQUEST', "Field 'departure_date' must be after 2026-09-24", "must be after 2026-09-24"],
+    ['RATE_LIMITED', undefined, 'rate-limiting requests, try again shortly'],
+    ['TIMEOUT', undefined, 'The supplier took too long, try again'],
+    ['SUPPLIER_ERROR', undefined, 'The supplier returned an error'],
+    ['PROCESSING_ERROR', undefined, 'The supplier returned an error'],
+    [undefined, undefined, 'Live search unavailable'],
+  ])('reason %s shows specific text, no reference wording, no Add', async (reason, message, text) => {
+    failWith({ flights: [], source: 'unavailable', fallback: true, reason, message })
+    await searchFlights()
+    expect(container.textContent).toContain(text)
+    expect(container.textContent).not.toMatch(/reference only/i)
+    expect(container.querySelector('[data-testid="flight-card"]')).toBeNull()
+  })
+
+  it('hotel fallback banner text unchanged', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes('travel-search') ? json(500, {}) : json(200, { hotels: [], source: 'unavailable', fallback: true }))
+    await click(btn('Search Hotels')); await flush()
+    expect(container.textContent).toContain('Live search unavailable — API not configured or unreachable. Results below are for reference only.')
+  })
+
+  it('departure inputs have min=today and return keeps min=departure', async () => {
+    const dates = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
+    const flightDates = dates.slice(2) // after hotel check-in/out
+    const today = new Date(); const t = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    expect(flightDates[0].min).toBe(t)
+    await click(btn('Return'))
+    const rd = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]')).slice(2)
+    expect(rd[1].min).toBe(rd[0].value || t)
+    await click(btn('Multi-city'))
+    const md = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]')).slice(2)
+    expect(md.length).toBe(2)
+    md.forEach((i) => expect(i.min).toBe(t))
+  })
+
+  it('past date blocks search with inline message and no fetch; past itinerary date is not seeded', async () => {
+    act(() => root.unmount()); root = createRoot(container)
+    act(() => root.render(<ResearchTab itinId="it1" destination="Paris" startDate="2020-01-01" endDate="2020-01-04" numberOfTravellers={2} />))
+    const dates = Array.from(container.querySelectorAll<HTMLInputElement>('input[type="date"]'))
+    expect(dates[2].value).toBe('') // flight depart not seeded from past start date
+    const ins = container.querySelectorAll<HTMLInputElement>('input[placeholder="LOS"], input[placeholder="CDG"]')
+    setInput(ins[0], 'LHR'); setInput(ins[1], 'DOH')
+    setInput(dates[2], '2020-01-01')
+    fetchMock.mockClear()
+    await click(btn('Search Flights')); await flush()
+    expect(container.textContent).toContain('Choose a departure date of today or later')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('past date error clears stale results and fallback banner', async () => {
+    await searchFlights()
+    expect(container.querySelector('[data-testid="flight-card"]')).toBeTruthy()
+    const d = container.querySelectorAll<HTMLInputElement>('input[type="date"]')[2]
+    setInput(d, '2020-01-01')
+    await click(btn('Search Flights')); await flush()
+    expect(container.textContent).toContain('Choose a departure date of today or later')
+    expect(container.querySelector('[data-testid="flight-card"]')).toBeNull()
+  })
+})

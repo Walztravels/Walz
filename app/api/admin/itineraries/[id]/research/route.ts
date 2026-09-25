@@ -325,15 +325,139 @@ async function searchHotels(
 // ── Flight search ─────────────────────────────────────────────────────────────
 interface LegParam { from: string; to: string; date: string }
 
+// ── Flight search failure taxonomy (fail closed: flights stays [], nothing addable) ──
+type FlightFailReason =
+  | 'NOT_CONFIGURED' | 'SUPPLIER_AUTH' | 'INVALID_REQUEST' | 'RATE_LIMITED'
+  | 'SUPPLIER_ERROR' | 'TIMEOUT' | 'PROCESSING_ERROR'
+
+function flightFailure(reason: FlightFailReason, message?: string) {
+  return {
+    flights: [] as never[],
+    source: 'unavailable' as const,
+    fallback: true as const,
+    reason,
+    ...(message ? { message } : {}),
+  }
+}
+
+/** Short, safe supplier validation message: no raw body, tokens or request ids. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function safeDuffelMessage(body: any): string | undefined {
+  const e = Array.isArray(body?.errors) ? body.errors[0] : null
+  const raw = e?.message ?? e?.title
+  if (typeof raw !== 'string') return undefined
+  const cleaned = raw
+    .replace(/\b(duffel_[a-z]+_\w+|req_\w+|orq_\w+|ofr_\w+)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160)
+  return cleaned || undefined
+}
+
+function validateLegDates(legs: LegParam[]): string | null {
+  const today = new Date().toISOString().slice(0, 10)
+  for (const l of legs) {
+    const d = typeof l.date === 'string' ? l.date : ''
+    const valid = /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d)) &&
+      new Date(d + 'T00:00:00Z').toISOString().slice(0, 10) === d
+    if (!valid || d < today) return 'Departure date must be today or later.'
+  }
+  if (legs.length === 2 && legs[1].date < legs[0].date) {
+    return 'Return date must be on or after the departure date.'
+  }
+  return null
+}
+
+// ── Duffel offer -> Research result (throws on a malformed offer; caller skips it) ──
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDuffelOffer(o: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sliceResults = (o.slices ?? []).map((slice: any) => {
+    const firstSeg = slice?.segments?.[0]
+    const lastSeg = slice?.segments?.at(-1)
+    const stops = Math.max(0, (slice?.segments?.length ?? 1) - 1)
+    return {
+      airline:
+        firstSeg?.marketing_carrier?.name ??
+        firstSeg?.operating_carrier?.name ??
+        'Unknown Airline',
+      flightNumber: firstSeg
+        ? `${firstSeg.marketing_carrier?.iata_code ?? ''}${firstSeg.marketing_carrier_flight_number ?? ''}`
+        : '',
+      departure: firstSeg?.departing_at ?? '',
+      arrival: lastSeg?.arriving_at ?? '',
+      duration: formatIsoDuration(slice?.duration ?? ''),
+      stops,
+    }
+  })
+
+  const first = sliceResults[0] ?? {}
+  // Same classifier the saved booking uses (exact reverse pair = return; open-jaw = multi-city)
+  const tripType = classifyTripType(o.slices)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const journeys = (o.slices ?? []).map((slice: any, idx: number) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const segments = (slice?.segments ?? []).map((seg: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pax0 = (seg?.passengers ?? [])[0] as any
+      return {
+        airline: seg?.marketing_carrier?.name ?? seg?.operating_carrier?.name ?? 'Unknown Airline',
+        iataCode: seg?.marketing_carrier?.iata_code ?? null,
+        flightNumber: `${seg?.marketing_carrier?.iata_code ?? ''}${seg?.marketing_carrier_flight_number ?? ''}`,
+        from: seg?.origin?.iata_code ?? '',
+        to: seg?.destination?.iata_code ?? '',
+        departureAt: seg?.departing_at ?? '',
+        arrivalAt: seg?.arriving_at ?? '',
+        duration: formatIsoDuration(seg?.duration ?? ''),
+        cabin: pax0?.cabin_class_marketing_name ?? pax0?.cabin_class ?? null,
+        baggage: formatBaggage(pax0?.baggages),
+      }
+    })
+    return {
+      index: idx,
+      direction: tripType === 'multi-city' ? 'leg' : idx === 0 ? 'outbound' : 'return',
+      from: slice?.origin?.iata_code ?? segments[0]?.from ?? '',
+      to: slice?.destination?.iata_code ?? segments.at(-1)?.to ?? '',
+      segments,
+      stops: Math.max(0, segments.length - 1),
+      duration: formatIsoDuration(slice?.duration ?? ''),
+    }
+  })
+  const firstSeg0 = journeys[0]?.segments?.[0]
+  return {
+    // top-level fields from first slice (backward-compat)
+    airline: first.airline ?? 'Unknown Airline',
+    flightNumber: first.flightNumber ?? '',
+    departure: first.departure ?? '',
+    arrival: first.arrival ?? '',
+    duration: first.duration ?? '',
+    stops: first.stops ?? 0,
+    // all slices for multi-leg display
+    slices: sliceResults,
+    // unified-booking enrichment: identifiers + FULL journeys
+    offerId: o.id ?? null,
+    expiresAt: o.expires_at ?? null,
+    tripType,
+    journeys,
+    cabin: firstSeg0?.cabin ?? null,
+    baggage: firstSeg0?.baggage ?? null,
+    // TOTAL supplier price for the WHOLE offer (all journeys, all pax). Never per-leg.
+    price: parseFloat(o.total_amount) || 0,
+    currency: o.total_currency ?? 'GBP',
+  }
+}
+
 async function searchFlights(
   legs: LegParam[],
   adults: number,
   children: number,
   cabin: string,
 ) {
-  if (!process.env.DUFFEL_ACCESS_TOKEN) {
-    return { flights: [], source: 'unavailable' as const, fallback: true }
-  }
+  if (!process.env.DUFFEL_ACCESS_TOKEN) return flightFailure('NOT_CONFIGURED')
+
+  // Reject bad dates locally: never burn a supplier call on a request Duffel will 422.
+  const dateProblem = validateLegDates(legs)
+  if (dateProblem) return flightFailure('INVALID_REQUEST', dateProblem)
 
   const cabinMap: Record<string, string> = {
     ECONOMY: 'economy',
@@ -376,97 +500,42 @@ async function searchFlights(
     clearTimeout(tid)
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => '')
-      console.warn('[itinerary/research/flights] Duffel error', res.status, errText)
-      return { flights: [], source: 'unavailable' as const, fallback: true }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errBody: any = await res.json().catch(() => null)
+      const code = errBody?.errors?.[0]?.code
+      const reason: FlightFailReason =
+        res.status === 401 || res.status === 403 ? 'SUPPLIER_AUTH'
+        : res.status === 400 || res.status === 422 ? 'INVALID_REQUEST'
+        : res.status === 429 ? 'RATE_LIMITED'
+        : 'SUPPLIER_ERROR'
+      console.warn('[itinerary/research/flights]', reason, res.status, typeof code === 'string' ? code.slice(0, 40) : '')
+      return flightFailure(reason, reason === 'INVALID_REQUEST' ? safeDuffelMessage(errBody) : undefined)
     }
 
-    const json = await res.json()
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const flights = (json.data?.offers ?? []).slice(0, 6).map((o: any) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sliceResults = (o.slices ?? []).map((slice: any) => {
-        const firstSeg = slice?.segments?.[0]
-        const lastSeg = slice?.segments?.at(-1)
-        const stops = Math.max(0, (slice?.segments?.length ?? 1) - 1)
-        return {
-          airline:
-            firstSeg?.marketing_carrier?.name ??
-            firstSeg?.operating_carrier?.name ??
-            'Unknown Airline',
-          flightNumber: firstSeg
-            ? `${firstSeg.marketing_carrier?.iata_code ?? ''}${firstSeg.marketing_carrier_flight_number ?? ''}`
-            : '',
-          departure: firstSeg?.departing_at ?? '',
-          arrival: lastSeg?.arriving_at ?? '',
-          duration: formatIsoDuration(slice?.duration ?? ''),
-          stops,
-        }
-      })
-
-      const first = sliceResults[0] ?? {}
-      // Same classifier the saved booking uses (exact reverse pair = return; open-jaw = multi-city)
-      const tripType = classifyTripType(o.slices)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const journeys = (o.slices ?? []).map((slice: any, idx: number) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const segments = (slice?.segments ?? []).map((seg: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const pax0 = (seg?.passengers ?? [])[0] as any
-          return {
-            airline: seg?.marketing_carrier?.name ?? seg?.operating_carrier?.name ?? 'Unknown Airline',
-            iataCode: seg?.marketing_carrier?.iata_code ?? null,
-            flightNumber: `${seg?.marketing_carrier?.iata_code ?? ''}${seg?.marketing_carrier_flight_number ?? ''}`,
-            from: seg?.origin?.iata_code ?? '',
-            to: seg?.destination?.iata_code ?? '',
-            departureAt: seg?.departing_at ?? '',
-            arrivalAt: seg?.arriving_at ?? '',
-            duration: formatIsoDuration(seg?.duration ?? ''),
-            cabin: pax0?.cabin_class_marketing_name ?? pax0?.cabin_class ?? null,
-            baggage: formatBaggage(pax0?.baggages),
-          }
-        })
-        return {
-          index: idx,
-          direction: tripType === 'multi-city' ? 'leg' : idx === 0 ? 'outbound' : 'return',
-          from: slice?.origin?.iata_code ?? segments[0]?.from ?? '',
-          to: slice?.destination?.iata_code ?? segments.at(-1)?.to ?? '',
-          segments,
-          stops: Math.max(0, segments.length - 1),
-          duration: formatIsoDuration(slice?.duration ?? ''),
-        }
-      })
-      const firstSeg0 = journeys[0]?.segments?.[0]
-      return {
-        // top-level fields from first slice (backward-compat)
-        airline: first.airline ?? 'Unknown Airline',
-        flightNumber: first.flightNumber ?? '',
-        departure: first.departure ?? '',
-        arrival: first.arrival ?? '',
-        duration: first.duration ?? '',
-        stops: first.stops ?? 0,
-        // all slices for multi-leg display
-        slices: sliceResults,
-        // unified-booking enrichment: identifiers + FULL journeys
-        offerId: o.id ?? null,
-        expiresAt: o.expires_at ?? null,
-        tripType,
-        journeys,
-        cabin: firstSeg0?.cabin ?? null,
-        baggage: firstSeg0?.baggage ?? null,
-        // TOTAL supplier price for the WHOLE offer (all journeys, all pax). Never per-leg.
-        price: parseFloat(o.total_amount) || 0,
-        currency: o.total_currency ?? 'GBP',
+    // Supplier call succeeded: map separately so a mapping bug is not reported as "unreachable".
+    try {
+      const json = await res.json()
+      const raw = json?.data?.offers ?? []
+      if (!Array.isArray(raw)) throw new TypeError('offers is not an array')
+      const flights: ReturnType<typeof mapDuffelOffer>[] = []
+      let skipped = 0
+      for (const o of raw) {
+        if (flights.length >= 6) break
+        try { flights.push(mapDuffelOffer(o)) } catch { skipped++ }
       }
-    })
-
-    return { flights, source: 'duffel' as const }
+      if (skipped) console.warn('[itinerary/research/flights] skipped malformed offers:', skipped)
+      // Offers existed but none could be mapped: not an empty market, a processing failure.
+      if (raw.length > 0 && flights.length === 0) return flightFailure('PROCESSING_ERROR')
+      return { flights, source: 'duffel' as const }
+    } catch (err) {
+      console.warn('[itinerary/research/flights] PROCESSING_ERROR', (err as Error)?.name)
+      return flightFailure('PROCESSING_ERROR')
+    }
   } catch (err) {
     clearTimeout(tid)
     const isAbort = (err as Error).name === 'AbortError'
-    console.warn('[itinerary/research/flights]', isAbort ? 'timeout' : err)
-    return { flights: [], source: 'unavailable' as const, fallback: true }
+    console.warn('[itinerary/research/flights]', isAbort ? 'TIMEOUT' : 'SUPPLIER_ERROR', (err as Error)?.name)
+    return flightFailure(isAbort ? 'TIMEOUT' : 'SUPPLIER_ERROR')
   }
 }
 

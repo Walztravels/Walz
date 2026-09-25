@@ -78,6 +78,37 @@ function FallbackBanner() {
   )
 }
 
+// ── Flight-specific unavailability banner (no "reference results": fallback has no results) ──
+export function flightBannerText(reason?: string, message?: string): string {
+  switch (reason) {
+    case 'NOT_CONFIGURED': return 'Live flight search is not configured'
+    case 'SUPPLIER_AUTH': return 'The flight supplier rejected our credentials'
+    case 'INVALID_REQUEST': return message || 'The flight search request was not valid'
+    case 'RATE_LIMITED': return 'The supplier is rate-limiting requests, try again shortly'
+    case 'TIMEOUT': return 'The supplier took too long, try again'
+    case 'SUPPLIER_ERROR':
+    case 'PROCESSING_ERROR': return 'The supplier returned an error'
+    default: return 'Live search unavailable — API not configured or unreachable.'
+  }
+}
+
+function FlightFallbackBanner({ reason, message }: { reason?: string; message?: string }) {
+  return (
+    <div role="alert" className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4 text-amber-300 text-sm">
+      <span className="text-amber-400 text-lg leading-none mt-0.5">⚠</span>
+      <span>{flightBannerText(reason, message)}</span>
+    </div>
+  )
+}
+
+/** Local YYYY-MM-DD */
+function localToday(): string {
+  const d = new Date()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 // ── Section toggle wrapper ─────────────────────────────────────────────────────
 function Section({
   title, icon, open, onToggle, children,
@@ -407,7 +438,9 @@ function FlightSearch({
   // One-way / Return
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [date, setDate] = useState(defaultDate)
+  const today = localToday()
+  // Never seed the form with a past itinerary date
+  const [date, setDate] = useState(defaultDate && defaultDate >= today ? defaultDate : '')
   const [returnDate, setReturnDate] = useState('')
 
   // Multi-city
@@ -419,6 +452,9 @@ function FlightSearch({
   const [loading, setLoading] = useState(false)
   const [flights, setFlights] = useState<FlightResult[]>([])
   const [fallback, setFallback] = useState(false)
+  const [failReason, setFailReason] = useState<string | undefined>()
+  const [failMessage, setFailMessage] = useState<string | undefined>()
+  const [dateError, setDateError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
 
@@ -443,9 +479,20 @@ function FlightSearch({
   const search = useCallback(async () => {
     const resolvedLegs = buildLegs()
     if (!resolvedLegs) return
+    if (resolvedLegs.some((l) => l.date < today)) {
+      setDateError('Choose a departure date of today or later')
+      setFlights([])
+      setFallback(false)
+      setFailReason(undefined)
+      setFailMessage(undefined)
+      return
+    }
+    setDateError(null)
     setLoading(true)
     setError(null)
     setFallback(false)
+    setFailReason(undefined)
+    setFailMessage(undefined)
     setSearched(true)
     try {
       const qs = new URLSearchParams({
@@ -460,13 +507,15 @@ function FlightSearch({
       if (!res.ok) throw new Error(data.error ?? 'Search failed')
       setFlights(data.flights ?? [])
       setFallback(data.fallback === true)
+      setFailReason(data.reason)
+      setFailMessage(data.message)
     } catch (err) {
       setError((err as Error).message)
       setFlights([])
     } finally {
       setLoading(false)
     }
-  }, [itinId, adults, children, cabin, buildLegs])
+  }, [itinId, adults, children, cabin, buildLegs, today])
 
   const updateLeg = (i: number, field: keyof Leg, value: string) =>
     setLegs((prev) => prev.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
@@ -514,11 +563,11 @@ function FlightSearch({
             />
           </Field>
           <Field label="Depart">
-            <input type="date" className={inputCls} value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" className={inputCls} value={date} min={today} onChange={(e) => setDate(e.target.value)} />
           </Field>
           {tripType === 'return' && (
             <Field label="Return">
-              <input type="date" className={inputCls} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} min={date} />
+              <input type="date" className={inputCls} value={returnDate} onChange={(e) => setReturnDate(e.target.value)} min={date || today} />
             </Field>
           )}
           <Field label="Adults">
@@ -579,7 +628,7 @@ function FlightSearch({
                   />
                 </Field>
                 <Field label="Date">
-                  <input type="date" className={inputCls} value={leg.date} onChange={(e) => updateLeg(i, 'date', e.target.value)} />
+                  <input type="date" className={inputCls} value={leg.date} min={today} onChange={(e) => updateLeg(i, 'date', e.target.value)} />
                 </Field>
               </div>
             </div>
@@ -622,7 +671,10 @@ function FlightSearch({
       )}
 
       {/* Fallback banner */}
-      {fallback && <FallbackBanner />}
+      {dateError && (
+        <p role="alert" className="text-red-400 text-sm bg-red-500/10 rounded-lg px-4 py-3 mb-4">{dateError}</p>
+      )}
+      {fallback && <FlightFallbackBanner reason={failReason} message={failMessage} />}
 
       {error && (
         <p className="text-red-400 text-sm bg-red-500/10 rounded-lg px-4 py-3 mb-4">{error}</p>
