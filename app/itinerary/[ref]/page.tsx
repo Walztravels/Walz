@@ -4,6 +4,8 @@ import type { Metadata } from 'next'
 import { BUSINESS } from '@/lib/config/business'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { ProposalPage } from './_ProposalPage'
+import { buildProposalFlight, buildProposalHotel } from '@/lib/itinerary/client-booking-dto'
+import { sumClientTotals } from '@/lib/itinerary/unified-booking'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalPriceLine, ProposalPackageOption, ProposalPaymentMilestone, ProposalTrain, ProposalFerry } from './_types'
 import type { PublicOptionGroup, PublicOptionItem } from '@/lib/v2/types'
 
@@ -153,37 +155,12 @@ export default async function ClientItineraryPage({ params }: Params) {
   // ── Explicit client-safe field selection ─────────────────────────────────────
   // No internal pricing, supplier costs, or admin metadata passes through.
 
-  const flights: ProposalFlight[] = rawFlights.map(f => ({
-    from: f.from,
-    to: f.to,
-    fromCity: f.fromCity,
-    toCity: f.toCity,
-    airline: f.airline,
-    flightNumber: f.flightNumber,
-    date: f.date,
-    departureTime: f.departureTime ?? f.time,
-    arrivalTime: f.arrivalTime,
-    class: f.class,
-    // PNR is a booking credential — only expose after acceptance (not on proposal/revision_sent)
-    pnr: (itin.status === 'approved' || itin.status === 'revision_accepted') ? f.pnr : undefined,
-    stops: f.stops,
-    airlineLogoUrl: f.airlineLogoUrl,
-    imageUrl: f.imageUrl,
-    clientPrice: f.cost != null && f.cost > 0 ? f.cost : undefined,
-    // NEVER add: iataCode, supplierCost, netRate, markup, rateKey, pnr (pre-acceptance)
-  }))
+  // Unified flight rows (journeys[]) become ONE whitelisted card with ONE price;
+  // legacy per-leg rows are mapped exactly as before. See lib/itinerary/client-booking-dto.
+  const accepted = itin.status === 'approved' || itin.status === 'revision_accepted'
+  const flights: ProposalFlight[] = rawFlights.map(f => buildProposalFlight(f as Record<string, unknown>, { accepted }))
 
-  const hotels: ProposalHotel[] = rawHotels.map(h => ({
-    name: h.name,
-    location: h.location,
-    checkIn: h.checkIn,
-    checkOut: h.checkOut,
-    roomType: h.roomType,
-    nights: h.nights,
-    mealPlan: h.mealPlan,
-    images: h.images,
-    clientPrice: h.cost != null && h.cost > 0 ? h.cost : undefined,
-  }))
+  const hotels: ProposalHotel[] = rawHotels.map(h => buildProposalHotel(h as Record<string, unknown>))
 
   const transfers: ProposalTransfer[] = rawTransfers.map(t => ({
     type: t.type,
@@ -225,8 +202,9 @@ export default async function ClientItineraryPage({ params }: Params) {
 
   // Component price totals — server-computed from booking.cost (client selling price).
   // NEVER includes supplierCost, netRate, markup, or margin.
+  // Each booking row counts ONCE via sumClientTotals (a unified booking's journeys never add).
   const _sumClientPrice = (arr: { cost?: number | null }[]) => {
-    const total = arr.reduce((s, x) => s + (x.cost ?? 0), 0)
+    const total = sumClientTotals(arr as Record<string, unknown>[])
     return total > 0 ? total : undefined
   }
   const componentPrices = {

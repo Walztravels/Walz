@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAdminSession } from '@/lib/admin-auth'
+import { buildFlightMirrorRow } from '@/lib/itinerary/client-booking-dto'
 
 // POST /api/admin/itineraries/[id]/sync
 // Reads the current JSON blobs from the Itinerary row and upserts each item
@@ -70,28 +71,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   // Flights
   if (flights.length > 0) {
     const { error } = await sb.from('itinerary_flights').upsert(
-      flights.map((f, i) => ({
-        itinerary_id:     id,
-        external_id:      String(f.id ?? ''),
-        from:             String(f.from ?? ''),
-        to:               String(f.to ?? ''),
-        airline:          String(f.airline ?? ''),
-        iata_code:        String(f.iataCode ?? ''),
-        flight_number:    String(f.flightNumber ?? ''),
-        date:             parseDate(f.date),
-        departure_time:   String(f.time ?? ''),
-        arrival_time:     String(f.arrivalTime ?? ''),
-        class:            String(f.class ?? ''),
-        pnr:              String(f.pnr ?? ''),
-        client_price:     f.cost != null ? Number(f.cost) : null,
-        supplier_cost:    f.supplierCost != null ? Number(f.supplierCost) : null,
-        status:           String(f.status ?? 'pending'),
-        notes:            String(f.notes ?? ''),
-        supplier_id:      String(f.supplierId ?? '') || null,
-        duffel_order_id:  String(f.duffelOrderId ?? '') || null,
-        order:            i,
-        updated_at:       new Date().toISOString(),
-      })),
+      // ONE mirror row per JSON flight row (unified booking = one row, route from/to)
+      flights.map((f, i) => buildFlightMirrorRow(id, f, i)),
       { onConflict: 'external_id' }
     )
     results.flights = error ? `error: ${error.message}` : `synced ${flights.length}`

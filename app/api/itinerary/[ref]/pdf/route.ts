@@ -4,6 +4,7 @@ import React from 'react'
 import { prisma } from '@/lib/db'
 import { BUSINESS } from '@/lib/config/business'
 import { ItineraryPDF } from '@/lib/pdf/ItineraryPDF'
+import { buildPdfFlight, buildProposalHotel } from '@/lib/itinerary/client-booking-dto'
 import { getAuthoritativeClientTotal, parseAcceptanceSnapshot } from '@/lib/acceptance-snapshot'
 
 export const dynamic = 'force-dynamic'
@@ -45,41 +46,21 @@ export async function GET(_req: NextRequest, { params }: Params) {
     clientNotes: d.clientNotes ?? d.notes,
   }))
 
-  const flights = safeParse<Array<{
-    from?: string; to?: string; airline?: string; flightNumber?: string
-    date?: string; time?: string; departureTime?: string; arrivalTime?: string
-    class?: string; pnr?: string; cost?: number; stops?: number
-  }>>(itin.flights, []).map(f => ({
-    from: f.from,
-    to: f.to,
-    airline: f.airline,
-    flightNumber: f.flightNumber,
-    date: f.date,
-    time: f.time,
-    departureTime: f.departureTime,
-    arrivalTime: f.arrivalTime,
-    class: f.class,
-    // PNR is a booking credential — only expose after acceptance (not on proposal/revision_sent PDF)
-    pnr: (itin.status === 'approved' || itin.status === 'revision_accepted') ? f.pnr : undefined,
-    // cost: only include client-visible cost if present
-    cost: typeof f.cost === 'number' ? f.cost : undefined,
-    stops: f.stops,
-  }))
+  // Unified flight rows -> ONE card with all journeys and the booking price once;
+  // legacy rows unchanged. Whitelisted in lib/itinerary/client-booking-dto.
+  const accepted = itin.status === 'approved' || itin.status === 'revision_accepted'
+  const flights = safeParse<Array<Record<string, unknown>>>(itin.flights, [])
+    .map(f => buildPdfFlight(f, { accepted }))
 
-  const hotels = safeParse<Array<{
-    name?: string; location?: string; checkIn?: string; checkOut?: string
-    roomType?: string; nights?: number; cost?: number; mealPlan?: string
-  }>>(itin.hotels, []).map(h => ({
-    name: h.name,
-    location: h.location,
-    checkIn: h.checkIn,
-    checkOut: h.checkOut,
-    roomType: h.roomType,
-    nights: h.nights,
-    mealPlan: h.mealPlan,
-    // cost: client price only — supplier cost never passed
-    cost: typeof h.cost === 'number' ? h.cost : undefined,
-  }))
+  // Hotels: client price only (unified research-hotel rows whitelisted too)
+  const hotels = safeParse<Array<Record<string, unknown>>>(itin.hotels, []).map(h => {
+    const d = buildProposalHotel(h)
+    return {
+      name: d.name, location: d.location, checkIn: d.checkIn, checkOut: d.checkOut,
+      roomType: d.roomType, nights: d.nights, mealPlan: d.mealPlan,
+      cost: d.clientPrice ?? (typeof h.cost === 'number' ? h.cost : undefined),
+    }
+  })
 
   const transfers = safeParse<Array<{
     type?: string; from?: string; to?: string; date?: string; vehicle?: string; cost?: number

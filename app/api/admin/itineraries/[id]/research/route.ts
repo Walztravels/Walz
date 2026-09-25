@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
+import { classifyTripType } from '@/lib/itinerary/research-add'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -113,6 +114,17 @@ function formatIsoDuration(iso: string): string {
   if (h && min) return `${h}h ${min}m`
   if (h) return `${h}h`
   return `${min}m`
+}
+
+// Duffel baggages: [{type:'checked'|'carry_on', quantity}] -> "1 checked, 1 carry-on"
+function formatBaggage(bags: unknown): string | null {
+  if (!Array.isArray(bags) || bags.length === 0) return null
+  const parts = bags
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((b: any) => (b?.quantity ?? 0) > 0)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((b: any) => `${b.quantity} ${String(b.type ?? 'bag').replace('_', '-')}`)
+  return parts.length ? parts.join(', ') : null
 }
 
 // ── HotelResult type (shared) ─────────────────────────────────────────────────
@@ -394,6 +406,38 @@ async function searchFlights(
       })
 
       const first = sliceResults[0] ?? {}
+      // Same classifier the saved booking uses (exact reverse pair = return; open-jaw = multi-city)
+      const tripType = classifyTripType(o.slices)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const journeys = (o.slices ?? []).map((slice: any, idx: number) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const segments = (slice?.segments ?? []).map((seg: any) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const pax0 = (seg?.passengers ?? [])[0] as any
+          return {
+            airline: seg?.marketing_carrier?.name ?? seg?.operating_carrier?.name ?? 'Unknown Airline',
+            iataCode: seg?.marketing_carrier?.iata_code ?? null,
+            flightNumber: `${seg?.marketing_carrier?.iata_code ?? ''}${seg?.marketing_carrier_flight_number ?? ''}`,
+            from: seg?.origin?.iata_code ?? '',
+            to: seg?.destination?.iata_code ?? '',
+            departureAt: seg?.departing_at ?? '',
+            arrivalAt: seg?.arriving_at ?? '',
+            duration: formatIsoDuration(seg?.duration ?? ''),
+            cabin: pax0?.cabin_class_marketing_name ?? pax0?.cabin_class ?? null,
+            baggage: formatBaggage(pax0?.baggages),
+          }
+        })
+        return {
+          index: idx,
+          direction: tripType === 'multi-city' ? 'leg' : idx === 0 ? 'outbound' : 'return',
+          from: slice?.origin?.iata_code ?? segments[0]?.from ?? '',
+          to: slice?.destination?.iata_code ?? segments.at(-1)?.to ?? '',
+          segments,
+          stops: Math.max(0, segments.length - 1),
+          duration: formatIsoDuration(slice?.duration ?? ''),
+        }
+      })
+      const firstSeg0 = journeys[0]?.segments?.[0]
       return {
         // top-level fields from first slice (backward-compat)
         airline: first.airline ?? 'Unknown Airline',
@@ -404,6 +448,14 @@ async function searchFlights(
         stops: first.stops ?? 0,
         // all slices for multi-leg display
         slices: sliceResults,
+        // unified-booking enrichment: identifiers + FULL journeys
+        offerId: o.id ?? null,
+        expiresAt: o.expires_at ?? null,
+        tripType,
+        journeys,
+        cabin: firstSeg0?.cabin ?? null,
+        baggage: firstSeg0?.baggage ?? null,
+        // TOTAL supplier price for the WHOLE offer (all journeys, all pax). Never per-leg.
         price: parseFloat(o.total_amount) || 0,
         currency: o.total_currency ?? 'GBP',
       }

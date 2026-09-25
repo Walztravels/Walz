@@ -339,8 +339,66 @@ function Section({ id, eyebrow, title, subtitle, children, alt }: {
 // FLIGHTS
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Unified booking: ONE card holding every journey/segment and the ONE booking price.
+function UnifiedFlightCard({ f, currency }: { f: ProposalFlight; currency: string }) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', marginBottom: 16 }}>
+      <div style={{ background: '#0B1F3A', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ minWidth: 0 }}>
+          <p style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>{f.routeLabel || `${f.from ?? ''} → ${f.to ?? ''}`}</p>
+          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 2 }}>
+            {f.tripTypeLabel}{f.class ? ` · ${f.class}` : ''}
+          </p>
+        </div>
+        {f.clientPrice != null && (
+          <p style={{ color: '#C9A84C', fontSize: 15, fontWeight: 700, flexShrink: 0, marginLeft: 12 }}>{fmtMoney(f.clientPrice, currency)}</p>
+        )}
+      </div>
+      <div style={{ padding: '20px 24px' }}>
+        {(f.journeys ?? []).map((j, ji) => (
+          <div key={ji} style={{ marginBottom: ji < (f.journeys?.length ?? 0) - 1 ? 20 : 0 }}>
+            <p style={{ color: '#C9A84C', fontSize: 11, fontWeight: 800, letterSpacing: 1.5, marginBottom: 8 }}>
+              {j.label}{j.stops === 0 ? ' · Direct' : ` · ${j.stops} stop${j.stops > 1 ? 's' : ''}`}
+            </p>
+            {j.segments.map((sg, si) => (
+              <div key={si}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 90 }}>
+                    <p style={{ color: '#0B1F3A', fontSize: 13, fontWeight: 700 }}>{sg.airline}</p>
+                    <p style={{ color: '#9ca3af', fontSize: 12 }}>{sg.flightNumber}</p>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <p style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 800 }}>
+                      {sg.from} → {sg.to}
+                    </p>
+                    <p style={{ color: '#4b5563', fontSize: 13 }}>
+                      {sg.date ? fmtDate(sg.date) : ''}{sg.departureTime ? ` · ${sg.departureTime}` : ''}{sg.arrivalTime ? ` – ${sg.arrivalTime}` : ''}
+                    </p>
+                  </div>
+                  {(sg.cabin || sg.baggage) && (
+                    <p style={{ color: '#9ca3af', fontSize: 12 }}>{[sg.cabin, sg.baggage].filter(Boolean).join(' · ')}</p>
+                  )}
+                </div>
+                {si < j.segments.length - 1 && (
+                  <p style={{ color: '#9ca3af', fontSize: 12, padding: '2px 0 2px 4px' }}>Connection in {sg.toCity || sg.to}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+        {f.pnr && (
+          <span style={{ display: 'inline-block', marginTop: 14, background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 6, fontFamily: 'monospace' }}>
+            PNR: {f.pnr}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function FlightCard({ f, currency }: { f: ProposalFlight; currency: string }) {
   const [open, setOpen] = useState(false)
+  if (f.journeys && f.journeys.length > 0) return <UnifiedFlightCard f={f} currency={currency} />
 
   return (
     <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', marginBottom: 16 }}>

@@ -2,18 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAdminSession } from '@/lib/admin-auth'
+import { buildBlobMarginRows, type MarginRow } from '@/lib/itinerary/client-booking-dto'
 
 // GET /api/admin/itineraries/[id]/margin
 // Reads per-item cost vs price from normalized booking tables.
 // Falls back to reading directly from the JSON blobs so it works
 // even before the Phase 3 SQL migration has been run.
 
-type MarginRow = {
-  category: string
-  description: string
-  client_price: number | null
-  supplier_cost: number | null
-}
 
 type AnyItem = Record<string, unknown>
 
@@ -45,24 +40,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const itin = await prisma.itinerary.findUnique({ where: { id } })
   if (!itin) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const rows: MarginRow[] = []
-
-  const pushItems = (category: string, items: AnyItem[], descKey: string) => {
-    for (const item of items) {
-      const cp = item.cost         != null ? Number(item.cost)         : null
-      const sc = item.supplierCost != null ? Number(item.supplierCost) : null
-      if (cp != null || sc != null) {
-        rows.push({ category, description: String(item[descKey] ?? ''), client_price: cp, supplier_cost: sc })
-      }
-    }
-  }
-
-  pushItems('flight',   safe<AnyItem[]>(itin.flights,             []), 'airline')
-  pushItems('hotel',    safe<AnyItem[]>(itin.hotels,              []), 'name')
-  pushItems('transfer', safe<AnyItem[]>(itin.transfers ?? null,   []), 'type')
-  pushItems('tour',     safe<AnyItem[]>(itin.tours     ?? null,   []), 'name')
-  pushItems('train',    safe<AnyItem[]>(itin.trains    ?? null,   []), 'trainNumber')
-  pushItems('ferry',    safe<AnyItem[]>(itin.ferries   ?? null,   []), 'operator')
+  // One margin row per booking row; a unified flight's booking-level cost /
+  // supplierCost is counted ONCE (journeys never contribute).
+  const rows: MarginRow[] = buildBlobMarginRows([
+    { category: 'flight',   items: safe<AnyItem[]>(itin.flights,             []), descKey: 'airline' },
+    { category: 'hotel',    items: safe<AnyItem[]>(itin.hotels,              []), descKey: 'name' },
+    { category: 'transfer', items: safe<AnyItem[]>(itin.transfers ?? null,   []), descKey: 'type' },
+    { category: 'tour',     items: safe<AnyItem[]>(itin.tours     ?? null,   []), descKey: 'name' },
+    { category: 'train',    items: safe<AnyItem[]>(itin.trains    ?? null,   []), descKey: 'trainNumber' },
+    { category: 'ferry',    items: safe<AnyItem[]>(itin.ferries   ?? null,   []), descKey: 'operator' },
+  ])
 
   return NextResponse.json({ rows, source: 'blobs' })
 }

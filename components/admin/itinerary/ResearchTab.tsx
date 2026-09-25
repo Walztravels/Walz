@@ -1,6 +1,11 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import FlightResultCard, { type FlightOfferResult } from './FlightResultCard'
+import HotelResultCard, { type HotelOfferResult, type HotelRateResult } from './HotelResultCard'
+import { useResearchAdd, type AddedResult } from './useResearchAdd'
+import { resolveHotelDestCode } from '@/lib/itinerary/hotel-destination'
+import { fmtPrice } from './researchFormat'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface HotelResult {
@@ -21,52 +26,27 @@ export interface FlightSlice {
   stops: number
 }
 
-export interface FlightResult {
-  airline: string
-  flightNumber: string
-  departure: string
-  arrival: string
-  duration: string
-  stops: number
-  price: number
-  currency: string
-  slices?: FlightSlice[]
-}
+export type FlightResult = FlightOfferResult
 
 interface Leg { from: string; to: string; date: string }
 
-interface Props {
+export type ResearchAddedResult = AddedResult
+
+export interface ResearchTabProps {
   itinId: string
   destination: string
-  startDate: string | null
-  endDate: string | null
-  numberOfTravellers: number
+  startDate?: string | null
+  endDate?: string | null
+  numberOfTravellers?: number
+  currency?: string
+  onAdded?: (r: ResearchAddedResult) => void
+  onViewBookings?: () => void
+  /** Current booking row ids in the itinerary; an 'Added' card resets when its booking id is absent. */
+  existingBookingIds?: string[]
+  /** @deprecated superseded by onAdded; kept so existing callers compile */
   onAddHotel?: (hotel: HotelResult) => void
+  /** @deprecated superseded by onAdded */
   onAddFlight?: (flight: FlightResult) => void
-}
-
-// ── Formatting helpers ─────────────────────────────────────────────────────────
-function fmtTime(iso: string) {
-  if (!iso) return '—'
-  try {
-    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return iso
-  }
-}
-
-function fmtDate(iso: string) {
-  if (!iso) return ''
-  try {
-    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-  } catch {
-    return iso
-  }
-}
-
-function fmtPrice(amount: number, currency: string) {
-  const sym: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', AED: 'AED ', NGN: '₦' }
-  return `${sym[currency] ?? currency + ' '}${amount.toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 }
 
 // ── Skeleton card ──────────────────────────────────────────────────────────────
@@ -147,14 +127,18 @@ function HotelSearch({
   defaultCheckIn,
   defaultCheckOut,
   defaultAdults,
-  onAdd,
+  onAdded,
+  onViewBookings,
+  existingBookingIds,
 }: {
   itinId: string
   defaultDestination: string
   defaultCheckIn: string
   defaultCheckOut: string
   defaultAdults: number
-  onAdd?: (hotel: HotelResult) => void
+  onAdded?: (r: ResearchAddedResult) => void
+  onViewBookings?: () => void
+  existingBookingIds?: string[]
 }) {
   const [destination, setDestination] = useState(defaultDestination)
   const [checkIn, setCheckIn] = useState(defaultCheckIn)
@@ -165,6 +149,10 @@ function HotelSearch({
   const [rooms, setRooms] = useState('1')
   const [loading, setLoading] = useState(false)
   const [hotels, setHotels] = useState<HotelResult[]>([])
+  const [offers, setOffers] = useState<HotelOfferResult[]>([])
+  const [legacyNotice, setLegacyNotice] = useState<string | null>(null)
+  const [searchedParams, setSearchedParams] = useState<{ rooms: number; adults: number; children: number; childAges: number[] } | null>(null)
+  const { add, cancel, stateOf } = useResearchAdd(itinId, onAdded, existingBookingIds)
   const [source, setSource] = useState<string | null>(null)
   const [fallback, setFallback] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -180,24 +168,49 @@ function HotelSearch({
     setSource(null)
     setSearched(true)
     try {
-      const qs = new URLSearchParams({
-        type: 'hotels',
-        destination,
-        checkIn,
-        checkOut,
-        adults,
-        children,
-        rooms,
-      })
-      if (childrenCount > 0 && childAgesStr.trim()) {
-        qs.set('childAges', childAgesStr.trim())
+      const childAges = childrenCount > 0
+        ? childAgesStr.split(',').map((x) => parseInt(x.trim())).filter((n) => !isNaN(n))
+        : []
+      const occ = {
+        rooms: Math.max(1, parseInt(rooms) || 1),
+        adults: Math.max(1, parseInt(adults) || 1),
+        children: childrenCount,
       }
+      setOffers([])
+      setHotels([])
+      setLegacyNotice(null)
+      let richOk = false
+      try {
+        const rich = await fetch('/api/admin/travel-search/hotels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            destination: resolveHotelDestCode(destination),
+            checkIn, checkOut, ...occ, childAges,
+          }),
+        })
+        if (rich.ok) {
+          const rd = await rich.json()
+          setOffers((rd.offers ?? []) as HotelOfferResult[])
+          setSearchedParams({ ...occ, childAges })
+          setSource('hotelbeds')
+          richOk = true
+        }
+      } catch { /* fall through to legacy */ }
+      if (richOk) return
+
+      // Graceful fallback: hotel-level results only, Add disabled.
+      const qs = new URLSearchParams({
+        type: 'hotels', destination, checkIn, checkOut, adults, children, rooms,
+      })
+      if (childrenCount > 0 && childAgesStr.trim()) qs.set('childAges', childAgesStr.trim())
       const res = await fetch(`/api/admin/itineraries/${itinId}/research?${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Search failed')
       setHotels(data.hotels ?? [])
       setSource(data.source ?? null)
       setFallback(data.fallback === true)
+      setLegacyNotice('Room and rate selection is unavailable right now, so these are hotel-level prices only. Adding to the itinerary is disabled until room search works again.')
     } catch (err) {
       setError((err as Error).message)
       setHotels([])
@@ -205,6 +218,25 @@ function HotelSearch({
       setLoading(false)
     }
   }, [itinId, destination, checkIn, checkOut, adults, children, childAgesStr, rooms, childrenCount])
+
+  const addRate = (h: HotelOfferResult, r: HotelRateResult, key: string, allowDuplicate: boolean) => {
+    const p = searchedParams
+    void add(key, {
+      type: 'hotel',
+      hotelCode: h.providerHotelCode,
+      rateKey: r.rateKey,
+      checkIn: h.checkIn,
+      checkOut: h.checkOut,
+      rooms: p?.rooms ?? h.rooms,
+      adults: p?.adults ?? h.adults,
+      children: p?.children ?? h.children,
+      ...(p && p.childAges.length ? { childAges: p.childAges } : {}),
+      hotelName: h.hotelName,
+      location: [h.city, h.destinationName].filter(Boolean).join(', '),
+      stars: h.starRating ?? 0,
+      image: h.imageUrls?.[0] ?? null,
+    }, allowDuplicate)
+  }
 
   return (
     <div>
@@ -272,7 +304,7 @@ function HotelSearch({
       )}
 
       {/* Source badge */}
-      {!fallback && source && hotels.length > 0 && (
+      {!fallback && source && (hotels.length > 0 || offers.length > 0) && (
         <p className="text-white/30 text-xs mb-3">
           📡 Live results via{' '}
           {source === 'hotelbeds+amadeus'
@@ -298,47 +330,48 @@ function HotelSearch({
         </div>
       )}
 
-      {!loading && searched && hotels.length === 0 && !error && (
+      {legacyNotice && (
+        <p className="text-amber-300 text-sm bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-4">{legacyNotice}</p>
+      )}
+
+      {!loading && searched && hotels.length === 0 && offers.length === 0 && !error && (
         <p className="text-white/40 text-sm text-center py-6">
           No hotels found. Try a different destination or date range.
         </p>
       )}
 
+      {!loading && offers.length > 0 && (
+        <div className="space-y-3">
+          {offers.map((h) => (
+            <HotelResultCard
+              key={h.providerHotelCode}
+              hotel={h}
+              stateOf={stateOf}
+              onViewBookings={onViewBookings}
+              onCancel={cancel}
+              onAddRate={(r, key) => addRate(h, r, key, false)}
+              onAddAnyway={(r, key) => addRate(h, r, key, true)}
+            />
+          ))}
+        </div>
+      )}
+
       {!loading && hotels.length > 0 && (
         <div className="space-y-3">
           {hotels.map((h, i) => (
-            <div key={i} className="bg-white/5 rounded-xl p-4 flex items-start gap-3 border border-white/10 hover:border-white/20 transition-colors">
-              {h.thumbnailUrl ? (
-                <img
-                  src={h.thumbnailUrl} alt={h.name}
-                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0 bg-white/10"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-2xl">🏨</div>
-              )}
+            <div key={i} className="bg-white/5 rounded-xl p-4 flex items-start gap-3 border border-white/10">
+              <div className="w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-2xl">🏨</div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-white text-sm truncate">{h.name}</p>
-                <p className="text-amber-400 text-xs">
-                  {'⭐'.repeat(Math.min(h.stars, 5))}
-                  {h.stars === 0 && <span className="text-white/40">No rating</span>}
-                </p>
-                <p className="text-white/50 text-xs truncate">{h.address}</p>
+                <p className="font-semibold text-white text-sm">{h.name}</p>
+                <p className="text-amber-400 text-xs">{'⭐'.repeat(Math.min(h.stars, 5))}</p>
+                <p className="text-white/50 text-xs">{h.address}</p>
               </div>
-              <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                <div className="text-right">
-                  <p className="text-white font-bold text-sm">{fmtPrice(h.price, h.currency)}</p>
-                  <p className="text-white/40 text-xs">per night</p>
-                </div>
-                {onAdd && (
-                  <button
-                    type="button"
-                    onClick={() => onAdd(h)}
-                    className="bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-                  >
-                    + Add
-                  </button>
-                )}
+              <div className="text-right flex-shrink-0">
+                <p className="text-white font-bold text-sm">{fmtPrice(h.price, h.currency)}</p>
+                <p className="text-white/40 text-xs">from (rate not selectable)</p>
+                <button type="button" disabled className="mt-2 min-h-[44px] bg-amber-500 text-black text-sm font-bold px-4 rounded-lg opacity-50 cursor-not-allowed">
+                  Add to Itinerary
+                </button>
               </div>
             </div>
           ))}
@@ -357,13 +390,18 @@ function FlightSearch({
   itinId,
   defaultDate,
   defaultAdults,
-  onAdd,
+  onAdded,
+  onViewBookings,
+  existingBookingIds,
 }: {
   itinId: string
   defaultDate: string
   defaultAdults: number
-  onAdd?: (flight: FlightResult) => void
+  onAdded?: (r: ResearchAddedResult) => void
+  onViewBookings?: () => void
+  existingBookingIds?: string[]
 }) {
+  const { add, cancel, stateOf } = useResearchAdd(itinId, onAdded, existingBookingIds)
   const [tripType, setTripType] = useState<TripType>('oneway')
 
   // One-way / Return
@@ -605,69 +643,17 @@ function FlightSearch({
       {!loading && flights.length > 0 && (
         <div className="space-y-3">
           {flights.map((f, i) => {
-            const slices = f.slices ?? [f]
+            const key = f.offerId ?? `noid-${i}`
             return (
-              <div key={i} className="bg-white/5 rounded-xl p-4 border border-white/10 hover:border-white/20 transition-colors">
-                {/* Multiple slices */}
-                {slices.map((s, si) => (
-                  <div key={si} className={si > 0 ? 'mt-3 pt-3 border-t border-white/10' : ''}>
-                    {slices.length > 1 && (
-                      <p className="text-xs text-white/40 font-semibold uppercase tracking-wider mb-1">
-                        {si === 0 ? 'Outbound' : si === 1 && slices.length === 2 ? 'Return' : `Leg ${si + 1}`}
-                      </p>
-                    )}
-                    <div className="flex items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-white font-semibold text-sm">{s.airline}</span>
-                          {s.flightNumber && (
-                            <span className="text-white/40 text-xs font-mono bg-white/5 px-2 py-0.5 rounded">
-                              {s.flightNumber}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="text-center">
-                            <p className="text-white font-bold leading-none">{fmtTime(s.departure)}</p>
-                            <p className="text-white/40 text-xs mt-0.5">{fmtDate(s.departure)}</p>
-                          </div>
-                          <div className="flex-1 flex items-center gap-1 min-w-0">
-                            <div className="h-px flex-1 bg-white/20" />
-                            <span className="text-white/40 text-xs whitespace-nowrap">
-                              {s.duration}
-                              {s.stops > 0 && ` · ${s.stops} stop${s.stops > 1 ? 's' : ''}`}
-                            </span>
-                            <div className="h-px flex-1 bg-white/20" />
-                          </div>
-                          <div className="text-center">
-                            <p className="text-white font-bold leading-none">{fmtTime(s.arrival)}</p>
-                            <p className="text-white/40 text-xs mt-0.5">{fmtDate(s.arrival)}</p>
-                          </div>
-                        </div>
-                        {s.stops === 0 && <p className="text-green-400 text-xs mt-1">Direct</p>}
-                        {s.stops > 0 && <p className="text-white/40 text-xs mt-1">{s.stops} stop{s.stops > 1 ? 's' : ''}</p>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Price + Add — always at bottom right */}
-                <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
-                  <div>
-                    <p className="text-white font-bold">{fmtPrice(f.price, f.currency)}</p>
-                    <p className="text-white/40 text-xs">total · all legs</p>
-                  </div>
-                  {onAdd && (
-                    <button
-                      type="button"
-                      onClick={() => onAdd(f)}
-                      className="bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 text-amber-300 hover:text-amber-200 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-                    >
-                      + Add
-                    </button>
-                  )}
-                </div>
-              </div>
+              <FlightResultCard
+                key={key}
+                flight={f}
+                state={stateOf(key)}
+                onAdd={() => f.offerId && void add(key, { type: 'flight', offerId: f.offerId })}
+                onAddAnyway={() => f.offerId && void add(key, { type: 'flight', offerId: f.offerId }, true)}
+                onCancel={() => cancel(key)}
+                onViewBookings={onViewBookings}
+              />
             )
           })}
         </div>
@@ -683,11 +669,13 @@ export default function ResearchTab({
   startDate,
   endDate,
   numberOfTravellers,
-  onAddHotel,
-  onAddFlight,
-}: Props) {
+  onAdded,
+  onViewBookings,
+  existingBookingIds,
+}: ResearchTabProps) {
   const [hotelsOpen, setHotelsOpen] = useState(true)
   const [flightsOpen, setFlightsOpen] = useState(true)
+  const pax = numberOfTravellers ?? 1
 
   return (
     <div className="space-y-4">
@@ -701,8 +689,10 @@ export default function ResearchTab({
           defaultDestination={destination}
           defaultCheckIn={startDate ?? ''}
           defaultCheckOut={endDate ?? ''}
-          defaultAdults={numberOfTravellers}
-          onAdd={onAddHotel}
+          defaultAdults={pax}
+          onAdded={onAdded}
+          onViewBookings={onViewBookings}
+          existingBookingIds={existingBookingIds}
         />
       </Section>
 
@@ -710,8 +700,10 @@ export default function ResearchTab({
         <FlightSearch
           itinId={itinId}
           defaultDate={startDate ?? ''}
-          defaultAdults={numberOfTravellers}
-          onAdd={onAddFlight}
+          defaultAdults={pax}
+          onAdded={onAdded}
+          onViewBookings={onViewBookings}
+          existingBookingIds={existingBookingIds}
         />
       </Section>
     </div>

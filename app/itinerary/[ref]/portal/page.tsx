@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto'
+import { buildPortalFlight, buildPortalHotel } from '@/lib/itinerary/client-booking-dto'
 import { prisma } from '@/lib/db'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -200,33 +201,10 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
   // ── Explicit client-safe field selection ──────────────────────────────────────
   // No supplier costs, internal notes, markup, or booking refs pass through.
 
-  const flights: ProposalFlight[] = rawFlights.map(f => ({
-    from:           f.from,
-    to:             f.to,
-    fromCity:       f.fromCity,
-    toCity:         f.toCity,
-    airline:        f.airline,
-    flightNumber:   f.flightNumber,
-    date:           f.date,
-    departureTime:  f.departureTime ?? f.time,
-    arrivalTime:    f.arrivalTime,
-    class:          f.class,
-    // pnr intentionally excluded from PortalDTO — must not appear in client response
-    stops:          f.stops,
-    airlineLogoUrl: f.airlineLogoUrl,
-    imageUrl:       f.imageUrl,
-  }))
+  // Unified bookings: all journeys/segments; price + PNR never sent (as before). Legacy mapped as before.
+  const flights: ProposalFlight[] = rawFlights.map(f => buildPortalFlight(f as Record<string, unknown>))
 
-  const hotels: ProposalHotel[] = rawHotels.map(h => ({
-    name:     h.name,
-    location: h.location,
-    checkIn:  h.checkIn,
-    checkOut: h.checkOut,
-    roomType: h.roomType,
-    nights:   h.nights,
-    mealPlan: h.mealPlan,
-    images:   h.images,
-  }))
+  const hotels: ProposalHotel[] = rawHotels.map(h => buildPortalHotel(h as Record<string, unknown>))
 
   const transfers: ProposalTransfer[] = rawTransfers.map(t => ({
     type:    t.type,

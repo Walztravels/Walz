@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { buildVoucherFlightExtras } from '@/lib/itinerary/client-booking-dto'
 import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 import { BUSINESS } from '@/lib/config/business'
@@ -105,6 +106,7 @@ export async function POST(
         arrivalTime: f.arrivalTime ?? null,
         class: f.class ?? null,
         pnr: f.pnr ?? null,
+        ...buildVoucherFlightExtras(f),
       },
     })
   }

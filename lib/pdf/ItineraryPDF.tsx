@@ -1,6 +1,8 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
 import { formatDateOnly } from '@/lib/date-utils'
+import type { ProposalJourney } from '@/app/itinerary/[ref]/_types'
+import { pdfJourneyLines } from '@/lib/itinerary/client-booking-dto'
 
 const NAVY  = '#0B1F3A'
 const GOLD  = '#C9A84C'
@@ -151,6 +153,8 @@ export interface ItineraryPDFProps {
     date?: string; time?: string; departureTime?: string; arrivalTime?: string
     class?: string; pnr?: string; cost?: number; stops?: number
     airlineLogoUrl?: string
+    /** unified booking: ONE card, all journeys, ONE price (cost) */
+    routeLabel?: string; tripTypeLabel?: string; journeys?: ProposalJourney[]
   }>
   hotels: Array<{
     name?: string; location?: string; checkIn?: string; checkOut?: string
@@ -322,7 +326,36 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
           <Text style={s.sectionLabel}>Getting There</Text>
           <Text style={s.sectionTitle}>Flights</Text>
           <View style={s.sectionDivider} />
-          {p.flights.map((f, i) => (
+          {p.flights.map((f, i) => f.journeys && f.journeys.length > 0 ? (
+            <View key={i} style={s.flightCard} wrap={false}>
+              <View style={s.flightHead}>
+                <Text style={s.flightAirline}>{f.routeLabel || `${f.from ?? ''} > ${f.to ?? ''}`}</Text>
+                <Text style={s.flightClass}>{[f.tripTypeLabel, f.class].filter(Boolean).join('  ·  ')}</Text>
+              </View>
+              <View style={s.flightBody}>
+                {f.journeys.map((j, ji) => (
+                  <View key={ji} style={{ marginBottom: 6 }}>
+                    {pdfJourneyLines(j).map((line, li) => (
+                      <Text key={li} style={li === 0 ? s.flightMetaKey : s.flightMetaVal}>{line}</Text>
+                    ))}
+                  </View>
+                ))}
+                <View style={s.flightMeta}>
+                  {f.pnr && (
+                    <View style={s.flightMetaItem}>
+                      <Text style={s.flightMetaKey}>PNR</Text>
+                      <Text style={s.flightMetaVal}>{f.pnr}</Text>
+                    </View>
+                  )}
+                  {f.cost != null && (
+                    <View style={[s.flightMetaItem, { marginLeft: 'auto' }]}>
+                      <Text style={s.flightPrice}>{fmtMoney(f.cost, p.currency)}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </View>
+          ) : (
             <View key={i} style={s.flightCard} wrap={false}>
               <View style={s.flightHead}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>

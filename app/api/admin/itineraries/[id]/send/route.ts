@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { buildEmailFlightRows } from '@/lib/itinerary/client-booking-dto'
 import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
@@ -132,7 +133,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     <h2 style="color:#0B1F3A;font-size:18px;margin:32px 0 16px;">Flights</h2>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <tr style="background:#f8fafc;"><th style="padding:8px 12px;text-align:left;color:#64748b;font-weight:600;">Route</th><th style="padding:8px 12px;text-align:left;color:#64748b;font-weight:600;">Date</th><th style="padding:8px 12px;text-align:left;color:#64748b;font-weight:600;">Airline</th><th style="padding:8px 12px;text-align:left;color:#64748b;font-weight:600;">Class</th></tr>
-      ${flights.map(f => `<tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:10px 12px;color:#1e293b;">${f.from || ''} → ${f.to || ''}</td><td style="padding:10px 12px;color:#1e293b;">${f.date ? fmtDate(f.date) : ''}</td><td style="padding:10px 12px;color:#1e293b;">${f.airline || ''} ${f.flightNumber || ''}</td><td style="padding:10px 12px;color:#1e293b;">${f.class || ''}</td></tr>`).join('')}
+      ${flights.map(f => buildEmailFlightRows(f as Record<string, unknown>, fmtDate)).join('')}
     </table>` : ''
 
   const hotelsHtml = hotels.length > 0 ? `

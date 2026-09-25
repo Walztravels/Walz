@@ -674,7 +674,46 @@ function SectionHeading({ label, icon }: { label: string; icon: string }) {
   )
 }
 
-function FlightCard({ f }: { f: ProposalFlight }) {
+export function FlightCard({ f }: { f: ProposalFlight }) {
+  // Unified booking: every journey/segment in this one card. No price, no PNR (as before).
+  if (f.journeys && f.journeys.length > 0) {
+    return (
+      <div className="rounded-xl p-5 border" style={{ background: '#faf8f3', borderColor: '#e8dfd0' }}>
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+          <p className="text-base font-semibold" style={{ color: '#0f1c3f' }}>
+            {f.routeLabel || [f.from, f.to].filter(Boolean).join(' → ')}
+          </p>
+          {(f.tripTypeLabel || f.class) && (
+            <span className="text-xs font-medium px-3 py-1 rounded-full shrink-0" style={{ background: '#0f1c3f', color: '#faf8f3' }}>
+              {[f.tripTypeLabel, f.class].filter(Boolean).join(' · ')}
+            </span>
+          )}
+        </div>
+        {f.journeys.map((j, ji) => (
+          <div key={ji} className={ji > 0 ? 'mt-4' : ''}>
+            <p className="text-xs font-bold tracking-widest mb-1" style={{ color: '#b8963e' }}>
+              {j.label}{j.stops === 0 ? ' · Non-stop' : ` · ${j.stops} stop${j.stops !== 1 ? 's' : ''}`}
+            </p>
+            {j.segments.map((sg, si) => (
+              <div key={si}>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm py-1" style={{ color: '#0f1c3f' }}>
+                  <span className="font-medium">{sg.airline}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ background: '#e8dfd0', color: '#5a4f3e' }}>{sg.flightNumber}</span>
+                  <span className="font-semibold">{sg.from} → {sg.to}</span>
+                  <span style={{ color: '#7a6f5e' }}>
+                    {sg.date ? fmtDate(sg.date) : ''}{sg.departureTime ? ` · Dep ${sg.departureTime}` : ''}{sg.arrivalTime ? ` · Arr ${sg.arrivalTime}` : ''}
+                  </span>
+                </div>
+                {si < j.segments.length - 1 && (
+                  <p className="text-xs" style={{ color: '#7a6f5e' }}>Connection in {sg.toCity || sg.to}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    )
+  }
   const cityRoute = [f.fromCity ?? f.from, f.toCity ?? f.to].filter(Boolean).join(' → ')
   const codeRoute = [f.from, f.to].filter(Boolean).join(' → ')
   const route = cityRoute || codeRoute

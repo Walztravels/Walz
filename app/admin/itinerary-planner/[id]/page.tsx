@@ -12,6 +12,11 @@ import { NotesTab } from '@/components/admin/itinerary/NotesTab'
 import { PaymentScheduleEditor, PackageOptionsEditor } from '@/components/admin/itinerary/PricingExtras'
 import ResearchTab from '@/components/admin/itinerary/ResearchTab'
 import VersionHistory from '@/components/admin/itinerary/VersionHistory'
+import { UnifiedFlightCard, UnifiedHotelCard, UnifiedFlightSummary, deriveItineraryTotal, isTotalStale } from '@/components/admin/itinerary/UnifiedBookingCards'
+import {
+  isUnifiedFlight, isUnifiedHotel, sumClientTotals, flightRouteLabel,
+  type UnifiedFlightBooking, type UnifiedHotelBooking,
+} from '@/lib/itinerary/unified-booking'
 import type { OptionGroup, OptionItem, OptionCategory, SelectionMode, PricingMode, OptionSourceType, FulfilmentItem, FulfilmentStatus, FulfilmentItemType } from '@/lib/v2/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -72,6 +77,11 @@ interface Hotel {
   supplierId: string
   hotelbedsCancellationReference: string
 }
+
+// A flights/hotels row is either a legacy per-leg/per-hotel row (rendered + edited
+// exactly as before) or ONE unified booking (Research -> Add to Itinerary).
+type FlightRow = Flight | UnifiedFlightBooking
+type HotelRow = Hotel | UnifiedHotelBooking
 
 interface Transfer {
   id: string
@@ -689,6 +699,16 @@ export default function ItineraryBuilderPage() {
   const [itin, setItin] = useState<ItineraryData | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
+  // Keep-alive: once the Research tab has been opened it stays mounted (hidden) so search
+  // results survive a trip to Bookings and back.
+  const [researchMounted, setResearchMounted] = useState(false)
+  useEffect(() => { if (activeTab === 'research') setResearchMounted(true) }, [activeTab])
+  const flightsJson = itin?.flights
+  const hotelsJson = itin?.hotels
+  const existingBookingIds = useMemo(() => {
+    const ids = (j: string | undefined) => safeParse<{ id?: string }[]>(j || '[]', []).map(r => r?.id)
+    return [...ids(flightsJson), ...ids(hotelsJson)].filter((x): x is string => !!x)
+  }, [flightsJson, hotelsJson])
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [showCopilot, setShowCopilot] = useState(false)
@@ -853,14 +873,29 @@ export default function ItineraryBuilderPage() {
         {activeTab === 'options'    && <OptionsTab     itineraryId={itin.id} itineraryCurrency={itin.currency} />}
         {activeTab === 'fulfilment' && <FulfilmentTab itineraryId={itin.id} />}
         {activeTab === 'margin'     && <MarginTab    itin={itin} />}
-        {activeTab === 'research'   && (
-          <ResearchTab
-            itinId={itin.id}
-            destination={itin.destination}
-            startDate={itin.startDate}
-            endDate={itin.endDate}
-            numberOfTravellers={itin.numberOfTravellers}
-          />
+        {researchMounted && (
+          <div hidden={activeTab !== 'research'} data-testid="research-tab-keepalive">
+            <ResearchTab
+              itinId={itin.id}
+              destination={itin.destination}
+              startDate={itin.startDate}
+              endDate={itin.endDate}
+              numberOfTravellers={itin.numberOfTravellers}
+              currency={itin.currency}
+              existingBookingIds={existingBookingIds}
+              onAdded={(r) => {
+                const flights = JSON.stringify(r.flights)
+                const hotels = JSON.stringify(r.hotels)
+                setItin(prev => prev ? { ...prev, flights, hotels } : prev)
+                // Keep the STORED total in step (Preview/send/approve read itin.totalPrice).
+                // Same formula + same save() write path as PricingTab; the server already
+                // persisted the booking itself, so only totalPrice is written here.
+                const total = deriveItineraryTotal({ ...itin, flights, hotels })
+                void save({ totalPrice: total > 0 ? total : null })
+              }}
+              onViewBookings={() => setActiveTab('bookings')}
+            />
+          </div>
         )}
         {activeTab === 'versions'   && (
           <VersionHistory
@@ -1948,8 +1983,8 @@ function BookingsTab({ itin, onSave, onContextChange }: {
   onContextChange?: (ctx: JadeContext) => void
 }) {
   const [bookingTab, setBookingTab] = useState('flights')
-  const [flights, setFlights] = useState<Flight[]>(safeParse<Flight[]>(itin.flights, []))
-  const [hotels, setHotels] = useState<Hotel[]>(safeParse<Hotel[]>(itin.hotels, []))
+  const [flights, setFlights] = useState<FlightRow[]>(safeParse<FlightRow[]>(itin.flights, []))
+  const [hotels, setHotels] = useState<HotelRow[]>(safeParse<HotelRow[]>(itin.hotels, []))
   const [transfers, setTransfers] = useState<Transfer[]>(safeParse<Transfer[]>(itin.transfers || '[]', []))
   const [tours, setTours] = useState<Tour[]>(safeParse<Tour[]>(itin.tours || '[]', []))
   const [trains, setTrains] = useState<Train[]>(safeParse<Train[]>(itin.trains || '[]', []))
@@ -1961,7 +1996,40 @@ function BookingsTab({ itin, onSave, onContextChange }: {
   const [logoMsg, setLogoMsg] = useState('')
   const logoFileRef = useRef<HTMLInputElement>(null)
 
-  const saveWithFlights = async (updatedFlights: Flight[]) => {
+  // Re-sync from `itin` when flights/hotels change from OUTSIDE this tab (e.g. Research
+  // "Add to itinerary" while this tab is mounted). If local rows are untouched we adopt
+  // the incoming rows; if the user has unsaved local edits we only APPEND rows we have
+  // never seen (so a later save can neither drop the new booking nor lose local edits).
+  const syncedFlights = useRef(itin.flights)
+  const syncedHotels = useRef(itin.hotels)
+  useEffect(() => {
+    if (itin.flights === syncedFlights.current) return
+    const baseRows = safeParse<FlightRow[]>(syncedFlights.current, [])
+    const baseStr = JSON.stringify(baseRows)
+    const baseIds = new Set(baseRows.map(r => r.id))
+    const incoming = safeParse<FlightRow[]>(itin.flights, [])
+    syncedFlights.current = itin.flights
+    setFlights(prev => {
+      if (JSON.stringify(prev) === baseStr) return incoming
+      const have = new Set(prev.map(r => r.id))
+      return [...prev, ...incoming.filter(r => !have.has(r.id) && !baseIds.has(r.id))]
+    })
+  }, [itin.flights])
+  useEffect(() => {
+    if (itin.hotels === syncedHotels.current) return
+    const baseRows = safeParse<HotelRow[]>(syncedHotels.current, [])
+    const baseStr = JSON.stringify(baseRows)
+    const baseIds = new Set(baseRows.map(r => r.id))
+    const incoming = safeParse<HotelRow[]>(itin.hotels, [])
+    syncedHotels.current = itin.hotels
+    setHotels(prev => {
+      if (JSON.stringify(prev) === baseStr) return incoming
+      const have = new Set(prev.map(r => r.id))
+      return [...prev, ...incoming.filter(r => !have.has(r.id) && !baseIds.has(r.id))]
+    })
+  }, [itin.hotels])
+
+  const saveWithFlights = async (updatedFlights: FlightRow[]) => {
     setSaving(true)
     setSaveError(null)
     try {
@@ -2204,7 +2272,26 @@ function BookingsTab({ itin, onSave, onContextChange }: {
             </div>
           ) : (
             <div className="space-y-3">
-              {flights.map(f => (
+              {flights.map(fr => {
+                if (isUnifiedFlight(fr as unknown as Record<string, unknown>)) {
+                  const ub = fr as UnifiedFlightBooking
+                  return (
+                    <UnifiedFlightCard
+                      key={ub.id}
+                      booking={ub}
+                      sym={sym}
+                      editing={isEditing('flight', ub.id)}
+                      saving={saving}
+                      saveError={saveError}
+                      onEdit={() => startEdit('flight', ub.id)}
+                      onDone={doneEditing}
+                      onRemove={() => rmFlight(ub.id)}
+                      onChange={next => setFlights(prev => prev.map(fl => fl.id === ub.id ? next : fl))}
+                    />
+                  )
+                }
+                const f = fr as Flight
+                return (
                 <div key={f.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
                   {isEditing('flight', f.id) ? (
                     <div className="p-4">
@@ -2475,7 +2562,8 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                     </div>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -2496,7 +2584,26 @@ function BookingsTab({ itin, onSave, onContextChange }: {
             </div>
           ) : (
             <div className="space-y-3">
-              {hotels.map(h => (
+              {hotels.map(hr => {
+                if (isUnifiedHotel(hr as unknown as Record<string, unknown>)) {
+                  const uh = hr as UnifiedHotelBooking
+                  return (
+                    <UnifiedHotelCard
+                      key={uh.id}
+                      booking={uh}
+                      sym={sym}
+                      editing={isEditing('hotel', uh.id)}
+                      saving={saving}
+                      saveError={saveError}
+                      onEdit={() => startEdit('hotel', uh.id)}
+                      onDone={doneEditing}
+                      onRemove={() => rmHotel(uh.id)}
+                      onChange={next => setHotels(prev => prev.map(x => x.id === uh.id ? next : x))}
+                    />
+                  )
+                }
+                const h = hr as Hotel
+                return (
                 <div key={h.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
                   {isEditing('hotel', h.id) ? (
                     <div className="p-4">
@@ -2551,7 +2658,8 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                     </div>
                   )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -2903,16 +3011,22 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
     type BookingItem = { label: string; amount: number }
     const sumCost = (arr: { cost?: number | null }[]) => arr.reduce((s, x) => s + (x.cost ?? 0), 0)
 
+    // Each flight/hotel BOOKING counts once: a unified booking is one row whose booking-level
+    // `cost` is the whole-offer client total (journeys/segments carry no price).
     const rawFlights   = safeParse<{ airline?: string; from?: string; to?: string; flightNumber?: string; cost?: number | null }[]>(itin.flights, [])
     const rawHotels    = safeParse<{ name?: string; location?: string; cost?: number | null }[]>(itin.hotels, [])
+    const flightLabel = (f: (typeof rawFlights)[number]) =>
+      isUnifiedFlight(f as unknown as Record<string, unknown>)
+        ? flightRouteLabel(f as unknown as UnifiedFlightBooking)
+        : ([f.from, f.to].filter(Boolean).join('→') || f.airline || f.flightNumber || 'Flight')
     const rawTransfers = safeParse<{ type?: string; from?: string; to?: string; cost?: number | null }[]>(itin.transfers || '[]', [])
     const rawTours     = safeParse<{ name?: string; cost?: number | null }[]>(itin.tours || '[]', [])
     const rawTrains    = safeParse<{ from?: string; to?: string; cost?: number | null }[]>(itin.trains || '[]', [])
     const rawFerries   = safeParse<{ from?: string; to?: string; cost?: number | null }[]>(itin.ferries || '[]', [])
 
     const components = [
-      { label: 'Flights',            total: sumCost(rawFlights) },
-      { label: 'Hotels',             total: sumCost(rawHotels) },
+      { label: 'Flights',            total: sumClientTotals(rawFlights) },
+      { label: 'Hotels',             total: sumClientTotals(rawHotels) },
       { label: 'Transfers',          total: sumCost(rawTransfers) },
       { label: 'Tours & Activities', total: sumCost(rawTours) },
       { label: 'Trains',             total: sumCost(rawTrains) },
@@ -2920,7 +3034,7 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
     ].filter(c => c.total > 0)
 
     const details: Record<string, BookingItem[]> = {
-      'Flights':            rawFlights.filter(f => (f.cost ?? 0) > 0).map(f => ({ label: [f.from, f.to].filter(Boolean).join('→') || f.airline || f.flightNumber || 'Flight', amount: f.cost! })),
+      'Flights':            rawFlights.filter(f => (f.cost ?? 0) > 0).map(f => ({ label: flightLabel(f), amount: f.cost! })),
       'Hotels':             rawHotels.filter(h => (h.cost ?? 0) > 0).map(h => ({ label: h.name || h.location || 'Hotel', amount: h.cost! })),
       'Transfers':          rawTransfers.filter(t => (t.cost ?? 0) > 0).map(t => ({ label: t.type || [t.from, t.to].filter(Boolean).join('→') || 'Transfer', amount: t.cost! })),
       'Tours & Activities': rawTours.filter(t => (t.cost ?? 0) > 0).map(t => ({ label: t.name || 'Experience', amount: t.cost! })),
@@ -2933,7 +3047,7 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
 
   const bookingCostTotal = bookingComponents.reduce((s, c) => s + c.total, 0)
   const manualRowsTotal  = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0)
-  const derivedTotal     = bookingCostTotal + manualRowsTotal
+  const derivedTotal     = deriveItineraryTotal({ ...itin, priceBreakdown: JSON.stringify(rows) })
 
   const addRow    = () => setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
   const updRow    = (id: string, field: keyof PriceRow, value: unknown) => setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
@@ -4003,8 +4117,8 @@ function PreviewTab({
 
   const sym = CURRENCY_SYM[itin.currency] || ''
   const days = safeParse<Day[]>(itin.days, [])
-  const flights = safeParse<Flight[]>(itin.flights, [])
-  const hotels = safeParse<Hotel[]>(itin.hotels, [])
+  const flights = safeParse<FlightRow[]>(itin.flights, [])
+  const hotels = safeParse<HotelRow[]>(itin.hotels, [])
   const transfers = safeParse<Transfer[]>(itin.transfers || '[]', [])
   const tours = safeParse<Tour[]>(itin.tours || '[]', [])
   const trains = safeParse<Train[]>(itin.trains || '[]', [])
@@ -4014,7 +4128,11 @@ function PreviewTab({
   const priceBreakdown = safeParse<PriceRow[]>(itin.priceBreakdown, [])
   const publicUrl = `https://walztravels.com/itinerary/${itin.referenceNumber}`
 
+  const derivedTotalNow = deriveItineraryTotal(itin)
+  const totalStale = isTotalStale(itin.totalPrice, derivedTotalNow)
+
   const handleSend = async () => {
+    if (totalStale && !window.confirm(`The saved total (${sym}${Number(itin.totalPrice || 0).toLocaleString()}) differs from the current bookings total (${sym}${derivedTotalNow.toLocaleString()}). Send anyway?`)) return
     setSending(true)
     setSentMsg('')
     try {
@@ -4118,7 +4236,9 @@ function PreviewTab({
             {flights.length > 0 && (
               <div>
                 <h3 className="font-bold text-gray-800 text-sm mb-2">✈️ Flights ({flights.length})</h3>
-                {flights.slice(0, 2).map((f, i) => (
+                {flights.slice(0, 2).map((f, i) => isUnifiedFlight(f as unknown as Record<string, unknown>) ? (
+                  <UnifiedFlightSummary key={i} booking={f as UnifiedFlightBooking} />
+                ) : (
                   <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5 flex justify-between">
                     <p className="text-gray-700 text-xs">{f.from} → {f.to} · {f.airline}</p>
                     {f.date && <p className="text-gray-400 text-xs">{fmtDate(f.date)}</p>}
@@ -4311,6 +4431,12 @@ function PreviewTab({
           {itin.sentAt && (
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
               <p className="text-blue-400 text-xs">📨 Last sent {fmtDateTime(itin.sentAt)}</p>
+            </div>
+          )}
+
+          {totalStale && (
+            <div data-testid="stale-total-note" className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-4">
+              <p className="text-amber-400 text-xs font-semibold">Total is out of date — open Pricing and Save. (Stored {sym}{Number(itin.totalPrice || 0).toLocaleString()} vs bookings {sym}{derivedTotalNow.toLocaleString()}.)</p>
             </div>
           )}
 

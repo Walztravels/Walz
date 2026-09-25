@@ -3,7 +3,38 @@
 
 import type { PublicOptionGroup } from '@/lib/v2/types'
 
+/** Client-safe journey/segment (unified flight bookings). No price, no supplier refs. */
+export interface ProposalSegment {
+  from: string
+  to: string
+  fromCity?: string
+  toCity?: string
+  airline?: string
+  flightNumber?: string
+  date?: string
+  departureTime?: string
+  arrivalTime?: string
+  arrivalDate?: string
+  durationMinutes?: number
+  cabin?: string
+  baggage?: string
+}
+export interface ProposalJourney {
+  label: string // OUTBOUND | RETURN | LEG n
+  direction: 'outbound' | 'return' | 'leg'
+  stops: number
+  durationMinutes?: number
+  segments: ProposalSegment[]
+}
+
 export interface ProposalFlight {
+  /** Unified booking: ONE card, ONE price (clientPrice), journeys hold the legs */
+  bookingKind?: 'unified-flight'
+  tripType?: string
+  tripTypeLabel?: string
+  routeLabel?: string
+  journeys?: ProposalJourney[]
+  status?: string
   from?: string
   to?: string
   fromCity?: string
@@ -58,6 +89,13 @@ export interface ProposalHotel {
   nights?: number
   mealPlan?: string
   images?: string[]
+  // research-hotel (unified) — client-appropriate rate terms only
+  stars?: number
+  breakfastIncluded?: boolean
+  isRefundable?: boolean
+  cancellationPolicy?: string
+  cancellationDeadline?: string
+  guests?: { rooms: number; adults: number; children: number }
   clientPrice?: number
 }
 
