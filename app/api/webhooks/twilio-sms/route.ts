@@ -19,13 +19,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyTwilioSignature, maskId } from '@/lib/webhooks/verify'
 import { getSmsAuthToken, getSmsInboundWebhookUrl } from '@/lib/sms/config'
 import { processInboundSms } from '@/lib/sms/inbound'
-import { SMS_SENDER_PHRASE } from '@/lib/config/legal-entities'
+import { SMS_HELP_REPLY } from '@/lib/sms/help'
 
 export const dynamic = 'force-dynamic'
-
-export const SMS_HELP_REPLY =
-  `${SMS_SENDER_PHRASE}: customer-care texts about your travel enquiries, bookings, payments and visa services. ` +
-  'Msg frequency varies. Msg&data rates may apply. Reply STOP to opt out. Support: contact@walztravels.com'
 
 function twiml(inner = '', status = 200): NextResponse {
   return new NextResponse(`<Response>${inner}</Response>`, {

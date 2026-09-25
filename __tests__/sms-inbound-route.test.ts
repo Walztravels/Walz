@@ -63,7 +63,8 @@ jest.mock('@/lib/inbox/client-identity', () => ({
   findCredibleDuplicate: jest.fn(async () => ({ status: 'none' })),
 }))
 
-import { POST, SMS_HELP_REPLY } from '@/app/api/webhooks/twilio-sms/route'
+import { POST } from '@/app/api/webhooks/twilio-sms/route'
+import { SMS_HELP_REPLY } from '@/lib/sms/help'
 import { SMS_INBOUND_WEBHOOK_URL_DEFAULT } from '@/lib/sms/config'
 import { findCredibleDuplicate } from '@/lib/inbox/client-identity'
 
