@@ -46,6 +46,8 @@ interface SearchParams {
 interface FlightResult {
   type: 'flight'
   id: string
+  /** Duffel offer id: the server re-fetches it and builds the unified booking */
+  offerId?: string
   summary: string
   from: string
   to: string
@@ -379,28 +381,10 @@ export function JadeCopilot({
   const addItemToItinerary = async (result: FlightResult) => {
     const itinId = itinerary?.id as string
     if (!itinId) return
-    const flightItem = {
-      from: result.from,
-      to: result.to,
-      airline: result.airline,
-      flightNumber: result.flightNumber || '',
-      date: result.date,
-      time: result.departureTime ? new Date(result.departureTime).toTimeString().slice(0, 5) : '',
-      arrivalTime: result.arrivalTime ? new Date(result.arrivalTime).toTimeString().slice(0, 5) : '',
-      class: result.class,
-      cost: result.price,
-      status: 'confirmed',
-      notes: '',
-      pnr: '',
-      iataCode: '',
-      supplierId: '',
-      duffelOrderId: result.id || '',
-      supplierCost: null,
-    }
     const res = await fetch(`/api/admin/itineraries/${itinId}/copilot-add-item`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemType: 'flight', item: flightItem }),
+      body: JSON.stringify({ itemType: 'flight', item: { offerId: result.offerId } }),
     })
     if (res.ok) {
       await onItineraryUpdate()
@@ -411,6 +395,13 @@ export function JadeCopilot({
       }])
       setSearchMode(null)
       setSearchResults([])
+    } else {
+      const errBody = await res.json().catch(() => ({})) as { error?: string; duplicate?: boolean }
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: errBody.error ?? 'Could not add this flight. Please search again.',
+        timestamp: new Date(),
+      }])
     }
   }
 

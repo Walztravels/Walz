@@ -258,6 +258,10 @@ async function handleUpdateHotelField(
     return { ok: false, error: `hotelIndex ${hotelIndex} out of range (itinerary has ${hotels.length} hotels)` }
   }
 
+  if (hotels[hotelIndex]?.bookingKind === 'research-hotel' && !['notes', 'status'].includes(field)) {
+    return { ok: false, error: `Hotel ${hotelIndex} is a supplier-priced booking managed by staff; only notes/status can be changed here.` }
+  }
+
   hotels[hotelIndex][field] = typeof value === 'number' ? value : typeof value === 'string' ? value : String(value ?? '')
 
   await prisma.itinerary.update({
@@ -288,6 +292,12 @@ async function handleUpdateFlightField(
   const flights = safeParse<Array<Record<string, unknown>>>(existing.flights, [])
   if (flightIndex >= flights.length) {
     return { ok: false, error: `flightIndex ${flightIndex} out of range (itinerary has ${flights.length} flights)` }
+  }
+
+  // A unified booking's journeys[] are the source of truth; editing the legacy
+  // mirror fields (route/date/times/airline) would silently desync them.
+  if (flights[flightIndex]?.bookingKind === 'unified-flight' && !['notes', 'status'].includes(field)) {
+    return { ok: false, error: `Flight ${flightIndex} is a unified booking (all journeys, one total) managed by staff; only notes/status can be changed here.` }
   }
 
   flights[flightIndex][field] = typeof value === 'string' ? value : String(value ?? '')

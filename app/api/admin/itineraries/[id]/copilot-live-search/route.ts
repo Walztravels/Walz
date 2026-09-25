@@ -53,9 +53,20 @@ export async function POST(
       const offers = await searchFlights(flightParams)
       const results = offers.slice(0, 5).map((offer) => {
         const seg = offer.segments[0]
+        const ret = offer.returnSegments ?? []
+        const lastOut = offer.segments[offer.segments.length - 1]
         return {
           type: 'flight' as const,
           id: offer.id,
+          // Duffel offer id — Copilot "Add" re-fetches this server-side and
+          // builds the SAME unified booking as Research → Add.
+          offerId: offer.id,
+          expiresAt: offer.expiresAt ?? null,
+          tripType: ret.length > 0 ? 'return' : 'one-way',
+          journeys: [
+            { from: seg.departureIata, to: lastOut?.arrivalIata ?? seg.arrivalIata, segments: offer.segments.length },
+            ...(ret.length > 0 ? [{ from: ret[0].departureIata, to: ret[ret.length - 1].arrivalIata, segments: ret.length }] : []),
+          ],
           summary: `${seg.airline} ${seg.flightNumber} · ${offer.stops === 0 ? 'Direct' : offer.stops + ' stop'}`,
           from: seg.departureIata,
           to: seg.arrivalIata,

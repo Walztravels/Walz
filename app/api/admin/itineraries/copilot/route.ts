@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 import { resolveHotelImages } from '@/lib/hotel-images'
+import { mergeCopilotBookings, isProtectedBookingRow } from '@/lib/itinerary/copilot-merge'
+import { isUnifiedFlight, isUnifiedHotel, flightRouteLabel, flightTripTypeLabel, type UnifiedFlightBooking } from '@/lib/itinerary/unified-booking'
 
 export const maxDuration = 60
 
@@ -124,7 +126,7 @@ OUTPUT FORMAT — Return ONLY valid JSON, no markdown, no explanation:
 
 function normaliseFlights(flights: unknown[]) {
   return (flights as Array<Record<string, unknown>>).map(f => ({
-    id: uid(),
+    id: typeof f.id === 'string' && f.id ? f.id : uid(), // echoed id lets mergeCopilotBookings round-trip legacy rows
     from: String(f.from || ''),
     to: String(f.to || ''),
     airline: String(f.airline || ''),
@@ -146,7 +148,7 @@ function normaliseHotels(hotels: unknown[]) {
     const name     = String(h.name     || '')
     const location = String(h.location || '')
     return {
-      id: uid(),
+      id: typeof h.id === 'string' && h.id ? h.id : uid(),
       name,
       location,
       websiteUrl: '',
@@ -380,10 +382,16 @@ Current Days (${exDays.length}):
 ${exDays.map((d) => `Day ${d.day}: ${d.title} — ${d.destination || ''}`).join('\n') || 'None yet'}
 
 Current Flights (${exFlights.length}):
-${exFlights.map((f) => `${f.from} → ${f.to} on ${f.date} (${f.airline} ${f.flightNumber || f.flightNo || ''})`).join('\n') || 'None yet'}
+${exFlights.map((f) => isUnifiedFlight(f)
+  ? `[STAFF-MANAGED BOOKING — do not regenerate, split or re-list] ${flightTripTypeLabel(f.tripType)} ${flightRouteLabel(f as unknown as UnifiedFlightBooking)}, ${f.date}, ${f.airline}, ONE total ${f.pricing?.currency ?? ''} ${f.cost}`
+  : `${f.from} → ${f.to} on ${f.date} (${f.airline} ${f.flightNumber || f.flightNo || ''}) [id:${f.id ?? ''}]`).join('\n') || 'None yet'}
 
 Current Hotels (${exHotels.length}):
-${exHotels.map((h) => `${h.name}, ${h.location} (${h.checkIn} to ${h.checkOut})`).join('\n') || 'None yet'}
+${exHotels.map((h) => isUnifiedHotel(h)
+  ? `[STAFF-MANAGED BOOKING — do not regenerate] ${h.name}, ${h.location} (${h.checkIn} to ${h.checkOut}), ONE total ${h.pricing?.currency ?? ''} ${h.cost}`
+  : `${h.name}, ${h.location} (${h.checkIn} to ${h.checkOut}) [id:${h.id ?? ''}]`).join('\n') || 'None yet'}
+
+Bookings marked STAFF-MANAGED are supplier bookings owned by staff. They are kept automatically: do NOT include them in your flights/hotels output and do NOT invent per-leg rows for them.
 
 Current Tours (${exTours.length}):
 ${exTours.map((t) => `${t.name} on ${t.date}`).join('\n') || 'None yet'}
@@ -527,39 +535,92 @@ Generate a comprehensive, professional itinerary with all fields populated. Be s
   const normedDays       = normaliseDays(Array.isArray(result.days)             ? result.days          : [])
   const normedPricing    = normalisePriceBreakdown(Array.isArray(result.priceBreakdown) ? result.priceBreakdown : [])
 
+  // Unified flight / research-hotel bookings are staff-managed supplier
+  // bookings the LLM cannot represent: they are preserved EXACTLY as stored.
+  // The write is a compare-and-swap on the raw flights/hotels strings (same
+  // pattern as lib/itinerary/add-offer.ts) so a research-add landing while the
+  // LLM was thinking / between read and write is never lost.
+  // See lib/itinerary/copilot-merge.ts.
+  let finalFlights: Array<Record<string, unknown>> = normedFlights
+  let finalHotels: Array<Record<string, unknown>> = normedHotels
+  const warnings: string[] = []
+
   // ── Save to DB if itineraryId provided ────────────────────────────────────
   if (itineraryId) {
+    // null/'' → []; malformed or non-array → null (REFUSE, never overwrite)
+    const parseCol = (j: string | null | undefined): unknown[] | null => {
+      if (j == null || j.trim() === '') return []
+      try { const v = JSON.parse(j); return Array.isArray(v) ? v : null } catch { return null }
+    }
     try {
-      await prisma.itinerary.update({
-        where: { id: itineraryId },
-        data: {
-          title:             result.title             ? String(result.title)             : undefined,
-          overview:          result.overview          ? String(result.overview)          : undefined,
-          destination:       result.destination       ? String(result.destination)       : undefined,
-          destinations:      result.destinations      ? JSON.stringify(result.destinations) : undefined,
-          startDate:         result.startDate         ? new Date(String(result.startDate))  : undefined,
-          endDate:           result.endDate           ? new Date(String(result.endDate))    : undefined,
-          duration:          result.duration          ? Number(result.duration)          : undefined,
-          numberOfTravellers: result.numberOfTravellers ? Number(result.numberOfTravellers) : undefined,
-          tripType:          result.tripType          ? String(result.tripType)          : undefined,
-          // currency intentionally omitted — admin sets billing currency; Jade must not override it
-          budget:            result.totalBudget       ? Number(result.totalBudget)       : undefined,
-          coverImage:        result.coverImage        ? String(result.coverImage)        : undefined,
-          inclusions:        JSON.stringify(result.inclusions  || []),
-          exclusions:        JSON.stringify(result.exclusions  || []),
-          days:              JSON.stringify(normedDays),
-          flights:           JSON.stringify(normedFlights),
-          hotels:            JSON.stringify(normedHotels),
-          tours:             JSON.stringify(normedTours),
-          transfers:         JSON.stringify(normedTransfers),
-          trains:            JSON.stringify([]),
-          ferries:           JSON.stringify([]),
-          priceBreakdown:    JSON.stringify(normedPricing),
-          totalPrice:        result.totalPrice        ? Number(result.totalPrice)        : undefined,
-          deposit:           result.deposit           ? Number(result.deposit)           : undefined,
-          updatedAt:         new Date(),
-        },
-      })
+      const MAX_ATTEMPTS = 4
+      let written = false
+      for (let attempt = 0; attempt < MAX_ATTEMPTS && !written; attempt++) {
+        const cur = await prisma.itinerary.findUnique({ where: { id: itineraryId }, select: { flights: true, hotels: true } })
+        if (!cur) throw new Error('Itinerary not found')
+        const exFl = parseCol(cur.flights)
+        const exHo = parseCol(cur.hotels)
+        if (!exFl || !exHo) {
+          return NextResponse.json(
+            { ok: false, code: 'ITINERARY_DATA_INVALID', error: "This itinerary's bookings data is malformed. Fix it before regenerating; nothing was changed." },
+            { status: 422 },
+          )
+        }
+        finalFlights = mergeCopilotBookings(exFl, normedFlights, 'flight')
+        finalHotels  = mergeCopilotBookings(exHo, normedHotels,  'hotel')
+
+        const protFlights = exFl.filter((r) => isProtectedBookingRow(r))
+        const protectedAny = protFlights.length > 0 || exHo.some((r) => isProtectedBookingRow(r))
+        // (a) generated flight rows kept next to a preserved unified flight → possible double count
+        warnings.length = 0
+        if (protFlights.length > 0 && finalFlights.length > protFlights.length) {
+          warnings.push('This itinerary already has a staff-managed flight booking. Jade also generated separate flight rows — review the Bookings tab for duplicates before sending.')
+        }
+
+        const res = await prisma.itinerary.updateMany({
+          where: {
+            id: itineraryId,
+            ...(cur.flights == null ? {} : { flights: cur.flights }),
+            ...(cur.hotels == null ? {} : { hotels: cur.hotels }),
+          },
+          data: {
+            title:             result.title             ? String(result.title)             : undefined,
+            overview:          result.overview          ? String(result.overview)          : undefined,
+            destination:       result.destination       ? String(result.destination)       : undefined,
+            destinations:      result.destinations      ? JSON.stringify(result.destinations) : undefined,
+            startDate:         result.startDate         ? new Date(String(result.startDate))  : undefined,
+            endDate:           result.endDate           ? new Date(String(result.endDate))    : undefined,
+            duration:          result.duration          ? Number(result.duration)          : undefined,
+            numberOfTravellers: result.numberOfTravellers ? Number(result.numberOfTravellers) : undefined,
+            tripType:          result.tripType          ? String(result.tripType)          : undefined,
+            // currency intentionally omitted — admin sets billing currency; Jade must not override it
+            budget:            result.totalBudget       ? Number(result.totalBudget)       : undefined,
+            coverImage:        result.coverImage        ? String(result.coverImage)        : undefined,
+            inclusions:        JSON.stringify(result.inclusions  || []),
+            exclusions:        JSON.stringify(result.exclusions  || []),
+            days:              JSON.stringify(normedDays),
+            flights:           JSON.stringify(finalFlights),
+            hotels:            JSON.stringify(finalHotels),
+            tours:             JSON.stringify(normedTours),
+            transfers:         JSON.stringify(normedTransfers),
+            trains:            JSON.stringify([]),
+            ferries:           JSON.stringify([]),
+            priceBreakdown:    JSON.stringify(normedPricing),
+            // (c) With a staff-managed booking present the LLM total cannot
+            // know its cost: leave the stored totalPrice/deposit untouched.
+            totalPrice:        !protectedAny && result.totalPrice ? Number(result.totalPrice) : undefined,
+            deposit:           !protectedAny && result.deposit    ? Number(result.deposit)    : undefined,
+            updatedAt:         new Date(),
+          },
+        })
+        if (res.count === 1) written = true
+      }
+      if (!written) {
+        return NextResponse.json(
+          { ok: false, code: 'CONFLICT', error: 'The itinerary was changed by someone else while Jade was generating. Nothing was overwritten — please retry.' },
+          { status: 409 },
+        )
+      }
       result._saved = true
     } catch (err: unknown) {
       console.error('[copilot] DB save failed:', err instanceof Error ? err.message : err)
@@ -567,17 +628,22 @@ Generate a comprehensive, professional itinerary with all fields populated. Be s
     }
   }
 
+  if (warnings.length) {
+    result.copilotNotes = [result.copilotNotes, ...warnings].filter(Boolean).join(' ')
+  }
+
   return NextResponse.json({
     success: true,
     itinerary: {
       ...result,
-      flights:        normedFlights,
-      hotels:         normedHotels,
+      flights:        finalFlights,
+      hotels:         finalHotels,
       tours:          normedTours,
       transfers:      normedTransfers,
       days:           normedDays,
       priceBreakdown: normedPricing,
     },
+    ...(warnings.length ? { warnings } : {}),
     model: String(result._model || 'claude-sonnet-4-6'),
   })
 }
