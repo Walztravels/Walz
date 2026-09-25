@@ -515,7 +515,6 @@ function HotelsPageContent() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#060f1e]">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Service', name: 'Hotel Booking — Walz Travels', description: 'Search and book hotels worldwide with Walz Travels. Curated selections across top destinations.', url: 'https://www.walztravels.com/hotels', provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' } }) }} />
 
       {/* ═══════════════════════════════════════════════════════════════════════
           SECTION 1 — HERO + SEARCH FORM
@@ -881,6 +880,10 @@ export default function HotelsPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-[#060f1e] flex items-center justify-center">
+        {/* useSearchParams bails this page out to client rendering, so the
+            server HTML is only this fallback. Keep the page's <h1> here so
+            crawlers see it; it is replaced by the real hero <h1> on hydrate. */}
+        <h1 className="sr-only">Hotel Booking — Every Hotel. Every City. Every Budget.</h1>
         <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
       </div>
     }>

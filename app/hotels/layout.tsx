@@ -29,6 +29,20 @@ export const metadata: Metadata = {
   },
 }
 
+const hotelsJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Service',
+  name: 'Hotel Booking — Walz Travels',
+  description: 'Search and book hotels worldwide with Walz Travels. Curated selections across top destinations.',
+  url: 'https://www.walztravels.com/hotels',
+  provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+}
+
 export default function HotelsLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
+  return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(hotelsJsonLd) }} />
+      {children}
+    </>
+  )
 }
