@@ -17,7 +17,9 @@
  */
 
 const mockPrisma = {
-  consentRecord: { upsert: jest.fn() },
+  consentRecord: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+  consentEvent: { create: jest.fn() },
+  $transaction: jest.fn(),
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
 
@@ -91,7 +93,10 @@ function freshIp() {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockPrisma.consentRecord.upsert.mockResolvedValue({ id: 'c1' })
+  mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma))
+  mockPrisma.consentRecord.findUnique.mockResolvedValue(null)
+  mockPrisma.consentRecord.create.mockResolvedValue({ id: 'c1' })
+  mockPrisma.consentEvent.create.mockResolvedValue({ id: 'e1' })
 })
 
 // ── 1. The unchecked box writes NOTHING ─────────────────────────────────
@@ -113,30 +118,36 @@ describe('an unchecked consent box creates NO ConsentRecord of any status', () =
     )
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ recorded: false, reason: 'NOT_CHECKED' })
-    expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.update).not.toHaveBeenCalled()
+    expect(mockPrisma.consentEvent.create).not.toHaveBeenCalled()
   })
 
   it('the route writes nothing when the consent field is absent entirely', async () => {
     const res = await consentPost(req({ phone: '+2348012345678' }, { 'x-forwarded-for': freshIp() }))
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ recorded: false, reason: 'NOT_CHECKED' })
-    expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.update).not.toHaveBeenCalled()
+    expect(mockPrisma.consentEvent.create).not.toHaveBeenCalled()
   })
 
   it('a truthy-but-not-true value (the classic coercion bug) writes nothing', async () => {
     for (const consent of ['true', 1, 'on', {}]) {
-      mockPrisma.consentRecord.upsert.mockClear()
+      mockPrisma.consentRecord.create.mockClear()
       const res = await consentPost(
         req({ phone: '+2348012345678', consent }, { 'x-forwarded-for': freshIp() }),
       )
       await expect(res.json()).resolves.toEqual({ recorded: false, reason: 'NOT_CHECKED' })
-      expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+      expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
+      expect(mockPrisma.consentRecord.update).not.toHaveBeenCalled()
+      expect(mockPrisma.consentEvent.create).not.toHaveBeenCalled()
     }
   })
 
   it('NOT_GRANTED is never written by the capture path — absence is the negative state', async () => {
     await consentPost(req({ phone: '+2348012345678', consent: false }, { 'x-forwarded-for': freshIp() }))
-    expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
     // And the route source contains no NOT_GRANTED write at all.
     expect(read(ROUTE_SRC)).not.toMatch(/status:\s*['"]NOT_GRANTED['"]/)
     expect(read(CAPTURE_SRC)).not.toMatch(/status:\s*['"]NOT_GRANTED['"]/)
@@ -202,10 +213,12 @@ describe('consent is never inferred from the presence of a phone number', () => 
     }
   })
 
-  it('the only Prisma write in the whole feature is a single-row consentRecord upsert', () => {
+  it('the capture path performs no direct Prisma write and no upsert — it delegates to the append-only grant', () => {
     const src = read(CAPTURE_SRC)
     const writes = src.match(/prisma\.\w+\.(create|upsert|update|delete|createMany|updateMany|deleteMany)/g) ?? []
-    expect(writes).toEqual(['prisma.consentRecord.upsert'])
+    expect(writes).toEqual([])
+    expect(src).not.toMatch(/\.upsert\(/)
+    expect(src).toContain('applySmsCustomerCareGrant')
   })
 
   it('no backfill/migration script for consent exists anywhere in the repo', () => {
@@ -261,27 +274,29 @@ describe('a genuinely checked submission creates exactly one GRANTED record', ()
       recorded: true, purpose: 'SMS_CUSTOMER_CARE', status: 'GRANTED',
     })
 
-    expect(mockPrisma.consentRecord.upsert).toHaveBeenCalledTimes(1)
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
+    expect(mockPrisma.consentRecord.create).toHaveBeenCalledTimes(1)
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
 
     // Keyed on the (number, purpose) pair, with the number NORMALIZED.
-    expect(arg.where).toEqual({
+    // Keyed on the (number, purpose) pair, with the number NORMALIZED
+    // (looked up via the compound key, then created; never upserted).
+    expect(mockPrisma.consentRecord.findUnique.mock.calls[0][0].where).toEqual({
       normalizedNumber_purpose: {
         normalizedNumber: '+2348012345678',
         purpose: 'SMS_CUSTOMER_CARE',
       },
     })
 
-    expect(arg.create.purpose).toBe('SMS_CUSTOMER_CARE')
-    expect(arg.create.status).toBe('GRANTED')
-    expect(arg.create.normalizedNumber).toBe('+2348012345678')
-    expect(arg.create.source).toBe(CONSENT_SOURCE_BOOKING_CHECKOUT)
-    expect(arg.create.capturePage).toBe('/flights/traveller')
-    expect(arg.create.disclosureVersion).toBe(SMS_CUSTOMER_CARE_DISCLOSURE_VERSION)
+    expect(arg.data.purpose).toBe('SMS_CUSTOMER_CARE')
+    expect(arg.data.status).toBe('GRANTED')
+    expect(arg.data.normalizedNumber).toBe('+2348012345678')
+    expect(arg.data.source).toBe(CONSENT_SOURCE_BOOKING_CHECKOUT)
+    expect(arg.data.capturePage).toBe('/flights/traveller')
+    expect(arg.data.disclosureVersion).toBe(SMS_CUSTOMER_CARE_DISCLOSURE_VERSION)
 
     // A REAL timestamp, not a placeholder.
-    expect(arg.create.consentedAt).toBeInstanceOf(Date)
-    const t = (arg.create.consentedAt as Date).getTime()
+    expect(arg.data.consentedAt).toBeInstanceOf(Date)
+    const t = (arg.data.consentedAt as Date).getTime()
     expect(t).toBeGreaterThanOrEqual(before)
     expect(t).toBeLessThanOrEqual(after)
   })
@@ -290,9 +305,9 @@ describe('a genuinely checked submission creates exactly one GRANTED record', ()
     await consentPost(
       req({ phone: '+2348012345678', consent: true }, { 'x-forwarded-for': '203.0.113.99', 'user-agent': 'UA/1' }),
     )
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.create.ipAddress).toBe('203.0.113.99')
-    expect(arg.create.userAgent).toBe('UA/1')
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
+    expect(arg.data.ipAddress).toBe('203.0.113.99')
+    expect(arg.data.userAgent).toBe('UA/1')
   })
 
   it('an unusable number is refused rather than stored un-normalized', async () => {
@@ -300,16 +315,17 @@ describe('a genuinely checked submission creates exactly one GRANTED record', ()
     // without country context — normalizePhoneE164 returns null.
     const res = await consentPost(req({ phone: '08012345678', consent: true }, { 'x-forwarded-for': freshIp() }))
     await expect(res.json()).resolves.toEqual({ recorded: false, reason: 'INVALID_NUMBER' })
-    expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
   })
 
-  it('a repeat tick upserts the same row rather than duplicating consent', async () => {
+  it('a repeat tick on an existing NOT_GRANTED row updates that same row rather than duplicating consent', async () => {
+    mockPrisma.consentRecord.findUnique.mockResolvedValue({ id: 'c0', status: 'NOT_GRANTED', revokedAt: null })
     await consentPost(req({ phone: '+2348012345678', consent: true }, { 'x-forwarded-for': freshIp() }))
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.update.status).toBe('GRANTED')
-    expect(arg.update.consentedAt).toBeInstanceOf(Date)
-    // A fresh affirmative tick clears a prior revocation.
-    expect(arg.update.revokedAt).toBeNull()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
+    const arg = mockPrisma.consentRecord.update.mock.calls[0][0]
+    expect(arg.data.status).toBe('GRANTED')
+    expect(arg.data.consentedAt).toBeInstanceOf(Date)
+    expect(arg.data.revokedAt).toBeNull()
   })
 })
 
@@ -317,7 +333,8 @@ describe('a genuinely checked submission creates exactly one GRANTED record', ()
 
 describe('phone normalization reuses lib/identity/normalize.ts — no second normalizer', () => {
   it('the shared capture helper imports the shared normalizer by name', () => {
-    expect(read(CAPTURE_SRC)).toContain("import { normalizePhoneE164 } from '@/lib/identity/normalize'")
+    expect(read(CAPTURE_SRC)).toContain("import { normalizeSmsNumber } from '@/lib/sms/normalize'")
+    expect(read('lib/sms/normalize.ts')).toContain("import { normalizePhoneE164 } from '@/lib/identity/normalize'")
   })
 
   it('no file in this feature defines its own phone normalization', () => {
@@ -332,7 +349,8 @@ describe('phone normalization reuses lib/identity/normalize.ts — no second nor
   it('it is the SAME function the WhatsApp Broadcast audience resolver uses', () => {
     // Both import the same module path — one idea of who a number is.
     expect(read('lib/whatsapp/broadcast/audience.ts')).toContain("from '@/lib/identity/normalize'")
-    expect(read(CAPTURE_SRC)).toContain("from '@/lib/identity/normalize'")
+    expect(read('lib/sms/normalize.ts')).toContain("from '@/lib/identity/normalize'")
+    expect(read(CAPTURE_SRC)).toContain("from '@/lib/sms/normalize'")
   })
 
   it('the route stores exactly what the shared normalizer produces', async () => {
@@ -341,8 +359,8 @@ describe('phone normalization reuses lib/identity/normalize.ts — no second nor
     expect(expected).toBe('+447911123456')
 
     await consentPost(req({ phone: raw, consent: true }, { 'x-forwarded-for': freshIp() }))
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.create.normalizedNumber).toBe(expected)
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
+    expect(arg.data.normalizedNumber).toBe(expected)
   })
 
   it('normalizer behaviour is unchanged (regression guard on the shared utility)', () => {
@@ -370,9 +388,9 @@ describe('the three consent purposes are independent', () => {
   it('granting SMS_CUSTOMER_CARE touches no other purpose for the same number', async () => {
     await consentPost(req({ phone: '+2348012345678', consent: true }, { 'x-forwarded-for': freshIp() }))
 
-    expect(mockPrisma.consentRecord.upsert).toHaveBeenCalledTimes(1)
-    const calls = mockPrisma.consentRecord.upsert.mock.calls
-    const purposesWritten = calls.map((c: [{ create: { purpose: string } }]) => c[0].create.purpose)
+    expect(mockPrisma.consentRecord.create).toHaveBeenCalledTimes(1)
+    const calls = mockPrisma.consentRecord.create.mock.calls
+    const purposesWritten = calls.map((c: [{ data: { purpose: string } }]) => c[0].data.purpose)
     expect(purposesWritten).toEqual(['SMS_CUSTOMER_CARE'])
     expect(purposesWritten).not.toContain('SMS_MARKETING')
     expect(purposesWritten).not.toContain('WHATSAPP_MARKETING')
@@ -689,10 +707,10 @@ describe('the /hotels/book checkout is a third, additive call site', () => {
     expect(jsx).not.toMatch(/function\s+normalize\w*Phone/i)
   })
 
-  it('the only Prisma write in the whole feature is still the single-row consentRecord upsert, with the third call site added', () => {
+  it('the capture path still performs no direct Prisma write (delegates to applySmsCustomerCareGrant)', () => {
     const src = read(CAPTURE_SRC)
     const writes = src.match(/prisma\.\w+\.(create|upsert|update|delete|createMany|updateMany|deleteMany)/g) ?? []
-    expect(writes).toEqual(['prisma.consentRecord.upsert'])
+    expect(writes).toEqual([])
   })
 
   it('implies no SMS_MARKETING or WhatsApp marketing consent', () => {
@@ -717,10 +735,10 @@ describe('the /hotels/book checkout is a third, additive call site', () => {
     await expect(res.json()).resolves.toEqual({
       recorded: true, purpose: 'SMS_CUSTOMER_CARE', status: 'GRANTED',
     })
-    expect(mockPrisma.consentRecord.upsert).toHaveBeenCalledTimes(1)
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.create.purpose).toBe('SMS_CUSTOMER_CARE')
-    expect(arg.create.capturePage).toBe('/hotels/book')
+    expect(mockPrisma.consentRecord.create).toHaveBeenCalledTimes(1)
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
+    expect(arg.data.purpose).toBe('SMS_CUSTOMER_CARE')
+    expect(arg.data.capturePage).toBe('/hotels/book')
   })
 
   it('an unticked submission from /hotels/book writes nothing — same guarantee as the other call sites', async () => {
@@ -728,7 +746,7 @@ describe('the /hotels/book checkout is a third, additive call site', () => {
       req({ phone: '+2348012345678', consent: false, capturePage: '/hotels/book' }, { 'x-forwarded-for': freshIp() }),
     )
     await expect(res.json()).resolves.toEqual({ recorded: false, reason: 'NOT_CHECKED' })
-    expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
   })
 })
 

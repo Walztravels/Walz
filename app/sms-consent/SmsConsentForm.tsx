@@ -57,6 +57,8 @@ export default function SmsConsentForm() {
         setStatus({ kind: 'error', message: 'Too many attempts. Please try again in a few minutes.' })
       } else if (body?.recorded === false && body.reason === 'INVALID_NUMBER') {
         setStatus({ kind: 'error', message: "We couldn't read that number. Please enter it with your country code, e.g. +44 7700 900123." })
+      } else if (body?.recorded === false && body.reason === 'PREVIOUSLY_OPTED_OUT') {
+        setStatus({ kind: 'error', message: 'This number previously opted out of SMS. To subscribe again, contact contact@walztravels.com.' })
       } else {
         setStatus({ kind: 'error', message: 'Something went wrong. Please try again.' })
       }

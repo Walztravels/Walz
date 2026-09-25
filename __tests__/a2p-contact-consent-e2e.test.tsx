@@ -7,7 +7,11 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
-const mockPrisma = { consentRecord: { upsert: jest.fn() } }
+const mockPrisma = {
+  consentRecord: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+  consentEvent: { create: jest.fn() },
+  $transaction: jest.fn(),
+}
 // jsdom has no fetch Request/Response; the route only needs NextResponse.json.
 jest.mock('next/server', () => ({
   NextRequest: class {},
@@ -26,7 +30,10 @@ let root: Root
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockPrisma.consentRecord.upsert.mockResolvedValue({ id: 'x' })
+  mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma))
+  mockPrisma.consentRecord.findUnique.mockResolvedValue(null)
+  mockPrisma.consentRecord.create.mockResolvedValue({ id: 'x' })
+  mockPrisma.consentEvent.create.mockResolvedValue({ id: 'e1' })
   fetchMock.mockReset()
   fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) })
   ;(globalThis as unknown as { fetch: unknown }).fetch = fetchMock
@@ -99,16 +106,16 @@ describe('/contact -> customer-care consent, end to end', () => {
     } as unknown as Parameters<typeof carePost>[0])
     await expect(res.json()).resolves.toEqual({ recorded: true, purpose: 'SMS_CUSTOMER_CARE', status: 'GRANTED' })
 
-    expect(mockPrisma.consentRecord.upsert).toHaveBeenCalledTimes(1)
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.create).toMatchObject({
+    expect(mockPrisma.consentRecord.create).toHaveBeenCalledTimes(1)
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
+    expect(arg.data).toMatchObject({
       purpose: 'SMS_CUSTOMER_CARE',
       status: 'GRANTED',
       disclosureVersion: 'sms-customer-care-v2',
       source: 'contact_form_sms',
     })
-    const purposes = mockPrisma.consentRecord.upsert.mock.calls.map(
-      (c: [{ where: { normalizedNumber_purpose: { purpose: string } } }]) => c[0].where.normalizedNumber_purpose.purpose,
+    const purposes = mockPrisma.consentRecord.create.mock.calls.map(
+      (c: [{ data: { purpose: string } }]) => c[0].data.purpose,
     )
     expect(purposes).not.toContain('SMS_MARKETING')
   })

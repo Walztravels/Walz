@@ -4,7 +4,11 @@
  * (UI/hook behaviour is in a2p-sms-consent-ui.test.tsx, which needs jsdom.)
  */
 
-const mockPrisma = { consentRecord: { upsert: jest.fn() } }
+const mockPrisma = {
+  consentRecord: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+  consentEvent: { create: jest.fn() },
+  $transaction: jest.fn(),
+}
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
 
 import fs from 'fs'
@@ -53,7 +57,10 @@ const freshIp = () => `198.51.100.${(ipCounter += 1) % 250}`
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockPrisma.consentRecord.upsert.mockResolvedValue({ id: 'x' })
+  mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma))
+  mockPrisma.consentRecord.findUnique.mockResolvedValue(null)
+  mockPrisma.consentRecord.create.mockResolvedValue({ id: 'x' })
+  mockPrisma.consentEvent.create.mockResolvedValue({ id: 'e1' })
 })
 
 describe('legal entities — single source with correct roles', () => {
@@ -177,19 +184,19 @@ describe('consent source allowlist', () => {
 describe('customer-care route — optional source + v2 stamp', () => {
   it('stamps v2 and the default source when none is sent', async () => {
     await carePost(req({ phone: '+2348012345678', consent: true }, { 'x-forwarded-for': freshIp() }))
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.create.disclosureVersion).toBe('sms-customer-care-v2')
-    expect(arg.create.source).toBe(CONSENT_SOURCE_BOOKING_CHECKOUT)
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
+    expect(arg.data.disclosureVersion).toBe('sms-customer-care-v2')
+    expect(arg.data.source).toBe(CONSENT_SOURCE_BOOKING_CHECKOUT)
   })
 
   it('accepts an allowlisted source and safely ignores an unknown one (no 400)', async () => {
     await carePost(req({ phone: '+2348012345678', consent: true, source: CONSENT_SOURCE_TOUR_BOOKING }, { 'x-forwarded-for': freshIp() }))
-    expect(mockPrisma.consentRecord.upsert.mock.calls[0][0].create.source).toBe(CONSENT_SOURCE_TOUR_BOOKING)
+    expect(mockPrisma.consentRecord.create.mock.calls[0][0].data.source).toBe(CONSENT_SOURCE_TOUR_BOOKING)
 
-    mockPrisma.consentRecord.upsert.mockClear()
+    mockPrisma.consentRecord.create.mockClear()
     const res = await carePost(req({ phone: '+2348012345678', consent: true, source: 'made-up' }, { 'x-forwarded-for': freshIp() }))
     expect(res.status).toBe(200)
-    expect(mockPrisma.consentRecord.upsert.mock.calls[0][0].create.source).toBe(CONSENT_SOURCE_BOOKING_CHECKOUT)
+    expect(mockPrisma.consentRecord.create.mock.calls[0][0].data.source).toBe(CONSENT_SOURCE_BOOKING_CHECKOUT)
   })
 })
 
@@ -235,7 +242,7 @@ describe('customer-care only release — no marketing route or UI', () => {
       expect(src).not.toMatch(/prisma\.(lead|visaApplication|client|clientAccount|booking|user|whatsAppConsent)\b/i)
       expect(src).not.toMatch(/findMany|createMany|updateMany|\$queryRaw|\$executeRaw/)
     }
-    expect(code('lib/consent/capture.ts')).toContain('normalizePhoneE164')
+    expect(code('lib/consent/capture.ts')).toContain('normalizeSmsNumber')
     expect(code('lib/consent/capture.ts')).toContain('consentCaptureRateLimit')
   })
 

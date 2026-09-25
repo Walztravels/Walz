@@ -4039,6 +4039,73 @@ model ConsentRecord {
   @@map("consent_records")
 }
 
+/// Append-only consent history (A2P CUSTOMER_CARE SMS V1). ConsentRecord holds
+/// the CURRENT state per (number, purpose); every state-affecting action also
+/// appends a row here, so original proof is never destroyed by a later write.
+/// Rows are never updated or deleted by application code.
+model ConsentEvent {
+  id                 String   @id @default(cuid())
+  normalizedNumber   String   @map("normalized_number")
+  /// Same vocabulary as ConsentRecord.purpose.
+  purpose            String   @map("purpose")
+  /// 'GRANTED' | 'REVOKED' | 'REGRANT_BLOCKED' | 'PROVIDER_START' | 'PROVIDER_HELP'
+  /// — CHECK-constrained in SQL (TEXT + CHECK, repo convention).
+  eventType          String   @map("event_type")
+  fromStatus         String?  @map("from_status")
+  toStatus           String?  @map("to_status")
+  /// e.g. 'sms_consent_page', 'inbound_sms_stop'.
+  source             String?  @map("source")
+  capturePage        String?  @map("capture_page")
+  disclosureVersion  String?  @map("disclosure_version")
+  ipAddress          String?  @map("ip_address")
+  userAgent          String?  @map("user_agent")
+  evidence           String?  @map("evidence")
+  /// Twilio MessageSid for provider-originated events — with eventType this
+  /// makes a Twilio retry of the same inbound message a no-op.
+  providerMessageSid String?  @map("provider_message_sid")
+  occurredAt         DateTime @default(now()) @map("occurred_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([providerMessageSid, eventType])
+  @@index([normalizedNumber, purpose, occurredAt])
+  @@map("consent_events")
+}
+
+/// Durable SMS message log (A2P CUSTOMER_CARE SMS V1). Deliberately separate
+/// from VisaApplicationMessage and every WhatsApp table.
+model SmsMessage {
+  id               String   @id @default(cuid())
+  /// 'INBOUND' | 'OUTBOUND' — CHECK-constrained in SQL.
+  direction        String   @map("direction")
+  /// Counterpart number, E.164 (+12317902336).
+  phone            String   @map("phone")
+  body             String?  @map("body")
+  /// 'SMS_CUSTOMER_CARE' only in V1 — CHECK-constrained in SQL.
+  classification   String   @map("classification")
+  /// OUTBOUND: pending|queued|accepted|sending|sent|delivered|undelivered|failed
+  /// INBOUND: received — CHECK-constrained in SQL.
+  status           String   @map("status")
+  twilioMessageSid String?  @unique @map("twilio_message_sid")
+  errorCode        String?  @map("error_code")
+  errorMessageSafe String?  @map("error_message_safe")
+  /// Consent purpose the send was gated on (audit).
+  consentPurpose   String?  @map("consent_purpose")
+  /// Existing Walz client identity, only when safely resolvable.
+  clientId         String?  @map("client_id")
+  /// Business reference, e.g. 'booking:WZ-1234'. Free text, no FK.
+  contextRef       String?  @map("context_ref")
+  idempotencyKey   String?  @unique @map("idempotency_key")
+  /// For INBOUND STOP/START/HELP, the recognised keyword class (audit).
+  keywordClass     String?  @map("keyword_class")
+  statusUpdatedAt  DateTime? @map("status_updated_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([phone, createdAt])
+  @@index([status])
+  @@map("sms_messages")
+}
+
 model TravelPostTenant {
   id           String    @id @default(cuid())
   agencyName   String

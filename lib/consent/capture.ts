@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import prisma from '@/lib/db'
-import { normalizePhoneE164 } from '@/lib/identity/normalize'
+import { normalizeSmsNumber } from '@/lib/sms/normalize'
+import { applySmsCustomerCareGrant } from '@/lib/sms/consent'
 import { consentCaptureRateLimit } from '@/lib/rate-limit'
 import {
   decideConsentWrite,
@@ -29,7 +29,7 @@ import {
 
 export interface ConsentCaptureConfig {
   /** The single purpose this route may write. */
-  purpose: Extract<ConsentPurpose, 'SMS_CUSTOMER_CARE' | 'SMS_MARKETING'>
+  purpose: Extract<ConsentPurpose, 'SMS_CUSTOMER_CARE'>
   /** Wording version stamped onto the row. */
   disclosureVersion: string
   /** Source stamped when the caller sends none / an unknown one. */
@@ -39,7 +39,7 @@ export interface ConsentCaptureConfig {
 }
 
 const schema = z.object({
-  /** As typed by the user; normalized SERVER-SIDE with normalizePhoneE164. */
+  /** As typed by the user; normalized SERVER-SIDE with normalizeSmsNumber. */
   phone: z.string().min(1).max(32),
   /**
    * Typed `unknown` ON PURPOSE (trust boundary): decideConsentWrite applies
@@ -76,9 +76,10 @@ export async function handleConsentCapture(req: NextRequest, cfg: ConsentCapture
     return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 })
   }
 
-  // One normalizer for the whole repo — the SAME utility the WhatsApp
-  // Broadcast audience resolver uses.
-  const normalizedNumber = normalizePhoneE164(parsed.data.phone)
+  // The SMS normaliser (wraps the repo's E.164 primitive). National-format
+  // numbers are refused: no country is ever guessed.
+  const n = normalizeSmsNumber(parsed.data.phone)
+  const normalizedNumber = n.ok ? n.e164 : null
 
   const decision = decideConsentWrite({
     checked: parsed.data.consent,
@@ -94,45 +95,29 @@ export async function handleConsentCapture(req: NextRequest, cfg: ConsentCapture
   const source = resolveConsentSource(parsed.data.source, cfg.defaultSource)
   const userAgent = req.headers.get('user-agent') ?? null
 
+  let outcome: Awaited<ReturnType<typeof applySmsCustomerCareGrant>>
   try {
-    // Upsert on the (number, purpose) pair: a repeat tick re-dates one row.
-    await prisma.consentRecord.upsert({
-      where: {
-        normalizedNumber_purpose: {
-          normalizedNumber: decision.normalizedNumber,
-          purpose: cfg.purpose,
-        },
-      },
-      create: {
-        normalizedNumber: decision.normalizedNumber,
-        purpose: cfg.purpose,
-        status: decision.status,
-        source,
-        capturePage: parsed.data.capturePage ?? null,
-        disclosureVersion: cfg.disclosureVersion,
-        ipAddress: ip,
-        userAgent,
-        evidence: parsed.data.evidence ?? null,
-        consentedAt: now,
-      },
-      update: {
-        status: decision.status,
-        source,
-        capturePage: parsed.data.capturePage ?? null,
-        disclosureVersion: cfg.disclosureVersion,
-        ipAddress: ip,
-        userAgent,
-        evidence: parsed.data.evidence ?? null,
-        consentedAt: now,
-        // A fresh affirmative tick clears a previous revocation.
-        revokedAt: null,
-      },
+    // Append-only: never overwrites a row's original proof and never undoes an
+    // opt-out (REVOKED rows stay REVOKED; the attempt is logged as an event).
+    outcome = await applySmsCustomerCareGrant({
+      e164: decision.normalizedNumber,
+      source,
+      capturePage: parsed.data.capturePage ?? null,
+      disclosureVersion: cfg.disclosureVersion,
+      ipAddress: ip,
+      userAgent,
+      evidence: parsed.data.evidence ?? null,
+      now,
     })
   } catch (err) {
     // Code only — a full Prisma error can echo the invocation arguments,
     // which include the phone number.
     console.error(`[${cfg.logTag}] write failed:`, (err as { code?: string } | null)?.code ?? 'unknown')
     return NextResponse.json({ recorded: false, reason: 'WRITE_FAILED' }, { status: 500 })
+  }
+
+  if (outcome === 'REGRANT_BLOCKED') {
+    return NextResponse.json({ recorded: false, reason: 'PREVIOUSLY_OPTED_OUT' })
   }
 
   return NextResponse.json({ recorded: true, purpose: cfg.purpose, status: 'GRANTED' })

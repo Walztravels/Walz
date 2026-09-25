@@ -248,10 +248,11 @@ export function decideConsentWrite(input: ConsentWriteInput): ConsentWriteDecisi
  * (number, purpose) pair, or no consent.
  */
 export function isGranted(
-  record: { status: string; purpose: string } | null | undefined,
+  record: { status: string; purpose: string; revokedAt?: Date | null } | null | undefined,
   purpose: ConsentPurpose,
 ): boolean {
   if (!record) return false
   if (record.purpose !== purpose) return false
+  if (record.revokedAt) return false
   return record.status === 'GRANTED'
 }

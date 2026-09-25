@@ -2,14 +2,18 @@
  * @jest-environment jsdom
  *
  * /sms-consent — public SMS customer-care opt-in page. Real form -> real
- * consent route handler (Prisma mocked with ONLY consentRecord.upsert).
+ * consent route handler (Prisma mocked with ONLY consentRecord.create).
  */
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import fs from 'fs'
 import path from 'path'
 
-const mockPrisma = { consentRecord: { upsert: jest.fn() } }
+const mockPrisma = {
+  consentRecord: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+  consentEvent: { create: jest.fn() },
+  $transaction: jest.fn(),
+}
 jest.mock('next/server', () => ({
   NextRequest: class {},
   NextResponse: { json: (body: unknown, init?: { status?: number }) => ({ status: init?.status ?? 200, json: async () => body }) },
@@ -34,7 +38,10 @@ let root: Root
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockPrisma.consentRecord.upsert.mockResolvedValue({ id: 'x' })
+  mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof mockPrisma) => unknown) => cb(mockPrisma))
+  mockPrisma.consentRecord.findUnique.mockResolvedValue(null)
+  mockPrisma.consentRecord.create.mockResolvedValue({ id: 'x' })
+  mockPrisma.consentEvent.create.mockResolvedValue({ id: 'e1' })
   fetchMock.mockReset()
   fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ recorded: true }) })
   ;(globalThis as unknown as { fetch: unknown }).fetch = fetchMock
@@ -153,13 +160,13 @@ describe('behaviour', () => {
       json: async () => body,
     } as unknown as Parameters<typeof carePost>[0])
     await expect(res.json()).resolves.toEqual({ recorded: true, purpose: 'SMS_CUSTOMER_CARE', status: 'GRANTED' })
-    expect(mockPrisma.consentRecord.upsert).toHaveBeenCalledTimes(1)
-    const arg = mockPrisma.consentRecord.upsert.mock.calls[0][0]
-    expect(arg.create).toMatchObject({
+    expect(mockPrisma.consentRecord.create).toHaveBeenCalledTimes(1)
+    const arg = mockPrisma.consentRecord.create.mock.calls[0][0]
+    expect(arg.data).toMatchObject({
       purpose: 'SMS_CUSTOMER_CARE', status: 'GRANTED', disclosureVersion: 'sms-customer-care-v2', source: 'sms_consent_page',
     })
-    const purposes = mockPrisma.consentRecord.upsert.mock.calls.map(
-      (c: [{ where: { normalizedNumber_purpose: { purpose: string } } }]) => c[0].where.normalizedNumber_purpose.purpose,
+    const purposes = mockPrisma.consentRecord.create.mock.calls.map(
+      (c: [{ data: { purpose: string } }]) => c[0].data.purpose,
     )
     expect(purposes).toEqual(['SMS_CUSTOMER_CARE'])
     expect(purposes).not.toContain('SMS_MARKETING')
@@ -180,7 +187,16 @@ describe('behaviour', () => {
     await submit()
     expect(text()).toContain("We couldn't read that number. Please enter it with your country code, e.g. +44 7700 900123.")
     expect(text()).not.toContain("You're signed up")
-    expect(mockPrisma.consentRecord.upsert).not.toHaveBeenCalled()
+    expect(mockPrisma.consentRecord.create).not.toHaveBeenCalled()
+  })
+  it('recorded:false PREVIOUSLY_OPTED_OUT: clear opt-out message, no success', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ recorded: false, reason: 'PREVIOUSLY_OPTED_OUT' }) })
+    renderForm()
+    setValue(phoneInput(), '+447700900123')
+    act(() => { boxes()[0].click() })
+    await submit()
+    expect(text()).toContain('This number previously opted out of SMS. To subscribe again, contact contact@walztravels.com.')
+    expect(text()).not.toContain("You're signed up")
   })
   it('ok but recorded not true: no success', async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ recorded: false, reason: 'NOT_CHECKED' }) })
