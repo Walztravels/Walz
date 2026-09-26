@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import Link from 'next/link'
 import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 import { BUSINESS, waLink } from '@/lib/config/business'
@@ -7,12 +8,11 @@ export const metadata: Metadata = {
   title: 'UK Visa Nigeria: Requirements & How to Apply',
   description: 'UK visitor visa requirements for Nigerians 2026. Documents checklist, bank statement guide, processing times and how to avoid refusals. 90%+ approval rate.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-nigeria' },
-  openGraph: {
+  ...visaSocialMetadata({
     title: 'UK Visa for Nigerians 2026 — Requirements & Documents',
     description: 'UK visitor visa requirements for Nigerians 2026. Documents checklist, bank statement guide, processing times. Walz Travels achieves 90%+ approval rate.',
     url: 'https://www.walztravels.com/visa/uk-visa-nigeria',
-    images: [{ url: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'London skyline — UK Visa for Nigerians' }],
-  },
+  }),
 }
 
 const faqs = [

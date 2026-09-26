@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import { SLUG_TO_ISO2, VISA_CONFIGS, SCHENGEN_MEMBERS } from '@/lib/visa-config'
 
 function resolveCountryName(slug: string): string {
@@ -15,9 +16,11 @@ export async function generateMetadata(
   { params }: { params: { country: string } }
 ): Promise<Metadata> {
   const name = resolveCountryName(params.country)
+  const description = `Start your ${name} visa application with Walz Travels. We handle everything end-to-end — documents, submission, and real-time tracking.`
   return {
     title: `Apply for ${name} Visa`,
-    description: `Start your ${name} visa application with Walz Travels. We handle everything end-to-end — documents, submission, and real-time tracking.`,
+    description,
+    ...visaSocialMetadata({ title: `Apply for ${name} Visa — Walz Travels`, description, url: `https://www.walztravels.com/visa/apply/${params.country}` }),
     alternates: { canonical: `https://www.walztravels.com/visa/apply/${params.country}` },
   }
 }

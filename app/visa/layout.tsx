@@ -1,30 +1,16 @@
 import type { Metadata } from 'next'
 import { StructuredData } from '@/components/StructuredData'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 
 export const metadata: Metadata = {
   title: 'Visa Assistance Services',
   description: '90%+ visa approval rate. Expert visa processing for UK, Canada, UAE, USA and Schengen visas.',
-  openGraph: {
-    type: 'website',
+  ...visaSocialMetadata({
     url: 'https://www.walztravels.com/visa',
     title: 'Visa Assistance Services | Walz Travels',
     description:
       'Check visa requirements for any passport and destination instantly. 90%+ approval rate with expert preparation and document coaching.',
-    images: [
-      {
-        url: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=1200&q=80',
-        width: 1200,
-        height: 630,
-        alt: 'Visa Intelligence — Walz Travels',
-      },
-    ],
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Visa Assistance Services | Walz Travels',
-    description:
-      'Instant visa requirement checks + 90%+ approval rate from our specialist team.',
-  },
+  }),
   alternates: {
     canonical: 'https://www.walztravels.com/visa',
   },

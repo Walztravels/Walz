@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
@@ -6,12 +7,11 @@ export const metadata: Metadata = {
   title: 'Schengen Visa Nigeria: Which Country to Apply',
   description: 'Schengen visa for Nigerians 2026. Which country embassy to apply through, documents checklist, €90 fee and processing times. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/schengen-visa-nigeria' },
-  openGraph: {
+  ...visaSocialMetadata({
     title: 'Schengen Visa for Nigerians 2026 — Which Country is Easiest?',
     description: 'Schengen visa requirements for Nigerians 2026. France, Germany, Spain — which country to apply through, documents, €90 fee, 10–15 day processing. Walz Travels handles end-to-end.',
     url: 'https://www.walztravels.com/visa/schengen-visa-nigeria',
-    images: [{ url: 'https://images.unsplash.com/photo-1471874276752-65e2d717604a?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Paris Eiffel Tower — Schengen Visa for Nigerians' }],
-  },
+  }),
 }
 
 const faqs = [

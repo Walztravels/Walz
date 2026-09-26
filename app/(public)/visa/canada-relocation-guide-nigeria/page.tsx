@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import Link from 'next/link'
 import { IRPA_DISCLAIMER } from '@/lib/config/credentials'
 import { BUSINESS, waLink } from '@/lib/config/business'
@@ -7,12 +8,11 @@ export const metadata: Metadata = {
   title: 'How to Relocate to Canada from Nigeria 2026',
   description: 'How to relocate from Nigeria to Canada in 2026. Express Entry, Provincial Nominee, study permit routes, costs and timelines explained by Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-relocation-guide-nigeria' },
-  openGraph: {
+  ...visaSocialMetadata({
     title: 'How to Relocate to Canada from Nigeria 2026',
     description: 'Step-by-step guide to moving from Nigeria to Canada. Express Entry, PNP, study permit routes, costs and timelines. Expert guidance from Walz Travels.',
     url: 'https://www.walztravels.com/visa/canada-relocation-guide-nigeria',
-    images: [{ url: 'https://images.unsplash.com/photo-1555697539-1febaa1dab4d?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Canadian city — How to Relocate to Canada from Nigeria' }],
-  },
+  }),
 }
 
 const faqs = [

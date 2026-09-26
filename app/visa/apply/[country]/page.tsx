@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import VisaApplyClient from './VisaApplyClient'
 
 const SLUG_DISPLAY: Record<string, string> = {
@@ -31,12 +32,11 @@ export async function generateMetadata({ params }: { params: { country: string }
     title: `Apply for ${name} Visa`,
     description: `Start your ${name} visa application online. Expert document preparation, fast processing and dedicated support from Walz Travels.`,
     alternates: { canonical: `https://www.walztravels.com/visa/apply/${params.country}` },
-    openGraph: {
+    ...visaSocialMetadata({
       title: `Apply for ${name} Visa — Walz Travels`,
       description: `Start your ${name} visa application with Walz Travels — expert preparation and dedicated support.`,
       url: `https://www.walztravels.com/visa/apply/${params.country}`,
-      images: [{ url: 'https://images.unsplash.com/photo-1541728472741-03e45a58cf88?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: `${name} visa application — Walz Travels` }],
-    },
+    }),
   }
 }
 

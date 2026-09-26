@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
@@ -6,12 +7,11 @@ export const metadata: Metadata = {
   title: 'Canada Visa Nigeria: TRV Requirements 2026',
   description: 'Canada TRV requirements for Nigerians 2026. Documents checklist, biometrics, processing times and fees. How to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-nigeria' },
-  openGraph: {
+  ...visaSocialMetadata({
     title: 'Canada Visa for Nigerians 2026 — Requirements & Documents',
     description: 'Canada TRV requirements for Nigerian passport holders 2026. Documents, biometrics, fees CAD $185, processing 8–12 weeks. Walz Travels handles end-to-end.',
     url: 'https://www.walztravels.com/visa/canada-visa-nigeria',
-    images: [{ url: 'https://images.unsplash.com/photo-1517935706615-2717063c2225?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Toronto skyline — Canada Visa for Nigerians' }],
-  },
+  }),
 }
 
 const faqs = [

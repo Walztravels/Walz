@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
@@ -6,12 +7,11 @@ export const metadata: Metadata = {
   title: 'Canada Visa Ghana: TRV Requirements 2026',
   description: 'Canada TRV requirements for Ghanaians 2026. Documents checklist, biometrics in Accra, processing times and CAD $185 fee. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-ghana' },
-  openGraph: {
+  ...visaSocialMetadata({
     title: 'Canada Visa for Ghanaians 2026 — Requirements & Documents',
     description: 'Canada TRV requirements for Ghanaian passport holders 2026. Documents, biometrics in Accra, processing 8–12 weeks, CAD $185 total. Walz Travels end-to-end service.',
     url: 'https://www.walztravels.com/visa/canada-visa-ghana',
-    images: [{ url: 'https://images.unsplash.com/photo-1517935706615-2717063c2225?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Toronto skyline — Canada Visa for Ghanaians' }],
-  },
+  }),
 }
 
 const faqs = [

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 import Link from 'next/link'
 import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 import { BUSINESS, waLink } from '@/lib/config/business'
@@ -7,12 +8,11 @@ export const metadata: Metadata = {
   title: 'UK Visa Ghana: Requirements & Documents 2026',
   description: 'UK visitor visa for Ghanaians 2026. Documents checklist, bank statement guide, processing times and how to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-ghana' },
-  openGraph: {
+  ...visaSocialMetadata({
     title: 'UK Visa for Ghanaians 2026 — Requirements & Documents',
     description: 'UK visitor visa requirements for Ghanaians 2026. Documents checklist, processing times, approval tips. Apply with Walz Travels in Accra or Kumasi.',
     url: 'https://www.walztravels.com/visa/uk-visa-ghana',
-    images: [{ url: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'London skyline — UK Visa for Ghanaians' }],
-  },
+  }),
 }
 
 const faqs = [

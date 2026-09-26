@@ -9,6 +9,7 @@ import { BUSINESS } from '@/lib/config/business'
 import { Price } from '@/components/common/Price'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
 import { SLUG_TO_ISO2 } from '@/lib/visa-config'
+import { visaSocialMetadata } from '@/lib/seo/visa-social'
 
 // Cache the portal lookup so generateMetadata and the page function share one DB round-trip
 const getPortal = cache((iso2: string) =>
@@ -42,10 +43,15 @@ function AdvisoryBadge({ level }: { level: number }) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const iso2 = resolveIso2(params.country)
   const portal = await getPortal(iso2)
-  if (!portal) return { title: 'Visa Requirements' }
+  if (!portal) {
+    const description = 'Visa requirements, fees and expert visa assistance from Walz Travels.'
+    return { title: 'Visa Requirements', description, ...visaSocialMetadata({ title: 'Visa Assistance — Walz Travels', description }) }
+  }
+  const description = `Visa fees, processing times, required documents and Jade's insider tips for ${portal.countryName}. Expert visa assistance from Walz Travels.`
   return {
     title: `${portal.countryName} Visa Requirements`,
-    description: `Visa fees, processing times, required documents and Jade's insider tips for ${portal.countryName}. Expert visa assistance from Walz Travels.`,
+    description,
+    ...visaSocialMetadata({ title: `${portal.countryName} Visa Requirements — Walz Travels`, description, url: `https://www.walztravels.com/visa/${params.country.toLowerCase()}` }),
   }
 }
 
