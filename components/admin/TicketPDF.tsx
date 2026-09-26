@@ -426,16 +426,21 @@ function BarcodeSVG({ value }: { value: string }) {
 
 // ── Passenger strip ───────────────────────────────────────────────────────────
 function PassengerStrip({
-  name, passport, bookingRef,
-}: { name?: string; passport?: string; bookingRef?: string }) {
-  if (!name && !passport) return null
+  name, passport, bookingRef, names,
+}: { name?: string; passport?: string; bookingRef?: string; names?: string[] }) {
+  const multi = !!names && names.length > 1
+  if (!multi && !name && !passport) return null
   return (
     <View style={bp.passengerStrip}>
       <View style={{ flex: 1 }}>
-        <Text style={bp.paxLabel}>Passenger</Text>
-        <Text style={bp.paxName}>{(name || 'PASSENGER').toUpperCase()}</Text>
+        <Text style={bp.paxLabel}>{multi ? `Passengers (${names!.length})` : 'Passenger'}</Text>
+        {multi
+          ? names!.slice(0, 9).map((n, i) => (
+              <Text key={i} style={[bp.paxName, { fontSize: names!.length > 4 ? 9 : 11 }]}>{`${i + 1}. ${n.toUpperCase()}`}</Text>
+            ))
+          : <Text style={bp.paxName}>{(name || 'PASSENGER').toUpperCase()}</Text>}
       </View>
-      {passport && (
+      {!multi && passport && (
         <>
           <View style={bp.paxDivider} />
           <View>
@@ -620,7 +625,7 @@ function TicketHeader({ type, reference }: { type: string; reference: string }) 
 
 function TermsPDFSection() {
   return (
-    <View style={{ marginTop: 20, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
+    <View wrap={false} style={{ marginTop: 20, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
       <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: GREY, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
         Terms {'&'} Conditions
       </Text>
@@ -636,6 +641,43 @@ function TermsPDFSection() {
     </View>
   )
 }
+
+// ── Passengers list (shared by legacy + multi-leg layouts) ───────────────────
+// Single passenger renders exactly as before ("All Passengers"); 2+ passengers
+// render a numbered "Passengers" list with each passenger's own passport.
+function PassengersSection({ passengers }: { passengers: Passenger[] }) {
+  if (passengers.length === 0) return null
+  const multi = passengers.length > 1
+  const row = (pax: Passenger, i: number) => (
+    <View key={i} wrap={false} style={[s.passengerBox, { alignItems: 'center' }]}>
+      <Text style={s.passengerNum}>{i + 1}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={s.fieldValue}>{pax.title} {pax.firstName} {pax.lastName}</Text>
+        {multi && pax.passport ? (
+          <Text style={s.fieldLabel}>Passport: {pax.passport}</Text>
+        ) : null}
+        <Text style={s.fieldLabel}>
+          {pax.cabinClass}{pax.seat ? ` · Seat ${pax.seat}` : ''}{pax.meal ? ` · ${pax.meal}` : ''}
+        </Text>
+      </View>
+      {pax.eTicketNumber && (
+        <Text style={{ fontSize: 8, color: GREY, letterSpacing: 0.5 }}>E-Ticket: {pax.eTicketNumber}</Text>
+      )}
+    </View>
+  )
+  return (
+    <>
+      {/* Title stays with the first row; every row moves whole across page breaks */}
+      <View wrap={false}>
+        <SectionTitle>{multi ? 'Passengers' : 'All Passengers'}</SectionTitle>
+        {row(passengers[0], 0)}
+      </View>
+      {passengers.slice(1).map((pax, i) => row(pax, i + 1))}
+    </>
+  )
+}
+
+const paxFullName = (p: Passenger) => [p.title, p.firstName, p.lastName].filter(Boolean).join(' ')
 
 // ── Flight body — multi-leg boarding pass ─────────────────────────────────────
 function FlightBody({ d }: { d: Record<string, unknown> }) {
@@ -654,7 +696,7 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
     const hasReturn = !!(d.return_date || d.return_flight)
     return (
       <View style={s.body}>
-        <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={str(d.booking_reference || d.pnr)} />
+        <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={str(d.booking_reference || d.pnr)} names={passengers.length > 1 ? passengers.map(paxFullName) : undefined} />
         <LegCard direction="OUTBOUND" shade={NAVY} airline={str(d.airline)} flightNumber={str(d.flight_number)} fromCode={str(d.from_code)} fromCity={str(d.from_city)} toCode={str(d.to_code)} toCity={str(d.to_city)} departureDate={str(d.departure_date)} departureTime={str(d.departure_time)} arrivalDate={str(d.arrival_date)} arrivalTime={str(d.arrival_time)} duration={str(d.duration)} stops={parseInt(str(d.stops)) || 0} cabin={str(d.cabin_class)} seat={str(d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
         {hasReturn && (
           <>
@@ -665,25 +707,7 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
         {d.message && <GoldBox title="Message from Walz Travels" text={str(d.message)} />}
 
         {/* Additional passengers when provided in legacy mode */}
-        {passengers.length > 0 && (
-          <>
-            <SectionTitle>All Passengers</SectionTitle>
-            {passengers.map((pax: Passenger, i: number) => (
-              <View key={i} style={[s.passengerBox, { alignItems: 'center' }]}>
-                <Text style={s.passengerNum}>{i + 1}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.fieldValue}>{pax.title} {pax.firstName} {pax.lastName}</Text>
-                  <Text style={s.fieldLabel}>
-                    {pax.cabinClass}{pax.seat ? ` · Seat ${pax.seat}` : ''}{pax.meal ? ` · ${pax.meal}` : ''}
-                  </Text>
-                </View>
-                {pax.eTicketNumber && (
-                  <Text style={{ fontSize: 8, color: GREY, letterSpacing: 0.5 }}>E-Ticket: {pax.eTicketNumber}</Text>
-                )}
-              </View>
-            ))}
-          </>
-        )}
+        <PassengersSection passengers={passengers} />
 
         <TermsPDFSection />
       </View>
@@ -696,9 +720,10 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
       {/* Primary passenger strip */}
       {passengers.length > 0 ? (
         <PassengerStrip
-          name={`${passengers[0].title} ${passengers[0].firstName} ${passengers[0].lastName}`}
-          passport={passengers[0].eTicketNumber ?? ''}
+          name={paxFullName(passengers[0])}
+          passport={passengers[0].passport ?? ''}
           bookingRef={pnr}
+          names={passengers.length > 1 ? passengers.map(paxFullName) : undefined}
         />
       ) : (
         <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={pnr} />
@@ -777,25 +802,7 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
       )}
 
       {/* All passengers */}
-      {passengers.length > 0 && (
-        <>
-          <SectionTitle>All Passengers</SectionTitle>
-          {passengers.map((pax: Passenger, i: number) => (
-            <View key={i} style={[s.passengerBox, { alignItems: 'center' }]}>
-              <Text style={s.passengerNum}>{i + 1}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={s.fieldValue}>{pax.title} {pax.firstName} {pax.lastName}</Text>
-                <Text style={s.fieldLabel}>
-                  {pax.cabinClass}{pax.seat ? ` · Seat ${pax.seat}` : ''}{pax.meal ? ` · ${pax.meal}` : ''}
-                </Text>
-              </View>
-              {pax.eTicketNumber && (
-                <Text style={{ fontSize: 8, color: GREY, letterSpacing: 0.5 }}>E-Ticket: {pax.eTicketNumber}</Text>
-              )}
-            </View>
-          ))}
-        </>
-      )}
+      <PassengersSection passengers={passengers} />
 
       {/* Pricing breakdown */}
       {pricing && pricing.grandTotal > 0 && (

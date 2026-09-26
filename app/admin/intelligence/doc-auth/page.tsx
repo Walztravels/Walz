@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { buildPassengersPayload } from '@/lib/dummy-ticket/passengers'
 import { getActiveCase as getSharedCase, setActiveCase as setSharedCase } from '@/lib/intelligence/active-case-client'
 import {
   Upload, FileText, Ticket, History,
@@ -1044,6 +1045,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
   const [useHoldPnr,  setUseHoldPnr]  = useState(false)
   const [holdResult,  setHoldResult]  = useState<{ pnr: string; expires: string | null; orderId: string | null } | null>(null)
   const [holdFailed,  setHoldFailed]  = useState(false)
+  const [searchNote,  setSearchNote]  = useState('')
 
   // Manual mode fields
   const [mFromCode, setMFromCode] = useState('')
@@ -1064,7 +1066,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
   const [mMessage,  setMMMessage] = useState('')
 
   // Multi-passenger state
-  const [passengers, setPassengers] = useState<Array<{ name: string; type: string; title: string }>>([])
+  const [passengers, setPassengers] = useState<Array<{ name: string; type: string; title: string; passport: string }>>([])
 
 
   // Hotel fields
@@ -1155,7 +1157,8 @@ function DummyTicketTab({ activeCase }: TabProps) {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
     setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null); setTicketRef('')
     setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
-    setHoldResult(null); setHoldFailed(false); setPassengers([])
+    setHoldResult(null); setHoldFailed(false); setSearchNote('')
+    // NOTE: passenger inputs (extras) are deliberately NOT cleared here — only OUTPUT state resets.
   }
 
   const generate = async () => {
@@ -1170,11 +1173,18 @@ function DummyTicketTab({ activeCase }: TabProps) {
         passportNumber: passportNo || undefined,
       }
 
+      // ONE helper builds the passenger array for live + manual: full ordered
+      // [lead, ...extras] (lead carries its own passport); blank extras filtered.
+      const paxPayload = buildPassengersPayload(
+        { name: clientName, title: clientTitle, passport: passportNo, type: 'Adult' },
+        passengers,
+      )
+
       if (mode === 'live') {
         Object.assign(payload, {
           originIata, destIata, departureDate: depDate, returnDate: retDate || undefined,
           cabinClass: cabin, holdPnr: useHoldPnr || undefined,
-          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult', title: clientTitle }, ...passengers] : undefined,
+          passengers: paxPayload,
         })
       } else if (mode === 'manual') {
         Object.assign(payload, {
@@ -1186,7 +1196,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
           seat: mSeat, baggage: mBaggage,
           terminal: mTerminal, gate: mGate,
           pnr: mPNR, message: mMessage,
-          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult', title: clientTitle }, ...passengers] : undefined,
+          passengers: paxPayload,
         })
       } else {
         Object.assign(payload, { hotelName: hName, hotelAddress: hAddress, checkIn: hCheckIn, checkOut: hCheckOut, roomType: hRoomType, numGuests: hGuests, destIso2: hDestIso2 || undefined })
@@ -1210,6 +1220,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
       if (data.hold_pnr)       setHoldResult({ pnr: data.hold_pnr as string, expires: (data.hold_expires as string | null) ?? null, orderId: (data.hold_order_id as string | null) ?? null })
       if (data.hold_failed)    setHoldFailed(true)
+      if (data.search_note)    setSearchNote(String(data.search_note))
 
       // Bug fix: convert base64 → Blob URL immediately so iframe always renders
       if (data.pdf_base64) {
@@ -1323,6 +1334,12 @@ function DummyTicketTab({ activeCase }: TabProps) {
                         onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
                         placeholder={`Passenger ${i + 2} full name`}
                       />
+                      <input
+                        className={INPUT + ' w-36 flex-shrink-0'}
+                        value={p.passport}
+                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, passport: e.target.value } : x))}
+                        placeholder="Passport (optional)"
+                      />
                       <select
                         className="h-10 px-2 border border-gray-200 rounded-lg text-xs text-[#0B1F3A] bg-white"
                         value={p.type}
@@ -1344,7 +1361,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
               {passengers.length < 8 && (
                 <button
                   type="button"
-                  onClick={() => setPassengers(prev => [...prev, { name: '', type: 'Adult', title: 'MR' }])}
+                  onClick={() => setPassengers(prev => [...prev, { name: '', type: 'Adult', title: 'MR', passport: '' }])}
                   className="text-xs text-[#C9A84C] font-semibold hover:text-[#0B1F3A] transition flex items-center gap-1">
                   + Add Passenger
                 </button>
@@ -1577,6 +1594,14 @@ function DummyTicketTab({ activeCase }: TabProps) {
               If not needed, the hold simply expires — no cancellation required.
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Passenger search note (group fare not available) */}
+      {searchNote && (
+        <div className="bg-white rounded-xl border border-orange-200 shadow-sm px-5 py-3 text-xs font-semibold text-orange-700 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-orange-600" />
+          {searchNote}
         </div>
       )}
 

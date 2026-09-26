@@ -9,6 +9,10 @@ import { hotelbedsRequest } from '@/lib/hotelbeds'
 import React from 'react'
 import { TicketPDFDocument, type TicketData } from '@/components/admin/TicketPDF'
 import { recordCaseEvent } from '@/lib/intelligence/case-events'
+import {
+  normalizePassengers, toDuffelPassengers, toPdfPassengers,
+  type DummyTicketPassengerInput, type PassengerCounts,
+} from '@/lib/dummy-ticket/passengers'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -82,6 +86,9 @@ function makeRef(): string {
 }
 function genPNR(): string {
   return Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('')
+}
+function genETicket(): string {
+  return `999${Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')}`
 }
 function genSeat(): string {
   return `${Math.floor(10 + Math.random() * 30)}${['A','B','C','D','E','F'][Math.floor(Math.random() * 6)]}`
@@ -247,7 +254,7 @@ interface AmadeusOffer {
 // ─── Amadeus token cache ──────────────────────────────────────────────────────
 let amadeusTokenCache: { token: string; expiresAt: number } | null = null
 
-async function getAmadeusToken(): Promise<string> {
+async function getAmadeusToken(timeoutMs = 10000): Promise<string> {
   if (amadeusTokenCache && Date.now() < amadeusTokenCache.expiresAt - 60000) {
     return amadeusTokenCache.token
   }
@@ -255,7 +262,7 @@ async function getAmadeusToken(): Promise<string> {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    `grant_type=client_credentials&client_id=${process.env.AMADEUS_API_KEY}&client_secret=${process.env.AMADEUS_API_SECRET}`,
-    signal:  AbortSignal.timeout(10000),
+    signal:  AbortSignal.timeout(timeoutMs),
   })
   if (!res.ok) throw new Error(`Amadeus auth failed: ${res.status}`)
   const data = await res.json() as { access_token: string; expires_in: number }
@@ -263,24 +270,27 @@ async function getAmadeusToken(): Promise<string> {
   return data.access_token
 }
 
-async function searchAmadeus(origin: string, dest: string, depDate: string, cabin: string, retDate?: string): Promise<AmadeusOffer[]> {
+async function searchAmadeus(origin: string, dest: string, depDate: string, cabin: string, retDate?: string, counts: PassengerCounts = { adults: 1, children: 0, infants: 0 }, deadline?: number): Promise<AmadeusOffer[]> {
+  const cap = (ms: number) => (deadline ? Math.max(1, Math.min(ms, deadline - Date.now())) : ms)
   const cabinMap: Record<string, string> = {
     economy: 'ECONOMY', premium_economy: 'PREMIUM_ECONOMY', business: 'BUSINESS', first: 'FIRST',
   }
-  const token  = await getAmadeusToken()
+  const token  = await getAmadeusToken(cap(10000))
   const params = new URLSearchParams({
     originLocationCode:      origin,
     destinationLocationCode: dest,
     departureDate:           depDate,
-    adults:                  '1',
+    adults:                  String(counts.adults),
     currencyCode:            'GBP',
     max:                     '30',
     travelClass:             cabinMap[cabin] ?? 'ECONOMY',
   })
+  if (counts.children > 0) params.set('children', String(counts.children))
+  if (counts.infants  > 0) params.set('infants',  String(counts.infants))
   if (retDate) params.set('returnDate', retDate)
   const res = await fetch(`https://api.amadeus.com/v2/shopping/flight-offers?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
-    signal:  AbortSignal.timeout(15000),
+    signal:  AbortSignal.timeout(cap(15000)),
   })
   if (!res.ok) throw new Error(`Amadeus search failed: ${res.status}`)
   const data = await res.json() as { data?: AmadeusOffer[] }
@@ -494,13 +504,7 @@ export async function POST(req: NextRequest) {
     destIso2?:     string   // override destination when no applicationId is linked
     // Multi-passenger
     clientTitle?: string
-    passengers?: Array<{
-      name: string
-      type?: string   // 'Adult' | 'Child' | 'Infant'
-      title?: string  // 'MR' | 'MRS' | 'MISS' | 'MSTR' | 'DR'
-      seat?: string
-      passport?: string
-    }>
+    passengers?: DummyTicketPassengerInput[]   // full ordered array [lead, ...extras]; legacy = omit
   }
 
   // ── Optional: auto-fill from linked visa application ──────────────────────
@@ -539,6 +543,17 @@ export async function POST(req: NextRequest) {
   }
 
   const reference = makeRef()
+
+  // ── Passenger contract: ONE ordered array for live + manual ───────────────
+  const paxNorm = normalizePassengers({
+    passengers: body.passengers, clientName: body.clientName, clientTitle: body.clientTitle,
+    passportNumber: body.passportNumber, appName, appPassport,
+    // Gender-based default title is live-mode behaviour only; manual/legacy stays 'MR'.
+    appGender: body.mode === 'live' ? appGender : undefined,
+  })
+  if ((body.mode === 'live' || body.mode === 'manual') && paxNorm.error) {
+    return NextResponse.json({ error: paxNorm.error }, { status: 400 })
+  }
 
   // ───────────────────────────────────────────────────────────────────────────
   // HOTEL MODE — real Hotelbeds free-cancel booking, fabricated fallback
@@ -633,7 +648,7 @@ export async function POST(req: NextRequest) {
   // MANUAL MODE
   // ───────────────────────────────────────────────────────────────────────────
   if (body.mode === 'manual') {
-    const clientName = body.clientName || appName || 'PASSENGER NAME'
+    const clientName = paxNorm.passengers[0].name
     const depIso     = body.departureDateTime || (appArrivalDate ? appArrivalDate.toISOString() : '')
     const arrIso     = body.arrivalDateTime   || ''
 
@@ -641,7 +656,7 @@ export async function POST(req: NextRequest) {
       ticket_type:       'flight',
       ticket_reference:  reference,
       client_name:       clientName,
-      passport_number:   safeUpper(body.passportNumber || appPassport),
+      passport_number:   paxNorm.passengers[0].passport,
       from_code:         safeUpper(body.fromCode),
       from_city:         body.fromCity || '',
       to_code:           safeUpper(body.toCode || (appDestIso2 ? (COUNTRY_IATA[appDestIso2] || appDestIso2) : '')),
@@ -664,23 +679,15 @@ export async function POST(req: NextRequest) {
       stops:             '0',
     }
 
-    const bodyPax = body.passengers ?? []
-    const allPax  = bodyPax.length > 0 ? bodyPax : [{ name: clientName, type: 'Adult', title: body.clientTitle || 'MR' }]
-    const paxForPDF = allPax.map((p) => {
-      const parts     = (p.name || 'PASSENGER').trim().split(' ')
-      const firstName = parts[0]
-      const lastName  = parts.slice(1).join(' ') || ''
-      return {
-        title:         (p.title || 'MR').toUpperCase(),
-        firstName:     firstName.toUpperCase(),
-        lastName:      lastName.toUpperCase(),
-        cabinClass:    safeUpper(body.cabin || 'ECONOMY'),
-        seat:          p.seat || genSeat(),
-        eTicketNumber: `999${Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')}`,
-        passport:      p.passport || safeUpper(body.passportNumber || appPassport),
-      }
+    // ONE authoritative passenger array (legacy single-passenger fields normalised into it).
+    const norm = paxNorm
+    ticketData.passengers = toPdfPassengers(norm.passengers, {
+      cabinClass: safeUpper(body.cabin || 'ECONOMY'),
+      leadSeat:   ticketData.seat_number as string,
+      genSeat, genETicket,
     })
-    ticketData.passengers = paxForPDF
+    ticketData.client_name     = norm.passengers[0].name
+    ticketData.passport_number = norm.passengers[0].passport
 
     try {
       const buf    = await renderTicketPDF(ticketData)
@@ -688,7 +695,7 @@ export async function POST(req: NextRequest) {
       await recordTicketHistory({
         reference, ticketType: 'flight', mode: 'manual', clientName, pdfUrl,
         applicationId: body.applicationId, actor: session.email ?? 'admin',
-        summary: `Flight itinerary (manual) — ${String(ticketData.from_code ?? '')} → ${String(ticketData.to_code ?? '')}`,
+        summary: `Flight itinerary (manual) — ${String(ticketData.from_code ?? '')} → ${String(ticketData.to_code ?? '')}${paxNorm.passengers.length > 1 ? ` (${paxNorm.passengers.length} passengers)` : ''}`,
         details: {
           flightFrom: String(ticketData.from_code ?? ''), flightTo: String(ticketData.to_code ?? ''),
           flightDate: String(ticketData.departure_date ?? ''), airline: String(ticketData.airline ?? ''),
@@ -716,7 +723,7 @@ export async function POST(req: NextRequest) {
   const depDate     = body.departureDate || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
   const retDate     = body.returnDate    || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
   const cabin       = (body.cabinClass   || 'economy').toLowerCase()
-  const clientName  = body.clientName    || appName || 'PASSENGER NAME'
+  const clientName  = paxNorm.passengers[0].name
 
   if (!origin) {
     return NextResponse.json({
@@ -738,6 +745,12 @@ export async function POST(req: NextRequest) {
   if (retDate) slices.push({ origin: destination, destination: origin, departure_date: retDate })
 
   const tried: string[] = []
+  const paxCounts = paxNorm.counts
+  const totalPax  = paxNorm.passengers.length
+
+  // One search attempt for a given passenger mix (Duffel first, Amadeus fallback).
+  const searchOnce = async (counts: PassengerCounts, deadline?: number): Promise<FlightDetails | null> => {
+  const remaining = () => (deadline ? deadline - Date.now() : Infinity)
   let flightDetails:      FlightDetails | null = null
 
   // ── Try Duffel ──────────────────────────────────────────────────────────────
@@ -747,10 +760,10 @@ export async function POST(req: NextRequest) {
       const result = await Promise.race([
         duffelPost<DuffelOfferResponse>(
           '/air/offer_requests',
-          { data: { slices, passengers: [{ type: 'adult' }], cabin_class: cabin } },
+          { data: { slices, passengers: toDuffelPassengers(counts), cabin_class: cabin } },
           { return_offers: 'true', supplier_timeout: '12000' }
         ),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Duffel timeout')), 20000)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Duffel timeout')), deadline ? Math.max(1, Math.min(20000, remaining())) : 20000)),
       ])
       const offers = result.data?.offers ?? []
       if (offers.length > 0) {
@@ -821,10 +834,10 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Amadeus fallback ────────────────────────────────────────────────────────
-  if (!flightDetails && process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET) {
+  if (!flightDetails && process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET && remaining() > 1000) {
     tried.push('Amadeus')
     try {
-      const amOffers = await searchAmadeus(origin, destination, depDate, cabin, retDate || undefined)
+      const amOffers = await searchAmadeus(origin, destination, depDate, cabin, retDate || undefined, counts, deadline)
       if (amOffers.length > 0) {
         const scoreOf = (o: AmadeusOffer) =>
           (PREFERRED_CARRIERS[o.itineraries[0]?.segments[0]?.carrierCode] ?? 5) -
@@ -888,6 +901,32 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  return flightDetails
+  }
+
+  // Total time budget (maxDuration is 60s): the retry only runs if the first pass
+  // finished within RETRY_START_LIMIT_MS, and is capped so start + first pass +
+  // retry stays well under ~55s. Single-passenger path: no retry, unchanged timeouts.
+  const RETRY_START_LIMIT_MS = 20000
+  const RETRY_BUDGET_MS      = 15000
+  const searchStart = Date.now()
+  let flightDetails = await searchOnce(paxCounts)
+  let searchNote: string | undefined
+  if (!flightDetails && totalPax > 1) {
+    const elapsed = Date.now() - searchStart
+    if (elapsed < RETRY_START_LIMIT_MS) {
+      // Safety net: retry ONCE for a single adult (previous behaviour) — never silently.
+      const deadline = Date.now() + Math.min(RETRY_BUDGET_MS, 55000 - elapsed)
+      flightDetails = await searchOnce({ adults: 1, children: 0, infants: 0 }, deadline)
+      if (flightDetails) {
+        searchNote = `No fare available for ${totalPax} passengers; itinerary searched for 1 adult`
+      }
+    }
+    if (!flightDetails) {
+      searchNote = `Group search for ${totalPax} passengers timed out or found no fare; single-adult retry also found no flights`
+    }
+  }
+
   // ── No results ──────────────────────────────────────────────────────────────
   if (!flightDetails) {
     return NextResponse.json({
@@ -895,6 +934,7 @@ export async function POST(req: NextRequest) {
       tried,
       params:     { origin, destination, departureDate: depDate },
       suggestion: 'Try different dates or a nearby airport. You can also switch to Manual mode to enter any flight details.',
+      ...(searchNote ? { search_note: searchNote } : {}),
     }, { status: 404 })
   }
 
@@ -906,7 +946,7 @@ export async function POST(req: NextRequest) {
       ticket_type:       'flight',
       ticket_reference:  reference,
       client_name:       clientName,
-      passport_number:   safeUpper(body.passportNumber || appPassport),
+      passport_number:   paxNorm.passengers[0].passport,
       from_code:         flightDetails.fromCode,
       from_city:         flightDetails.fromCity,
       to_code:           flightDetails.toCode,
@@ -939,25 +979,18 @@ export async function POST(req: NextRequest) {
       } : {}),
     }
 
-    const liveTitle = body.clientTitle
-      ? safeUpper(body.clientTitle)
-      : (appGender === 'f' ? 'MISS' : 'MR')
-    ticketData.passengers = [{
-      title:         liveTitle,
-      firstName:     clientName.split(' ')[0]?.toUpperCase() || 'PASSENGER',
-      lastName:      clientName.split(' ').slice(1).join(' ').toUpperCase() || '',
-      cabinClass:    safeUpper(cabin),
-      seat:          flightDetails.seat,
-      eTicketNumber: `999${Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')}`,
-      passport:      safeUpper(body.passportNumber || appPassport),
-    }]
+    ticketData.passengers = toPdfPassengers(paxNorm.passengers, {
+      cabinClass: safeUpper(cabin),
+      leadSeat:   flightDetails.seat,
+      genSeat, genETicket,
+    })
 
     const buf    = await renderTicketPDF(ticketData)
     const pdfUrl = await uploadPDF(buf, reference)
     await recordTicketHistory({
       reference, ticketType: 'flight', mode: 'live', clientName, pdfUrl,
       applicationId: body.applicationId, actor: session.email ?? 'admin',
-      summary: `Flight itinerary — ${flightDetails.fromCode} → ${flightDetails.toCode} (${flightDetails.airline})`,
+      summary: `Flight itinerary — ${flightDetails.fromCode} → ${flightDetails.toCode} (${flightDetails.airline})${totalPax > 1 ? ` — ${totalPax} passengers` : ''}`,
       details: {
         flightFrom: flightDetails.fromCode, flightTo: flightDetails.toCode,
         flightDate: String(ticketData.departure_date ?? ''), airline: flightDetails.airline,
@@ -973,6 +1006,7 @@ export async function POST(req: NextRequest) {
       pdf_base64:     buf.toString('base64'),
       flight_details: flightDetails,
       ticketData,
+      ...(searchNote ? { search_note: searchNote } : {}),
     })
   } catch (e) {
     console.error('[dummy-ticket/pdf]', e)
