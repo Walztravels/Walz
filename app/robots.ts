@@ -46,6 +46,21 @@ const BLOCKED = [
   '/concierge/airport-services/baggage/checkout',
 ]
 
+// Link-preview fetchers. A 'Disallow: /itinerary/' makes several of them
+// (Meta, Twitter/X, LinkedIn, Slack, Telegram, Discord, WhatsApp) skip the page
+// and show a bare link. These groups let them fetch the share page and the
+// /og/ fallback image only; the page itself stays noindex via its meta tag, so
+// this does not make itineraries searchable. Everything else stays blocked.
+const SOCIAL_PREVIEW_BOTS = [
+  'facebookexternalhit', 'Facebot', 'meta-externalagent', 'Twitterbot', 'LinkedInBot', 'Slackbot',
+  'Slack-ImgProxy', 'TelegramBot', 'Discordbot', 'WhatsApp',
+]
+const SOCIAL_PREVIEW_ALLOW = ['/', '/itinerary/', '/og/']
+// Longest-match wins, so these beat 'Allow: /itinerary/' — the token-protected
+// sub-routes (app/itinerary/[ref]/portal, /approve) stay uncrawlable.
+const ITINERARY_PRIVATE_SUBPATHS = ['/itinerary/*/portal', '/itinerary/*/approve']
+const SOCIAL_PREVIEW_DISALLOW = [...BLOCKED.filter(p => p !== '/itinerary/'), ...ITINERARY_PRIVATE_SUBPATHS]
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
@@ -55,6 +70,9 @@ export default function robots(): MetadataRoute.Robots {
       { userAgent: 'Claude-Web',    allow: '/', disallow: BLOCKED },
       { userAgent: 'anthropic-ai',  allow: '/', disallow: BLOCKED },
       { userAgent: 'PerplexityBot', allow: '/', disallow: BLOCKED },
+      ...SOCIAL_PREVIEW_BOTS.map(userAgent => ({
+        userAgent, allow: SOCIAL_PREVIEW_ALLOW, disallow: SOCIAL_PREVIEW_DISALLOW,
+      })),
     ],
     sitemap: 'https://www.walztravels.com/sitemap.xml',
   }

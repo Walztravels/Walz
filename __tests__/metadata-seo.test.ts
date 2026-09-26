@@ -129,9 +129,10 @@ describe('itinerary metadata', () => {
     const { metadata } = await import('@/app/itinerary/layout')
     expect(metadata.robots).toEqual({ index: false, follow: false, noarchive: true, nosnippet: true })
     expect(metadata.title).toEqual({ absolute: 'Your Travel Itinerary | Walz Travels' })
-    // the [ref] page no longer leaks the itinerary's own title/destination
+    // the [ref] page uses generateMetadata (traveller/destination/dates only —
+    // see itinerary-og-metadata.test.ts); it never reads the internal title
     const refPage = read('app/itinerary/[ref]/page.tsx')
-    expect(refPage).toContain("absolute: 'Your Travel Itinerary | Walz Travels'")
+    expect(refPage).toContain('generateMetadata')
     expect(refPage).not.toMatch(/itin\?\.title/)
   })
 

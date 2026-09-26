@@ -139,6 +139,11 @@ const nextConfig = {
           },
         ],
       },
+      // ── Social-preview fallback images: crawlers/CDNs must be able to embed them
+      {
+        source:  '/og/:path*',
+        headers: [{ key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' }],
+      },
       // ── API response caching — CDN edge serves these without hitting origin ──
       {
         source:  '/api/tours',

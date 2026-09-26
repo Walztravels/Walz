@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { BUSINESS } from '@/lib/config/business'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { resolveItineraryMetadata } from '@/lib/itinerary/og-loader'
 import { ProposalPage } from './_ProposalPage'
 import { buildProposalFlight, buildProposalHotel } from '@/lib/itinerary/client-booking-dto'
 import { sumClientTotals } from '@/lib/itinerary/unified-booking'
@@ -13,14 +14,16 @@ export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ ref: string }> }
 
-// ── SEO: client itineraries are private. Metadata is deliberately generic —
-// no itinerary title (it can carry client names), destination, reference or
-// pricing ever reaches the document head — and the page is never indexed,
-// archived or snippeted.
-export const metadata: Metadata = {
-  title: { absolute: 'Your Travel Itinerary | Walz Travels' },
-  description: 'Review your customized travel itinerary from Walz Travels.',
-  robots: { index: false, follow: false, noarchive: true, nosnippet: true },
+// ── SEO / social preview ──────────────────────────────────────────────────────
+// Deliberate rule: a public itinerary's share preview (WhatsApp, iMessage,
+// Slack, X ...) shows ONLY the traveller name, destination, travel dates and the
+// selected cover image — see lib/itinerary/og-metadata.ts. Internal title, notes,
+// prices, supplier data and ids never reach the head. Missing / non-public refs
+// (and DB errors) get the generic metadata. The page is never indexed, archived
+// or snippeted.
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { ref } = await params
+  return resolveItineraryMetadata(ref)
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
