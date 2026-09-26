@@ -501,8 +501,9 @@ describe('countIgnoredRows', () => {
 describe('UI passenger-count check', () => {
   it('shows the ignored-rows note live and after generation', () => {
     const src = read('app/admin/intelligence/doc-auth/page.tsx')
-    expect(src).toContain('had no name and will not be included')
-    expect(src).toContain('had no name and {ignoredRows === 1')
+    expect(read('lib/dummy-ticket/passengers.ts')).toContain("'has' : 'have'} no name and will not be included")
+    expect(read('components/admin/intelligence/AdditionalPassengerRows.tsx')).toContain('blankRowsWarning(')
+    expect(src).toContain('blankRowsSentWarning(ignoredRows)')
     expect(src).toContain('setIgnoredRows(countIgnoredRows(passengers))')
     expect(src).toMatch(/setPaxOnTicket\(null\); setIgnoredRows\(0\)/)
   })
@@ -570,7 +571,7 @@ describe('doc-auth page wiring', () => {
     expect(page).not.toMatch(/\[\{ name: clientName, type: 'Adult', title: clientTitle \}, \.\.\.passengers\]/)
   })
   it('extras have a passport input', () => {
-    expect(page).toContain("{ ...x, passport: e.target.value }")
+    expect(read('components/admin/intelligence/AdditionalPassengerRows.tsx')).toContain('onUpdate(row.id, { passport: e.target.value })')
   })
   it('visa-link handlers never touch the extras state; lead auto-fill still sets name/passport', () => {
     const start = page.indexOf('const handleAppSelect')

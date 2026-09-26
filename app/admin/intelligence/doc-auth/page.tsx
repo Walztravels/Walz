@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { buildPassengersPayload, countIgnoredRows } from '@/lib/dummy-ticket/passengers'
+import { buildPassengersPayload, countIgnoredRows, createPassengerRow, assertPayloadMatchesRows, blankRowsSentWarning, passengerCountLine, type ExtraPassengerRow } from '@/lib/dummy-ticket/passengers'
+import AdditionalPassengerRows from '@/components/admin/intelligence/AdditionalPassengerRows'
 import { getActiveCase as getSharedCase, setActiveCase as setSharedCase } from '@/lib/intelligence/active-case-client'
 import {
   Upload, FileText, Ticket, History,
@@ -1069,7 +1070,15 @@ function DummyTicketTab({ activeCase }: TabProps) {
   const [mMessage,  setMMMessage] = useState('')
 
   // Multi-passenger state
-  const [passengers, setPassengers] = useState<Array<{ name: string; type: string; title: string; passport: string }>>([])
+  const [passengers, setPassengers] = useState<ExtraPassengerRow[]>([])
+  // ALL row edits go through these three id-keyed helpers (never array indices).
+  // Any row change makes the post-generate "not included" note stale — clear it.
+  const addRow = () => { const row = createPassengerRow(); setIgnoredRows(0); setPassengers(prev => [...prev, row]) }
+  const updateRow = (id: string, patch: Partial<Omit<ExtraPassengerRow, 'id'>>) => {
+    setIgnoredRows(0)
+    setPassengers(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)))
+  }
+  const removeRow = (id: string) => { setIgnoredRows(0); setPassengers(prev => prev.filter(r => r.id !== id)) }
 
 
   // Hotel fields
@@ -1183,6 +1192,10 @@ function DummyTicketTab({ activeCase }: TabProps) {
         passengers,
       )
 
+      if (process.env.NODE_ENV !== 'production' && (mode === 'live' || mode === 'manual')) {
+        const diag = assertPayloadMatchesRows({ name: clientName, passport: passportNo }, passengers, paxPayload)
+        if (!diag.ok) console.warn('[dummy-ticket] passenger payload does not match rows:', diag.problems)
+      }
       if (mode === 'live' || mode === 'manual') { setPaxSent(paxPayload ? paxPayload.length : 1); setIgnoredRows(countIgnoredRows(passengers)) }
 
       if (mode === 'live') {
@@ -1319,63 +1332,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
           )}
           {(mode === 'live' || mode === 'manual') && (
             <div className="sm:col-span-3 mt-2">
-              {passengers.length > 0 && (
-                <div className="space-y-2 mb-2">
-                  {passengers.map((p, i) => (
-                    <div key={i} className="flex gap-2 items-center">
-                      <select
-                        className="h-10 px-2 border border-gray-200 rounded-lg text-xs text-[#0B1F3A] bg-white w-20 flex-shrink-0"
-                        value={p.title}
-                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, title: e.target.value } : x))}>
-                        <option value="MR">Mr</option>
-                        <option value="MRS">Mrs</option>
-                        <option value="MISS">Miss</option>
-                        <option value="MSTR">Mstr</option>
-                        <option value="DR">Dr</option>
-                      </select>
-                      <input
-                        className={INPUT + ' flex-1'}
-                        value={p.name}
-                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
-                        placeholder={`Passenger ${i + 2} full name`}
-                      />
-                      <input
-                        className={INPUT + ' w-36 flex-shrink-0'}
-                        value={p.passport}
-                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, passport: e.target.value } : x))}
-                        placeholder="Passport (optional)"
-                      />
-                      <select
-                        className="h-10 px-2 border border-gray-200 rounded-lg text-xs text-[#0B1F3A] bg-white"
-                        value={p.type}
-                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}>
-                        <option value="Adult">Adult</option>
-                        <option value="Child">Child</option>
-                        <option value="Infant">Infant</option>
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => setPassengers(prev => prev.filter((_, j) => j !== i))}
-                        className="h-10 w-10 flex items-center justify-center text-gray-400 hover:text-red-500 border border-gray-200 rounded-lg transition">
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {countIgnoredRows(passengers) > 0 && (
-                <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
-                  {countIgnoredRows(passengers)} passenger row{countIgnoredRows(passengers) === 1 ? '' : 's'} had no name and will not be included
-                </p>
-              )}
-              {passengers.length < 8 && (
-                <button
-                  type="button"
-                  onClick={() => setPassengers(prev => [...prev, { name: '', type: 'Adult', title: 'MR', passport: '' }])}
-                  className="text-xs text-[#C9A84C] font-semibold hover:text-[#0B1F3A] transition flex items-center gap-1">
-                  + Add Passenger
-                </button>
-              )}
+              <AdditionalPassengerRows rows={passengers} onUpdate={updateRow} onRemove={removeRow} onAdd={addRow} />
             </div>
           )}
         </div>
@@ -1525,6 +1482,12 @@ function DummyTicketTab({ activeCase }: TabProps) {
           }
         </button>
 
+        {(mode === 'live' || mode === 'manual') && (
+          <p data-testid="pax-count-line" className="text-[11px] text-gray-500 mt-2">
+            {passengerCountLine({ name: clientName, title: clientTitle, passport: passportNo }, passengers)}
+          </p>
+        )}
+
         {/* Error card */}
         {error && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
@@ -1668,7 +1631,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
                 <p className="text-xs text-gray-500">Ticket generated for {paxOnTicket} passenger{paxOnTicket === 1 ? '' : 's'}</p>
                 {ignoredRows > 0 && (
                   <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    {ignoredRows} passenger row{ignoredRows === 1 ? '' : 's'} had no name and {ignoredRows === 1 ? 'was' : 'were'} not included
+                    {blankRowsSentWarning(ignoredRows)}
                   </p>
                 )}
                 {paxOnTicket < paxSent && (

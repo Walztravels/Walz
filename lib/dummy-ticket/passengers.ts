@@ -173,6 +173,56 @@ export function toPdfPassengers(
   })
 }
 
+/** One additional (non-lead) passenger row in the UI. `id` is client-only and never sent. */
+export interface ExtraPassengerRow {
+  id: string
+  title: string
+  type: PaxType
+  name: string
+  passport: string
+}
+
+let rowCounter = 0
+/** Stable, unique row id (module counter — never an array index). */
+export function nextPassengerRowId(): string {
+  rowCounter += 1
+  // Counter + random suffix: collision-proof across HMR / module reloads. Opaque, client-only.
+  return `pax-${rowCounter}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** A fresh blank additional-passenger row. */
+export function createPassengerRow(patch: Partial<Omit<ExtraPassengerRow, 'id'>> = {}): ExtraPassengerRow {
+  return { id: nextPassengerRowId(), title: 'MR', type: 'Adult', name: '', passport: '', ...patch }
+}
+
+/** Ids of rows that will be dropped because their name is blank / whitespace-only. */
+export function blankRowIds(rows: Array<{ id: string; name?: string }>): string[] {
+  return rows.filter(r => collapse(r?.name) === '').map(r => r.id)
+}
+
+/** Persistent "will generate" line, computed from the SAME helper that builds the payload. */
+export function passengerCountLine(
+  lead: { name: string; title?: string; passport?: string },
+  rows: Array<{ name: string; type?: string; title?: string; passport?: string }>,
+): string {
+  const payload = buildPassengersPayload(lead, rows)
+  const n = payload ? payload.length : 1
+  const blank = countIgnoredRows(rows)
+  return `Will generate a ticket for ${n} passenger${n === 1 ? '' : 's'}` + (blank > 0 ? ` (${blank} blank row${blank === 1 ? '' : 's'} ignored)` : '')
+}
+
+/** Live warning text, or '' when there is nothing to warn about. */
+export function blankRowsWarning(count: number): string {
+  if (count <= 0) return ''
+  return `${count} passenger row${count === 1 ? '' : 's'} ${count === 1 ? 'has' : 'have'} no name and will not be included`
+}
+
+/** Post-generate warning text (what the last request left out), or ''. */
+export function blankRowsSentWarning(count: number): string {
+  if (count <= 0) return ''
+  return `${count} passenger row${count === 1 ? '' : 's'} had no name and ${count === 1 ? 'was' : 'were'} not included`
+}
+
 /**
  * Build the request `passengers` array from UI state. Sends the full ordered
  * array [lead, ...extras] only when there is at least one non-blank extra;
@@ -180,8 +230,9 @@ export function toPdfPassengers(
  */
 export function buildPassengersPayload(
   lead: { name: string; title?: string; passport?: string; type?: string },
-  extras: Array<{ name: string; type?: string; title?: string; passport?: string }>,
+  extras: Array<{ name: string; type?: string; title?: string; passport?: string; id?: string }>,
 ): DummyTicketPassengerInput[] | undefined {
+  // NOTE: every payload entry is built explicitly below — the client-only row `id` is never copied.
   const cleaned = extras
     .filter(e => collapse(e.name) !== '')
     .map(e => ({
@@ -205,4 +256,38 @@ export function buildPassengersPayload(
 /** Number of extra rows that buildPassengersPayload will drop because their name is blank. */
 export function countIgnoredRows(extras: Array<{ name?: string }>): number {
   return extras.filter(e => collapse(e?.name) === '').length
+}
+
+export interface PayloadDiagnostics { ok: boolean; problems: string[] }
+
+/**
+ * Pure acceptance check: the request payload must be exactly [lead, ...non-blank rows]
+ * in row order, with no synthetic blank passenger and no client-only `id`.
+ * Returns diagnostics (never throws) — safe on production paths.
+ */
+export function assertPayloadMatchesRows(
+  lead: { name: string; passport?: string },
+  rows: Array<{ name: string; passport?: string }>,
+  payload: DummyTicketPassengerInput[] | undefined,
+): PayloadDiagnostics {
+  const problems: string[] = []
+  const named = rows.filter(r => collapse(r.name) !== '')
+  if (named.length === 0) {
+    if (payload !== undefined) problems.push('payload must be undefined when there are no named extra rows')
+    return { ok: problems.length === 0, problems }
+  }
+  if (!payload) return { ok: false, problems: ['payload missing although named extra rows exist'] }
+  if (payload.length !== named.length + 1) problems.push(`expected ${named.length + 1} passengers, got ${payload.length}`)
+  if (payload[0]?.name !== collapse(lead.name)) problems.push('payload[0] is not the lead')
+  if ((payload[0]?.passport ?? '') !== (collapse(lead.passport) ? upper(lead.passport) : '')) problems.push('lead passport mismatch')
+  named.forEach((r, i) => {
+    const p = payload[i + 1]
+    if (!p || p.name !== collapse(r.name)) problems.push(`payload[${i + 1}] does not match row ${i + 2}`)
+    else if ((p.passport ?? '') !== (collapse(r.passport) ? upper(r.passport) : '')) problems.push(`payload[${i + 1}] passport mismatch`)
+  })
+  payload.forEach((p, i) => {
+    if (collapse(p.name) === '') problems.push(`payload[${i}] has a blank name`)
+    if ('id' in (p as object)) problems.push(`payload[${i}] leaks a client-only id`)
+  })
+  return { ok: problems.length === 0, problems }
 }
