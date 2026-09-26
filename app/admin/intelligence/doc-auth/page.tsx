@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { buildPassengersPayload } from '@/lib/dummy-ticket/passengers'
+import { buildPassengersPayload, countIgnoredRows } from '@/lib/dummy-ticket/passengers'
 import { getActiveCase as getSharedCase, setActiveCase as setSharedCase } from '@/lib/intelligence/active-case-client'
 import {
   Upload, FileText, Ticket, History,
@@ -1045,6 +1045,10 @@ function DummyTicketTab({ activeCase }: TabProps) {
   const [useHoldPnr,  setUseHoldPnr]  = useState(false)
   const [holdResult,  setHoldResult]  = useState<{ pnr: string; expires: string | null; orderId: string | null } | null>(null)
   const [holdFailed,  setHoldFailed]  = useState(false)
+  // Passengers the request carried (lead + non-blank extras) vs. rendered by the server
+  const [paxSent,      setPaxSent]      = useState(0)
+  const [paxOnTicket,  setPaxOnTicket]  = useState<number | null>(null)
+  const [ignoredRows,  setIgnoredRows]  = useState(0)
 
   // Manual mode fields
   const [mFromCode, setMFromCode] = useState('')
@@ -1156,7 +1160,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
     setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null); setTicketRef('')
     setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
-    setHoldResult(null); setHoldFailed(false)
+    setHoldResult(null); setHoldFailed(false); setPaxSent(0); setPaxOnTicket(null); setIgnoredRows(0)
     // NOTE: passenger inputs (extras) are deliberately NOT cleared here — only OUTPUT state resets.
   }
 
@@ -1178,6 +1182,8 @@ function DummyTicketTab({ activeCase }: TabProps) {
         { name: clientName, title: clientTitle, passport: passportNo, type: 'Adult' },
         passengers,
       )
+
+      if (mode === 'live' || mode === 'manual') { setPaxSent(paxPayload ? paxPayload.length : 1); setIgnoredRows(countIgnoredRows(passengers)) }
 
       if (mode === 'live') {
         Object.assign(payload, {
@@ -1219,6 +1225,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
       if (data.hold_pnr)       setHoldResult({ pnr: data.hold_pnr as string, expires: (data.hold_expires as string | null) ?? null, orderId: (data.hold_order_id as string | null) ?? null })
       if (data.hold_failed)    setHoldFailed(true)
+      if (typeof data.passenger_count === 'number') setPaxOnTicket(data.passenger_count)
 
       // Bug fix: convert base64 → Blob URL immediately so iframe always renders
       if (data.pdf_base64) {
@@ -1355,6 +1362,11 @@ function DummyTicketTab({ activeCase }: TabProps) {
                     </div>
                   ))}
                 </div>
+              )}
+              {countIgnoredRows(passengers) > 0 && (
+                <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">
+                  {countIgnoredRows(passengers)} passenger row{countIgnoredRows(passengers) === 1 ? '' : 's'} had no name and will not be included
+                </p>
               )}
               {passengers.length < 8 && (
                 <button
@@ -1650,12 +1662,29 @@ function DummyTicketTab({ activeCase }: TabProps) {
               </div>
             </div>
 
+            {/* Passenger count check — flight tickets only */}
+            {mode !== 'hotel' && paxOnTicket !== null && (
+              <div className="mt-2 space-y-1">
+                <p className="text-xs text-gray-500">Ticket generated for {paxOnTicket} passenger{paxOnTicket === 1 ? '' : 's'}</p>
+                {ignoredRows > 0 && (
+                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    {ignoredRows} passenger row{ignoredRows === 1 ? '' : 's'} had no name and {ignoredRows === 1 ? 'was' : 'were'} not included
+                  </p>
+                )}
+                {paxOnTicket < paxSent && (
+                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Only {paxOnTicket} of {paxSent} passengers were included — please regenerate
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Inline send form */}
             {showSendForm && pdfBase64 && (
               <SendToClientForm
                 pdfBase64={pdfBase64}
                 mode={mode}
-                clientName={clientName}
+                clientName={String(ticketData?.client_name || clientName)}
                 flightDetails={flightDetails}
                 ticketData={ticketData}
                 applicationId={appId}

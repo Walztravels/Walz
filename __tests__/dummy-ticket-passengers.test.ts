@@ -41,7 +41,7 @@ jest.mock('@react-pdf/renderer', () => {
 })
 
 import {
-  normalizePassengers, buildPassengersPayload, toDuffelPassengers, countPassengers,
+  normalizePassengers, buildPassengersPayload, toDuffelPassengers, countPassengers, countIgnoredRows,
 } from '@/lib/dummy-ticket/passengers'
 import { POST } from '@/app/api/admin/intelligence/dummy-ticket/route'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
@@ -378,6 +378,8 @@ const flightData = (n: number) => ({
 })
 const count = (hay: string, needle: string) => hay.split(needle).length - 1
 
+const otherLine = (others: number) => `+ ${others} OTHER PASSENGER${others === 1 ? '' : 'S'}`
+
 describe('TicketPDF passengers', () => {
   it.each([2, 4])('%i passengers: every name + own passport, header lists all, itinerary once', (n) => {
     const t = pdfText(flightData(n))
@@ -385,8 +387,7 @@ describe('TicketPDF passengers', () => {
       expect(t).toContain(`FIRST${i}`)
       expect(t).toContain(`Passport: PASS${i}`)
     }
-    expect(t).toContain(`Passengers (${n})`)
-    expect(t).toContain('1. MR FIRST1 LAST1')
+    expect(t).toContain(otherLine(n - 1))
     expect(count(t, 'ZZ4242')).toBe(1)
     expect(count(t, 'Passport: PASS2')).toBe(1)
   })
@@ -400,7 +401,7 @@ describe('TicketPDF passengers', () => {
   it('single passenger renders as before (no per-passenger passport line, no multi header)', () => {
     const t = pdfText(flightData(1))
     expect(t).toContain('All Passengers')
-    expect(t).not.toContain('Passengers (')
+    expect(t).not.toContain('OTHER PASSENGER')
     expect(t).not.toContain('Passport: PASS1')
     expect(t).toContain('Passport No.')
     expect(count(t, 'ZZ4242')).toBe(1)
@@ -410,6 +411,116 @@ describe('TicketPDF passengers', () => {
     const t = pdfText({ ticket_type: 'flight', ticket_reference: 'R', outbound: [leg], inbound: [], tripType: 'one-way', pnr: 'P', passengers: pdfPax(1) })
     expect(t).toContain('Passport No.PASS1')
     expect(t).not.toMatch(/Passport No\.999/)
+  })
+})
+
+// ─── Compact header strip ────────────────────────────────────────────────────
+const legFix = { flightNumber: 'ZZ1', airline: 'A', departureCode: 'LOS', departureCity: 'Lagos', departureAirport: '', departureCountry: '', departureDate: 'd', departureTime: 't', arrivalCode: 'LHR', arrivalCity: 'London', arrivalAirport: '', arrivalCountry: '', arrivalDate: 'd', arrivalTime: 't', duration: '8h', cabinClass: 'ECONOMY', baggage: '' }
+const multiLegData = (n: number) => ({ ticket_type: 'flight', ticket_reference: 'R', outbound: [legFix], inbound: [], tripType: 'one-way', pnr: 'P', passengers: pdfPax(n) })
+function stripText(data: Record<string, unknown>): string {
+  const tree = expand(React.createElement(TicketPDFDocument, { data: data as never }))
+  const m = findAll(tree, n => (n.type as string) === 'View' && /^Passengers?[A-Z]/.test(textOf(n)) && /Booking Ref/.test(textOf(n)))
+  return textOf(m[m.length - 1])
+}
+describe('compact header strip', () => {
+  const layouts: Array<[string, (n: number) => Record<string, unknown>]> = [['legacy', flightData], ['multi-leg', multiLegData]]
+  it.each(layouts)('%s: 1 passenger keeps the single-passenger strip', (_l, mk) => {
+    const t = stripText(mk(1))
+    expect(t.startsWith('Passenger')).toBe(true)
+    expect(t.startsWith('Passengers')).toBe(false)
+    expect(t).toContain('FIRST1')
+    expect(t).not.toContain('OTHER')
+  })
+  it.each(layouts)('%s: 2 / 3 / 9 passengers → lead once, + N OTHER PASSENGER(S), no other names', (_l, mk) => {
+    const expected: Record<number, string> = { 2: '+ 1 OTHER PASSENGER', 3: '+ 2 OTHER PASSENGERS', 9: '+ 8 OTHER PASSENGERS' }
+    for (const n of [2, 3, 9]) {
+      const t = stripText(mk(n))
+      expect(t.startsWith('Passengers')).toBe(true)
+      expect(t.split('FIRST1').length - 1).toBe(1)
+      expect(t).toContain(expected[n])
+      if (n === 2) expect(t).not.toContain('OTHER PASSENGERS')
+      for (let i = 2; i <= n; i++) expect(t).not.toContain(`FIRST${i}`)
+    }
+  })
+  it.each(layouts)('%s: detailed list still has every passenger, own passport, unbreakable rows, itinerary once', (_l, mk) => {
+    const n = 9
+    const data = mk(n)
+    const t = pdfText(data)
+    for (let i = 1; i <= n; i++) {
+      expect(t).toContain(`FIRST${i}`)
+      expect(t).toContain(`Passport: PASS${i}`)
+    }
+    const tree = expand(React.createElement(TicketPDFDocument, { data: data as never }))
+    for (let i = 1; i <= n; i++) {
+      expect(findAll(tree, x => x.props.wrap === false && textOf(x).includes(`Passport: PASS${i}`)).length).toBeGreaterThan(0)
+    }
+    expect(count(t, data.flight_number ? 'ZZ4242' : 'ZZ1')).toBe(1)
+  })
+})
+
+describe('passenger_count diagnostics', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetSession.mockResolvedValue({ email: 's@walztravels.com' })
+    process.env.DUFFEL_ACCESS_TOKEN = 'test'; delete process.env.AMADEUS_API_KEY
+    mockDuffelPost.mockResolvedValue({ data: { offers: [offer()], passengers: [] } })
+  })
+  it.each([1, 3])('live + manual responses carry passenger_count = %i and a counts-only log line', async (n) => {
+    const info = jest.spyOn(console, 'info').mockImplementation(() => undefined)
+    const pax = n > 1 ? { passengers: group(n) } : {}
+    const live = await (await POST(reqOf(liveBody(pax)))).json()
+    const man = await (await POST(reqOf(manualBody(pax)))).json()
+    expect(live.passenger_count).toBe(n)
+    expect(man.passenger_count).toBe(n)
+    const lines = info.mock.calls.map(c => String(c[0])).filter(l => l.startsWith('[dummy-ticket]'))
+    expect(lines).toEqual([
+      `[dummy-ticket] mode=live passengers_received=${n} passengers_on_ticket=${n}`,
+      `[dummy-ticket] mode=manual passengers_received=${n} passengers_on_ticket=${n}`,
+    ])
+    expect(lines.join('')).not.toMatch(/Lead|Extra|Person|LEAD1|PP/)
+    info.mockRestore()
+  })
+})
+
+describe('countIgnoredRows', () => {
+  it('blank / whitespace-only / passport-only rows are ignored; named rows are not', () => {
+    expect(countIgnoredRows([
+      { name: '' }, { name: '   ' }, { name: '', passport: 'A1' } as { name: string },
+      { name: 'Named One' },
+    ])).toBe(3)
+    expect(countIgnoredRows([])).toBe(0)
+    expect(countIgnoredRows([{ name: 'A' }, { name: 'B' }])).toBe(0)
+  })
+  it('agrees with buildPassengersPayload', () => {
+    const extras = [{ name: '', passport: 'X' }, { name: 'Ok', passport: '' }]
+    expect(buildPassengersPayload({ name: 'Lead' }, extras)).toHaveLength(2)
+    expect(countIgnoredRows(extras)).toBe(1)
+  })
+})
+
+describe('UI passenger-count check', () => {
+  it('shows the ignored-rows note live and after generation', () => {
+    const src = read('app/admin/intelligence/doc-auth/page.tsx')
+    expect(src).toContain('had no name and will not be included')
+    expect(src).toContain('had no name and {ignoredRows === 1')
+    expect(src).toContain('setIgnoredRows(countIgnoredRows(passengers))')
+    expect(src).toMatch(/setPaxOnTicket\(null\); setIgnoredRows\(0\)/)
+  })
+  const page = read('app/admin/intelligence/doc-auth/page.tsx')
+  it('shows the count line and the amber mismatch warning', () => {
+    expect(page).toContain('Ticket generated for {paxOnTicket} passenger')
+    expect(page).toContain('Only {paxOnTicket} of {paxSent} passengers were included — please regenerate')
+    expect(page).toMatch(/paxOnTicket < paxSent/)
+    expect(page).toContain('bg-amber-50')
+    expect(page).toContain('setPaxSent(paxPayload ? paxPayload.length : 1)')
+    expect(page).toContain("data.passenger_count")
+  })
+  it('preview, download and send all use the same pdfBase64', () => {
+    expect(page).toContain("const bytes  = Uint8Array.from(atob(data.pdf_base64)")
+    expect(page).toContain('data:application/pdf;base64,${pdfBase64}')
+    expect(page).toMatch(/pdfBase64=\{pdfBase64\}/)
+    expect(read('app/api/admin/intelligence/send-ticket/route.ts')).toContain("Buffer.from(body.pdf_base64, 'base64')")
+    expect(read('app/api/admin/intelligence/send-ticket/route.ts')).not.toContain('renderToBuffer')
   })
 })
 

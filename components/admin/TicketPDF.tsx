@@ -426,19 +426,22 @@ function BarcodeSVG({ value }: { value: string }) {
 
 // ── Passenger strip ───────────────────────────────────────────────────────────
 function PassengerStrip({
-  name, passport, bookingRef, names,
-}: { name?: string; passport?: string; bookingRef?: string; names?: string[] }) {
-  const multi = !!names && names.length > 1
-  if (!multi && !name && !passport) return null
+  name, passport, bookingRef, otherCount = 0,
+}: { name?: string; passport?: string; bookingRef?: string; otherCount?: number }) {
+  // Compact by design: lead name + "+ N OTHER PASSENGER(S)". Every passenger is
+  // listed individually in the detailed Passengers section further down.
+  const multi = otherCount > 0
+  if (!name && !passport && !multi) return null
   return (
     <View style={bp.passengerStrip}>
       <View style={{ flex: 1 }}>
-        <Text style={bp.paxLabel}>{multi ? `Passengers (${names!.length})` : 'Passenger'}</Text>
-        {multi
-          ? names!.slice(0, 9).map((n, i) => (
-              <Text key={i} style={[bp.paxName, { fontSize: names!.length > 4 ? 9 : 11 }]}>{`${i + 1}. ${n.toUpperCase()}`}</Text>
-            ))
-          : <Text style={bp.paxName}>{(name || 'PASSENGER').toUpperCase()}</Text>}
+        <Text style={bp.paxLabel}>{multi ? 'Passengers' : 'Passenger'}</Text>
+        <Text style={bp.paxName}>{(name || 'PASSENGER').toUpperCase()}</Text>
+        {multi && (
+          <Text style={[bp.paxLabel, { marginTop: 3, marginBottom: 0 }]}>
+            {`+ ${otherCount} OTHER PASSENGER${otherCount === 1 ? '' : 'S'}`}
+          </Text>
+        )}
       </View>
       {!multi && passport && (
         <>
@@ -696,7 +699,7 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
     const hasReturn = !!(d.return_date || d.return_flight)
     return (
       <View style={s.body}>
-        <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={str(d.booking_reference || d.pnr)} names={passengers.length > 1 ? passengers.map(paxFullName) : undefined} />
+        <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={str(d.booking_reference || d.pnr)} otherCount={passengers.length > 1 ? passengers.length - 1 : 0} />
         <LegCard direction="OUTBOUND" shade={NAVY} airline={str(d.airline)} flightNumber={str(d.flight_number)} fromCode={str(d.from_code)} fromCity={str(d.from_city)} toCode={str(d.to_code)} toCity={str(d.to_city)} departureDate={str(d.departure_date)} departureTime={str(d.departure_time)} arrivalDate={str(d.arrival_date)} arrivalTime={str(d.arrival_time)} duration={str(d.duration)} stops={parseInt(str(d.stops)) || 0} cabin={str(d.cabin_class)} seat={str(d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
         {hasReturn && (
           <>
@@ -723,7 +726,7 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
           name={paxFullName(passengers[0])}
           passport={passengers[0].passport ?? ''}
           bookingRef={pnr}
-          names={passengers.length > 1 ? passengers.map(paxFullName) : undefined}
+          otherCount={passengers.length > 1 ? passengers.length - 1 : 0}
         />
       ) : (
         <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={pnr} />

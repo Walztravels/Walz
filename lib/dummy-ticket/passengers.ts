@@ -201,3 +201,8 @@ export function buildPassengersPayload(
     ...cleaned,
   ]
 }
+
+/** Number of extra rows that buildPassengersPayload will drop because their name is blank. */
+export function countIgnoredRows(extras: Array<{ name?: string }>): number {
+  return extras.filter(e => collapse(e?.name) === '').length
+}

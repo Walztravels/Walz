@@ -550,6 +550,11 @@ export async function POST(req: NextRequest) {
     // Gender-based default title is live-mode behaviour only; manual/legacy stays 'MR'.
     appGender: body.mode === 'live' ? appGender : undefined,
   })
+  // Diagnostics (counts only — never names/passports): makes a dropped passenger obvious in logs.
+  if (body.mode === 'live' || body.mode === 'manual') {
+    const received = Array.isArray(body.passengers) && body.passengers.length > 0 ? body.passengers.length : 1
+    console.info(`[dummy-ticket] mode=${body.mode} passengers_received=${received} passengers_on_ticket=${paxNorm.passengers.length}`)
+  }
   // Adult/infant composition checks are live-search constraints; manual keeps only the 9-passenger cap.
   if (paxNorm.error && (body.mode === 'live' || (body.mode === 'manual' && paxNorm.passengers.length > MAX_PASSENGERS))) {
     return NextResponse.json({ error: paxNorm.error }, { status: 400 })
@@ -702,7 +707,7 @@ export async function POST(req: NextRequest) {
           flightNumber: String(ticketData.flight_number ?? ''), pnr: String(ticketData.pnr ?? ''),
         },
       })
-      return NextResponse.json({ mode: 'manual', reference, pdfUrl, pdf_base64: buf.toString('base64'), ticketData })
+      return NextResponse.json({ mode: 'manual', reference, pdfUrl, pdf_base64: buf.toString('base64'), ticketData, passenger_count: (ticketData.passengers as unknown[] | undefined)?.length ?? 1 })
     } catch (e) {
       return NextResponse.json({ error: `PDF error: ${String(e)}` }, { status: 500 })
     }
@@ -986,6 +991,7 @@ export async function POST(req: NextRequest) {
       pdf_base64:     buf.toString('base64'),
       flight_details: flightDetails,
       ticketData,
+      passenger_count: (ticketData.passengers as unknown[] | undefined)?.length ?? 1,
     })
   } catch (e) {
     console.error('[dummy-ticket/pdf]', e)
