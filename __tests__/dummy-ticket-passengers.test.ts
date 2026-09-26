@@ -9,6 +9,8 @@ import React from 'react'
 
 const mockGetSession = jest.fn()
 const mockDuffelPost = jest.fn()
+const mockRender = jest.fn(async () => Buffer.from('pdf'))
+const mockUpload = jest.fn(async () => ({ error: null }))
 jest.mock('@/lib/admin-auth', () => ({ getAdminSession: (...a: unknown[]) => mockGetSession(...a) }))
 jest.mock('@/lib/rate-limit', () => ({ duffelTicketRateLimit: () => ({ allowed: true, resetAt: 0 }) }))
 jest.mock('@/lib/duffel/client', () => ({ duffelPost: (...a: unknown[]) => mockDuffelPost(...a) }))
@@ -21,7 +23,7 @@ jest.mock('@/lib/db', () => ({
 }))
 jest.mock('@/lib/supabase', () => ({
   getSupabaseAdmin: () => ({
-    storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://x/y.pdf' } }) }) },
+    storage: { from: () => ({ upload: (...a: unknown[]) => (mockUpload as unknown as (...x: unknown[]) => unknown)(...a), getPublicUrl: () => ({ data: { publicUrl: 'https://x/y.pdf' } }) }) },
     from: () => ({ insert: async () => ({}) }),
   }),
 }))
@@ -34,7 +36,7 @@ jest.mock('@react-pdf/renderer', () => {
   return {
     Document: host('Document'), Page: host('Page'), Text: host('Text'), View: host('View'), Svg: host('Svg'), Rect: () => null, Image: () => null,
     StyleSheet: { create: (x: unknown) => x },
-    renderToBuffer: async () => Buffer.from('pdf'),
+    renderToBuffer: (...a: unknown[]) => (mockRender as unknown as (...x: unknown[]) => unknown)(...a),
   }
 })
 
@@ -121,10 +123,13 @@ describe('normalizePassengers', () => {
     expect(JSON.stringify(r.passengers)).not.toContain('object Object')
     expect(r.passengers[2].passport).toBe('')
   })
-  it('counts by type (lead is Adult; at least one adult)', () => {
+  it('counts by type, no adjustment; zero adults / infants > adults are validated, not guessed', () => {
     const r = normalizePassengers({ passengers: [{ name: 'A' }, { name: 'B', type: 'Child' }, { name: 'C', type: 'Infant' }, { name: 'D', type: 'Adult' }] })
     expect(r.counts).toEqual({ adults: 2, children: 1, infants: 1 })
-    expect(countPassengers([{ type: 'Child' }])).toEqual({ adults: 1, children: 0, infants: 0 })
+    expect(countPassengers([{ type: 'Child' }])).toEqual({ adults: 0, children: 1, infants: 0 })
+    expect(normalizePassengers({ passengers: [{ name: 'A', type: 'Child' }] }).error).toBe('At least one adult passenger is required')
+    expect(normalizePassengers({ passengers: [{ name: 'A' }, { name: 'B', type: 'Infant' }, { name: 'C', type: 'Infant' }] }).error).toBe('Each infant must travel with an adult')
+    expect(normalizePassengers({ passengers: [{ name: 'A' }, { name: 'B', type: 'Infant' }] }).error).toBeUndefined()
     expect(toDuffelPassengers(r.counts)).toEqual([{ type: 'adult' }, { type: 'adult' }, { type: 'child' }, { type: 'infant_without_seat' }])
   })
 })
@@ -210,37 +215,63 @@ describe('route: live mode', () => {
     expect(prisma.generatedTicket.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ clientName: 'Lead Person' }) }))
   })
 
-  it('Duffel passenger types reflect counts', async () => {
-    await POST(reqOf(liveBody({ passengers: [group(3)[0], { name: 'Kid One', type: 'Child', title: 'MSTR' }, { name: 'Baby One', type: 'Infant', title: 'MISS' }] })))
-    expect(mockDuffelPost.mock.calls[0][1].data.passengers).toEqual([{ type: 'adult' }, { type: 'child' }, { type: 'infant_without_seat' }])
+  it.each([1, 2, 4])('%i passenger(s): exactly N Duffel passenger objects, one search', async (n) => {
+    await POST(reqOf(liveBody(n > 1 ? { passengers: group(n) } : {})))
+    expect(mockDuffelPost).toHaveBeenCalledTimes(1)
+    expect(mockDuffelPost.mock.calls[0][1].data.passengers).toEqual(Array.from({ length: n }, () => ({ type: 'adult' })))
   })
 
-  it('zero offers for a group → retried once with 1 adult and a search_note', async () => {
-    mockDuffelPost.mockResolvedValueOnce({ data: { offers: [], passengers: [] } })
-    const j = await (await POST(reqOf(liveBody({ passengers: group(4) })))).json()
-    expect(mockDuffelPost).toHaveBeenCalledTimes(2)
-    expect(mockDuffelPost.mock.calls[1][1].data.passengers).toEqual([{ type: 'adult' }])
-    expect(j.search_note).toBe('No fare available for 4 passengers; itinerary searched for 1 adult')
-    expect(j.ticketData.passengers).toHaveLength(4)
+  it.each([
+    ['child', 'child'],
+    ['infant', 'infant_without_seat'],
+  ])('adult + %s: exact composition in the Duffel body', async (t, duffelType) => {
+    await POST(reqOf(liveBody({ passengers: [group(2)[0], { name: 'Junior One', type: t === 'child' ? 'Child' : 'Infant', title: 'MSTR' }] })))
+    expect(mockDuffelPost.mock.calls[0][1].data.passengers).toEqual([{ type: 'adult' }, { type: duffelType }])
   })
 
-  it('duffel error for a group → retried once too', async () => {
-    mockDuffelPost.mockRejectedValueOnce(new Error('boom'))
-    const j = await (await POST(reqOf(liveBody({ passengers: group(2) })))).json()
-    expect(mockDuffelPost).toHaveBeenCalledTimes(2)
-    expect(j.search_note).toMatch(/2 passengers/)
+  const noResults = async (n: number) => {
+    mockDuffelPost.mockResolvedValue({ data: { offers: [], passengers: [] } })
+    const res = await POST(reqOf(liveBody({ passengers: group(n) })))
+    return { res, j: await res.json() }
+  }
+  const expectNoDocument = () => {
+    expect(mockRender).not.toHaveBeenCalled()
+    expect(mockUpload).not.toHaveBeenCalled()
+    expect(prisma.generatedTicket.create).not.toHaveBeenCalled()
+  }
+
+  it('group with NO offers → controlled 404, exactly ONE Duffel call, no PDF/upload/history', async () => {
+    const { res, j } = await noResults(4)
+    expect(res.status).toBe(404)
+    expect(j.error).toBe('No live itinerary was found for all 4 passengers. Adjust the search or use Manual Entry.')
+    expect(j.params).toMatchObject({ passengers: 4 })
+    expect(j.suggestion).toMatch(/Manual/)
+    expect(j.tried).toEqual(['Duffel'])
+    expect(mockDuffelPost).toHaveBeenCalledTimes(1)
+    expectNoDocument()
   })
 
-  it('single passenger with no offers is NOT retried (404 as before)', async () => {
+  it('group Duffel error → controlled 404, still one search, no PDF', async () => {
+    mockDuffelPost.mockRejectedValue(new Error('boom'))
+    const res = await POST(reqOf(liveBody({ passengers: group(2) })))
+    expect(res.status).toBe(404)
+    expect(mockDuffelPost).toHaveBeenCalledTimes(1)
+    expectNoDocument()
+  })
+
+  it('single passenger with no offers keeps the origin/main message and shape', async () => {
     mockDuffelPost.mockResolvedValue({ data: { offers: [], passengers: [] } })
     const res = await POST(reqOf(liveBody()))
+    const j = await res.json()
     expect(res.status).toBe(404)
+    expect(j.error).toBe('No flights found for LOS → LHR on 2026-12-01.')
+    expect(j.params).toEqual({ origin: 'LOS', destination: 'LHR', departureDate: '2026-12-01' })
     expect(mockDuffelPost).toHaveBeenCalledTimes(1)
   })
 
-  it('Amadeus fallback receives adults/children/infants', async () => {
-    delete process.env.DUFFEL_ACCESS_TOKEN
+  it('Amadeus is a fallback to the OTHER supplier with the SAME composition', async () => {
     process.env.AMADEUS_API_KEY = 'k'; process.env.AMADEUS_API_SECRET = 's'
+    mockDuffelPost.mockResolvedValue({ data: { offers: [], passengers: [] } })
     const urls: string[] = []
     const realFetch = global.fetch
     global.fetch = jest.fn(async (u: unknown) => {
@@ -248,12 +279,44 @@ describe('route: live mode', () => {
       if (url.includes('oauth2/token')) return { ok: true, json: async () => ({ access_token: 't', expires_in: 1800 }) }
       return { ok: true, json: async () => ({ data: [] }) }
     }) as unknown as typeof fetch
+    let res
     try {
-      await POST(reqOf(liveBody({ passengers: [group(2)[0], { name: 'Kid', type: 'Child' }, { name: 'Baby', type: 'Infant' }] })))
+      res = await POST(reqOf(liveBody({ passengers: [group(2)[0], { name: 'Kid', type: 'Child' }, { name: 'Baby', type: 'Infant' }] })))
     } finally { global.fetch = realFetch }
     const search = urls.filter(u => u.includes('flight-offers'))
+    expect(search).toHaveLength(1)
     expect(search[0]).toMatch(/adults=1/); expect(search[0]).toMatch(/children=1/); expect(search[0]).toMatch(/infants=1/)
-    expect(search[1]).toMatch(/adults=1/); expect(search[1]).not.toMatch(/children=/) // single-adult retry
+    expect(mockDuffelPost.mock.calls[0][1].data.passengers).toEqual([{ type: 'adult' }, { type: 'child' }, { type: 'infant_without_seat' }])
+    expect(res.status).toBe(404)
+    expectNoDocument()
+  })
+
+  it('single-passenger Amadeus params unchanged (adults=1, no children/infants)', async () => {
+    delete process.env.DUFFEL_ACCESS_TOKEN
+    process.env.AMADEUS_API_KEY = 'k'; process.env.AMADEUS_API_SECRET = 's'
+    const urls: string[] = []
+    const realFetch = global.fetch
+    global.fetch = jest.fn(async (u: unknown) => {
+      urls.push(String(u))
+      if (String(u).includes('oauth2/token')) return { ok: true, json: async () => ({ access_token: 't', expires_in: 1800 }) }
+      return { ok: true, json: async () => ({ data: [] }) }
+    }) as unknown as typeof fetch
+    try { await POST(reqOf(liveBody())) } finally { global.fetch = realFetch }
+    const u = new URL(urls.find(x => x.includes('flight-offers'))!)
+    expect([...u.searchParams.keys()].sort()).toEqual(['adults', 'currencyCode', 'departureDate', 'destinationLocationCode', 'max', 'originLocationCode', 'travelClass'])
+    expect(u.searchParams.get('adults')).toBe('1')
+  })
+
+  it('zero adults / infants > adults → 400 before any supplier call', async () => {
+    for (const pax of [
+      [{ name: 'Kid', type: 'Child' }],
+      [{ name: 'Lead' }, { name: 'B1', type: 'Infant' }, { name: 'B2', type: 'Infant' }],
+    ]) {
+      const res = await POST(reqOf(liveBody({ passengers: pax })))
+      expect(res.status).toBe(400)
+    }
+    expect(mockDuffelPost).not.toHaveBeenCalled()
+    expectNoDocument()
   })
 
   it('rejects more than 9 passengers with 400', async () => {
@@ -420,45 +483,39 @@ describe('Duffel hold (documented current state)', () => {
   })
 })
 
-// ─── Latency budget (fake timers, mocked slow suppliers) ─────────────────────
-describe('route: group-search time budget', () => {
-  const run = async (firstPassMs: number) => {
+// ─── Group search: supplier timeout is a controlled failure (fake timers) ───
+describe('route: group Duffel timeout', () => {
+  afterEach(() => jest.useRealTimers())
+  it('hanging supplier → existing 20s timeout → controlled 404, one search, no PDF', async () => {
     jest.useFakeTimers()
     mockGetSession.mockResolvedValue({ email: 's@walztravels.com' })
     process.env.DUFFEL_ACCESS_TOKEN = 'test'
     delete process.env.AMADEUS_API_KEY
-    mockDuffelPost.mockReset()
-    let call = 0
-    mockDuffelPost.mockImplementation(() => {
-      call++
-      // first call fails after firstPassMs; any retry hangs forever (slow supplier)
-      return call === 1
-        ? new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), firstPassMs))
-        : new Promise(() => undefined)
-    })
-    const start = Date.now()
-    let doneAt = -1
-    const p = POST(reqOf(liveBody({ passengers: group(4) }))).then(async r => { doneAt = Date.now() - start; return r })
-    await jest.advanceTimersByTimeAsync(90000)
+    mockDuffelPost.mockReset(); mockRender.mockClear(); mockUpload.mockClear()
+    ;(prisma.generatedTicket.create as jest.Mock).mockClear()
+    mockDuffelPost.mockImplementation(() => new Promise(() => undefined))
+    const p = POST(reqOf(liveBody({ passengers: group(3) })))
+    await jest.advanceTimersByTimeAsync(20001)
     const res = await p
-    return { res, elapsed: doneAt, calls: call }
-  }
-  afterEach(() => jest.useRealTimers())
-  jest.setTimeout(20000)
-
-  it('slow first pass (>=20s): no retry, 404 + search_note, well under budget', async () => {
-    const { res, elapsed, calls } = await run(21000)
     expect(res.status).toBe(404)
-    expect((await res.json()).search_note).toMatch(/4 passengers/)
-    expect(calls).toBe(1)
-    expect(elapsed).toBeLessThan(55000)
+    expect((await res.json()).error).toMatch(/all 3 passengers/)
+    expect(mockDuffelPost).toHaveBeenCalledTimes(1)
+    expect(mockRender).not.toHaveBeenCalled()
+    expect(mockUpload).not.toHaveBeenCalled()
+    expect(prisma.generatedTicket.create).not.toHaveBeenCalled()
   })
-  it('fast first pass then hanging retry: retry is capped, total < 55s', async () => {
-    const { res, elapsed, calls } = await run(5000)
-    expect(res.status).toBe(404)
-    expect(calls).toBe(2)
-    expect(elapsed).toBeLessThanOrEqual(5000 + 15000 + 50)
-    expect(elapsed).toBeLessThan(55000)
-    expect((await res.json()).search_note).toMatch(/4 passengers/)
+})
+
+describe('route source: no fallback / retry / time-budget code', () => {
+  const route = read('app/api/admin/intelligence/dummy-ticket/route.ts')
+  it('has no search_note, retry logic or deadline parameter; origin timeouts intact', () => {
+    expect(route).not.toMatch(/search_note|searchNote|deadline|RETRY_|searchOnce|single-adult/)
+    expect(route).toContain('export const maxDuration = 60')
+    expect(route).toContain("reject(new Error('Duffel timeout')), 20000)")
+    expect(route).toContain('AbortSignal.timeout(10000)')
+    expect(route).toContain('AbortSignal.timeout(15000)')
+  })
+  it('UI has no search_note banner', () => {
+    expect(read('app/admin/intelligence/doc-auth/page.tsx')).not.toMatch(/search_note|searchNote/)
   })
 })

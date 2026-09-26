@@ -1045,7 +1045,6 @@ function DummyTicketTab({ activeCase }: TabProps) {
   const [useHoldPnr,  setUseHoldPnr]  = useState(false)
   const [holdResult,  setHoldResult]  = useState<{ pnr: string; expires: string | null; orderId: string | null } | null>(null)
   const [holdFailed,  setHoldFailed]  = useState(false)
-  const [searchNote,  setSearchNote]  = useState('')
 
   // Manual mode fields
   const [mFromCode, setMFromCode] = useState('')
@@ -1157,7 +1156,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
     setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null); setTicketRef('')
     setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
-    setHoldResult(null); setHoldFailed(false); setSearchNote('')
+    setHoldResult(null); setHoldFailed(false)
     // NOTE: passenger inputs (extras) are deliberately NOT cleared here — only OUTPUT state resets.
   }
 
@@ -1220,7 +1219,6 @@ function DummyTicketTab({ activeCase }: TabProps) {
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
       if (data.hold_pnr)       setHoldResult({ pnr: data.hold_pnr as string, expires: (data.hold_expires as string | null) ?? null, orderId: (data.hold_order_id as string | null) ?? null })
       if (data.hold_failed)    setHoldFailed(true)
-      if (data.search_note)    setSearchNote(String(data.search_note))
 
       // Bug fix: convert base64 → Blob URL immediately so iframe always renders
       if (data.pdf_base64) {
@@ -1594,14 +1592,6 @@ function DummyTicketTab({ activeCase }: TabProps) {
               If not needed, the hold simply expires — no cancellation required.
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Passenger search note (group fare not available) */}
-      {searchNote && (
-        <div className="bg-white rounded-xl border border-orange-200 shadow-sm px-5 py-3 text-xs font-semibold text-orange-700 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-orange-600" />
-          {searchNote}
         </div>
       )}
 

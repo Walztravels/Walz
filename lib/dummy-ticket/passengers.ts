@@ -76,13 +76,6 @@ export function countPassengers(list: Array<{ type?: string }>): PassengerCounts
     else if (t === 'Infant') infants++
     else adults++
   }
-  // At least one adult must travel (total preserved).
-  if (adults === 0 && list.length > 0) {
-    if (children > 0) children--
-    else if (infants > 0) infants--
-    adults = 1
-  }
-  if (list.length === 0) adults = 1
   return { adults, children, infants }
 }
 
@@ -127,7 +120,10 @@ export function normalizePassengers(input: NormalizeInput): NormalizeResult {
   }
 
   const result: NormalizeResult = { passengers: list, counts: countPassengers(list) }
+  // Objective supplier constraints (validated, never "fixed" by guessing a type).
   if (list.length > MAX_PASSENGERS) result.error = `A maximum of ${MAX_PASSENGERS} passengers is supported`
+  else if (result.counts.adults === 0) result.error = 'At least one adult passenger is required'
+  else if (result.counts.infants > result.counts.adults) result.error = 'Each infant must travel with an adult'
   return result
 }
 

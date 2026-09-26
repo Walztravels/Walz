@@ -10,7 +10,7 @@ import React from 'react'
 import { TicketPDFDocument, type TicketData } from '@/components/admin/TicketPDF'
 import { recordCaseEvent } from '@/lib/intelligence/case-events'
 import {
-  normalizePassengers, toDuffelPassengers, toPdfPassengers,
+  normalizePassengers, toDuffelPassengers, toPdfPassengers, MAX_PASSENGERS,
   type DummyTicketPassengerInput, type PassengerCounts,
 } from '@/lib/dummy-ticket/passengers'
 
@@ -254,7 +254,7 @@ interface AmadeusOffer {
 // ─── Amadeus token cache ──────────────────────────────────────────────────────
 let amadeusTokenCache: { token: string; expiresAt: number } | null = null
 
-async function getAmadeusToken(timeoutMs = 10000): Promise<string> {
+async function getAmadeusToken(): Promise<string> {
   if (amadeusTokenCache && Date.now() < amadeusTokenCache.expiresAt - 60000) {
     return amadeusTokenCache.token
   }
@@ -262,7 +262,7 @@ async function getAmadeusToken(timeoutMs = 10000): Promise<string> {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    `grant_type=client_credentials&client_id=${process.env.AMADEUS_API_KEY}&client_secret=${process.env.AMADEUS_API_SECRET}`,
-    signal:  AbortSignal.timeout(timeoutMs),
+    signal:  AbortSignal.timeout(10000),
   })
   if (!res.ok) throw new Error(`Amadeus auth failed: ${res.status}`)
   const data = await res.json() as { access_token: string; expires_in: number }
@@ -270,12 +270,11 @@ async function getAmadeusToken(timeoutMs = 10000): Promise<string> {
   return data.access_token
 }
 
-async function searchAmadeus(origin: string, dest: string, depDate: string, cabin: string, retDate?: string, counts: PassengerCounts = { adults: 1, children: 0, infants: 0 }, deadline?: number): Promise<AmadeusOffer[]> {
-  const cap = (ms: number) => (deadline ? Math.max(1, Math.min(ms, deadline - Date.now())) : ms)
+async function searchAmadeus(origin: string, dest: string, depDate: string, cabin: string, retDate?: string, counts: PassengerCounts = { adults: 1, children: 0, infants: 0 }): Promise<AmadeusOffer[]> {
   const cabinMap: Record<string, string> = {
     economy: 'ECONOMY', premium_economy: 'PREMIUM_ECONOMY', business: 'BUSINESS', first: 'FIRST',
   }
-  const token  = await getAmadeusToken(cap(10000))
+  const token  = await getAmadeusToken()
   const params = new URLSearchParams({
     originLocationCode:      origin,
     destinationLocationCode: dest,
@@ -290,7 +289,7 @@ async function searchAmadeus(origin: string, dest: string, depDate: string, cabi
   if (retDate) params.set('returnDate', retDate)
   const res = await fetch(`https://api.amadeus.com/v2/shopping/flight-offers?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
-    signal:  AbortSignal.timeout(cap(15000)),
+    signal:  AbortSignal.timeout(15000),
   })
   if (!res.ok) throw new Error(`Amadeus search failed: ${res.status}`)
   const data = await res.json() as { data?: AmadeusOffer[] }
@@ -551,7 +550,8 @@ export async function POST(req: NextRequest) {
     // Gender-based default title is live-mode behaviour only; manual/legacy stays 'MR'.
     appGender: body.mode === 'live' ? appGender : undefined,
   })
-  if ((body.mode === 'live' || body.mode === 'manual') && paxNorm.error) {
+  // Adult/infant composition checks are live-search constraints; manual keeps only the 9-passenger cap.
+  if (paxNorm.error && (body.mode === 'live' || (body.mode === 'manual' && paxNorm.passengers.length > MAX_PASSENGERS))) {
     return NextResponse.json({ error: paxNorm.error }, { status: 400 })
   }
 
@@ -748,9 +748,12 @@ export async function POST(req: NextRequest) {
   const paxCounts = paxNorm.counts
   const totalPax  = paxNorm.passengers.length
 
-  // One search attempt for a given passenger mix (Duffel first, Amadeus fallback).
-  const searchOnce = async (counts: PassengerCounts, deadline?: number): Promise<FlightDetails | null> => {
-  const remaining = () => (deadline ? deadline - Date.now() : Infinity)
+  // ONE search only. The passenger composition sent to the supplier is exactly the
+  // passenger list represented on the ticket (no adjustment, no reduced-party fallback).
+  // Passenger-type note: the UI captures a type per passenger but no age / DOB.
+  // Duffel 'child' / 'infant_without_seat' are sent without an age, as in
+  // lib/flights/duffel.ts; fares for them may be approximate. We do NOT guess ages.
+  const counts = paxCounts
   let flightDetails:      FlightDetails | null = null
 
   // ── Try Duffel ──────────────────────────────────────────────────────────────
@@ -763,7 +766,7 @@ export async function POST(req: NextRequest) {
           { data: { slices, passengers: toDuffelPassengers(counts), cabin_class: cabin } },
           { return_offers: 'true', supplier_timeout: '12000' }
         ),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Duffel timeout')), deadline ? Math.max(1, Math.min(20000, remaining())) : 20000)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Duffel timeout')), 20000)),
       ])
       const offers = result.data?.offers ?? []
       if (offers.length > 0) {
@@ -834,10 +837,10 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Amadeus fallback ────────────────────────────────────────────────────────
-  if (!flightDetails && process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET && remaining() > 1000) {
+  if (!flightDetails && process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET) {
     tried.push('Amadeus')
     try {
-      const amOffers = await searchAmadeus(origin, destination, depDate, cabin, retDate || undefined, counts, deadline)
+      const amOffers = await searchAmadeus(origin, destination, depDate, cabin, retDate || undefined, counts)
       if (amOffers.length > 0) {
         const scoreOf = (o: AmadeusOffer) =>
           (PREFERRED_CARRIERS[o.itineraries[0]?.segments[0]?.carrierCode] ?? 5) -
@@ -901,40 +904,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return flightDetails
-  }
-
-  // Total time budget (maxDuration is 60s): the retry only runs if the first pass
-  // finished within RETRY_START_LIMIT_MS, and is capped so start + first pass +
-  // retry stays well under ~55s. Single-passenger path: no retry, unchanged timeouts.
-  const RETRY_START_LIMIT_MS = 20000
-  const RETRY_BUDGET_MS      = 15000
-  const searchStart = Date.now()
-  let flightDetails = await searchOnce(paxCounts)
-  let searchNote: string | undefined
-  if (!flightDetails && totalPax > 1) {
-    const elapsed = Date.now() - searchStart
-    if (elapsed < RETRY_START_LIMIT_MS) {
-      // Safety net: retry ONCE for a single adult (previous behaviour) — never silently.
-      const deadline = Date.now() + Math.min(RETRY_BUDGET_MS, 55000 - elapsed)
-      flightDetails = await searchOnce({ adults: 1, children: 0, infants: 0 }, deadline)
-      if (flightDetails) {
-        searchNote = `No fare available for ${totalPax} passengers; itinerary searched for 1 adult`
-      }
-    }
-    if (!flightDetails) {
-      searchNote = `Group search for ${totalPax} passengers timed out or found no fare; single-adult retry also found no flights`
-    }
-  }
-
   // ── No results ──────────────────────────────────────────────────────────────
   if (!flightDetails) {
     return NextResponse.json({
-      error:      `No flights found for ${origin} → ${destination} on ${depDate}.`,
+      error:      totalPax > 1
+        ? `No live itinerary was found for all ${totalPax} passengers. Adjust the search or use Manual Entry.`
+        : `No flights found for ${origin} → ${destination} on ${depDate}.`,
       tried,
-      params:     { origin, destination, departureDate: depDate },
+      params:     totalPax > 1
+        ? { origin, destination, departureDate: depDate, passengers: totalPax }
+        : { origin, destination, departureDate: depDate },
       suggestion: 'Try different dates or a nearby airport. You can also switch to Manual mode to enter any flight details.',
-      ...(searchNote ? { search_note: searchNote } : {}),
     }, { status: 404 })
   }
 
@@ -1006,7 +986,6 @@ export async function POST(req: NextRequest) {
       pdf_base64:     buf.toString('base64'),
       flight_details: flightDetails,
       ticketData,
-      ...(searchNote ? { search_note: searchNote } : {}),
     })
   } catch (e) {
     console.error('[dummy-ticket/pdf]', e)
