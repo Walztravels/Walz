@@ -15,9 +15,23 @@
 // fallback badge is React-state-driven (`logoFailed`), never DOM-mutated:
 // onError only flips state, and the fallback <span> is plain JSX (React-
 // escaped text interpolation), never innerHTML.
+//
+// V1.4 (Agent A — search UI) — stops/connections and multi-city
+// presentation are derived from offer.journeys[] (the foundation's
+// per-journey shape), never from the old flattened
+// `offer.segments.length - 1` — that flattening only ever reflected
+// journeys[0] (the outbound leg) and silently hid every other leg's stops.
+// Presentation per offer.tripType:
+//  - 'one-way'    → a single unlabeled journey row.
+//  - 'round-trip' → OUTBOUND / RETURN rows (journeys[0]/[1]).
+//  - 'multi-city' → a "MULTI-CITY · N JOURNEYS" header, then one
+//    "JOURNEY 1".."JOURNEY N" row per journeys[] entry — connections stay
+//    nested inside their own journey row, never hoisted into a flat list.
+// In every case there is still exactly ONE total price and ONE "Select &
+// price" action for the whole offer (pricing/add-to-quote is unowned here).
 
 import { useState } from 'react'
-import type { NormalizedFlightOffer } from '@/lib/travel-search/types'
+import type { NormalizedFlightOffer, NormalizedFlightJourney } from '@/lib/travel-search/types'
 import { fmtMinor } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
 
 function formatTime(iso: string): string {
@@ -35,17 +49,54 @@ function formatDuration(mins: number | null): string {
   return `${h}h ${m}m`
 }
 
-function totalDurationMinutes(offer: NormalizedFlightOffer): number | null {
-  const segs = offer.segments
-  if (segs.length === 0) return null
-  const known = segs.every(s => s.durationMinutes != null)
-  if (known) return segs.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
-  try {
-    const start = new Date(segs[0].departureAt).getTime()
-    const end = new Date(segs[segs.length - 1].arrivalAt).getTime()
-    if (Number.isFinite(start) && Number.isFinite(end) && end > start) return Math.round((end - start) / 60000)
-  } catch { /* fall through */ }
-  return null
+// Literal uppercase strings on purpose (not CSS text-transform) — staff-
+// facing badges like "DIRECT" / "1 STOP" / "2 STOPS" are asserted verbatim
+// in tests and should read the same in the DOM as they render on screen.
+function stopsLabel(stops: number): string {
+  if (!Number.isFinite(stops) || stops <= 0) return 'DIRECT'
+  if (stops === 1) return '1 STOP'
+  return `${stops} STOPS`
+}
+
+// "LOS → ADD → DXB · 1 STOP · ADD" — the full route (every segment
+// endpoint, so connection airports are visible inline), then this
+// journey's own stop count, then the connection airport(s) again as a
+// short explicit list. Derived purely from consecutive segments within
+// THIS journey (segment[i].destinationCode for every segment but the
+// last) — never from another journey's segments.
+function journeyRouteLine(journey: NormalizedFlightJourney): string {
+  const segs = journey.segments
+  if (segs.length === 0) return ''
+  const route = [segs[0].originCode, ...segs.map(s => s.destinationCode)].join(' → ')
+  const label = stopsLabel(journey.stops)
+  const connections = segs.length > 1 ? segs.slice(0, -1).map(s => s.destinationCode).join(', ') : null
+  return connections ? `${route} · ${label} · ${connections}` : `${route} · ${label}`
+}
+
+function journeyHeaderLabel(tripType: NormalizedFlightOffer['tripType'], journey: NormalizedFlightJourney, index: number): string | null {
+  if (tripType === 'one-way') return null
+  if (tripType === 'round-trip') return journey.direction === 'return' ? 'RETURN' : 'OUTBOUND'
+  return `JOURNEY ${index + 1}`
+}
+
+function JourneyRow({ tripType, journey, index }: { tripType: NormalizedFlightOffer['tripType']; journey: NormalizedFlightJourney; index: number }) {
+  const segs = journey.segments
+  const first = segs[0]
+  const last = segs[segs.length - 1]
+  const headerLabel = journeyHeaderLabel(tripType, journey, index)
+  if (!first || !last) return null
+  return (
+    <div className={index > 0 ? 'mt-1.5' : undefined}>
+      {headerLabel && (
+        <p className="text-[10px] font-bold text-walz-navy uppercase tracking-wide">{headerLabel}</p>
+      )}
+      <p className="text-xs text-walz-muted-strong">
+        {formatTime(first.departureAt)} {first.originCode} → {formatTime(last.arrivalAt)} {last.destinationCode}
+        {' · '}{formatDuration(journey.durationMinutes)}
+      </p>
+      <p className="text-[11px] text-walz-muted-strong">{journeyRouteLine(journey)}</p>
+    </div>
+  )
 }
 
 function AirlineBadge({ airline, airlineCode }: { airline: string; airlineCode: string | null }) {
@@ -77,10 +128,7 @@ export interface FlightResultCardProps {
 }
 
 export function FlightResultCard({ offer, onSelect }: FlightResultCardProps) {
-  const first = offer.segments[0]
-  const last = offer.segments[offer.segments.length - 1]
-  const stops = offer.segments.length - 1
-  const duration = formatDuration(totalDurationMinutes(offer))
+  const journeys = offer.journeys ?? []
 
   return (
     <li className="rounded-xl border border-walz-border bg-white p-3 hover:border-walz-gold/60 transition-colors">
@@ -91,12 +139,14 @@ export function FlightResultCard({ offer, onSelect }: FlightResultCardProps) {
             <p className="text-sm font-semibold text-walz-deep-navy truncate">{offer.airline}</p>
             <p className="font-mono text-sm font-bold text-walz-deep-navy flex-shrink-0">{fmtMinor(offer.supplierTotalMinor, offer.supplierCurrency)}</p>
           </div>
-          {first && last && (
-            <p className="text-xs text-walz-muted-strong mt-0.5">
-              {formatTime(first.departureAt)} {first.originCode} → {formatTime(last.arrivalAt)} {last.destinationCode}
-              {' · '}{duration}{' · '}{stops === 0 ? 'Non-stop' : `${stops} stop${stops > 1 ? 's' : ''}`}
+          {offer.tripType === 'multi-city' && (
+            <p className="text-[11px] font-bold text-walz-deep-navy uppercase tracking-wide mt-0.5">
+              MULTI-CITY · {journeys.length} JOURNEYS
             </p>
           )}
+          <div className="mt-0.5">
+            {journeys.map((j, i) => <JourneyRow key={i} tripType={offer.tripType} journey={j} index={i} />)}
+          </div>
           <p className="text-[11px] text-walz-muted-strong mt-0.5 capitalize">
             {offer.cabinClass}{offer.checkedBaggage ? ` · ${offer.checkedBaggage}` : ''}
           </p>

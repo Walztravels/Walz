@@ -12,6 +12,21 @@ import type {
   NormalizedFlightSegment,
 } from '@/lib/travel-search/types'
 
+// V1.4 — manual-selling-price pricing mode (flight only for now; hotel/
+// activity/transfer keep sending no `pricingMode` at all and behave exactly
+// as before — see the flight branch below). Not on AddToQuotePayload itself
+// (that type lives outside this route's file ownership for this change) —
+// intersected locally here instead of widening the shared type.
+type FlightAddToQuotePayload = Extract<AddToQuotePayload, { type: 'flight' }> & {
+  pricingMode?: 'markup' | 'manual'
+  /** Only meaningful when pricingMode === 'manual'. The final client-facing
+   *  total staff typed, in the SAME (pre-FX-conversion) currency as
+   *  `costMinor`/`payload.currency` — never trusted as-is; only used after
+   *  the cost it is checked against has been independently re-verified via
+   *  revalidateFlightTotalMinor below. */
+  manualSellingPriceMinor?: number
+}
+
 export const dynamic = 'force-dynamic'
 
 // Closing fix (security + QA review, 2026-09-19): re-verify the freshly
@@ -156,8 +171,31 @@ export async function POST(req: NextRequest) {
   // any client-submitted rate/converted amount.
 
   if (payload.type === 'flight') {
-    const { offer, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
-            isRecommended, label, clientNote, internalNote } = payload
+    const flightPayload = payload as FlightAddToQuotePayload
+    const { offer, costMinor, markupMinor: payloadMarkupMinor, serviceFeeMinor, sellingPriceMinor: payloadSellingPriceMinor, currency,
+            isRecommended, label, clientNote, internalNote, pricingMode, manualSellingPriceMinor } = flightPayload
+
+    // V1.4 — duplicate-add protection. A double-click (or a retried request
+    // whose first attempt actually succeeded) must never create a second
+    // QuoteFlightOption/QuoteItem pair for the same offer on the same
+    // quote. Checked BEFORE the live Duffel revalidation call below, both to
+    // avoid an unnecessary supplier round-trip on a genuine duplicate and to
+    // keep this the very first thing that happens for a flight add. Not an
+    // error: the existing item is handed back with `duplicate: true` so the
+    // client can show "Already added" instead of silently double-adding.
+    const existingOption = await prisma.quoteFlightOption.findFirst({
+      where: { quoteId: quote.id, duffelOfferId: offer.providerOfferId },
+      include: { segments: true, items: true },
+    })
+    if (existingOption) {
+      const { items: existingItems, ...existingOptionRest } = existingOption
+      return NextResponse.json({
+        type: 'flight',
+        duplicate: true,
+        flightOption: bigintToNumber(existingOptionRest),
+        item: existingItems[0] ? bigintToNumber(existingItems[0]) : null,
+      })
+    }
 
     // Price verification (defense in depth — do NOT trust client-submitted
     // costMinor): re-fetch the live Duffel offer, the same call
@@ -187,6 +225,35 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // V1.4 — manual selling-price mode. `costMinor` at this point IS
+    // `revalidated.totalAmountMinor` (the check above already rejected any
+    // mismatch) — the one and only server-verified figure this derivation
+    // is allowed to use. The client-submitted markupMinor/sellingPriceMinor
+    // are DELIBERATELY NOT trusted here: only the raw manualSellingPriceMinor
+    // figure (the number staff actually typed) and the already-established
+    // serviceFeeMinor (an internal Walz figure with no supplier-side
+    // verification, exactly as markup mode already trusts it) feed the
+    // derivation. `pricingMode` absent/'markup' behaves EXACTLY as before —
+    // this block is skipped entirely and payload's own markup/selling figures
+    // pass straight through, unchanged from pre-V1.4 behavior.
+    let markupMinor = payloadMarkupMinor
+    let sellingPriceMinor = payloadSellingPriceMinor
+    if (pricingMode === 'manual') {
+      if (
+        typeof manualSellingPriceMinor !== 'number' ||
+        !Number.isFinite(manualSellingPriceMinor) ||
+        !Number.isInteger(manualSellingPriceMinor) ||
+        manualSellingPriceMinor <= 0
+      ) {
+        return NextResponse.json(
+          { error: 'Enter a valid manual selling price before adding to quote.', code: 'INVALID_MANUAL_PRICE' },
+          { status: 400 },
+        )
+      }
+      sellingPriceMinor = manualSellingPriceMinor
+      markupMinor = manualSellingPriceMinor - costMinor
+    }
+
     // V1.3 — server-authoritative FX. `currency` above is the VERIFIED
     // supplier currency (just confirmed to match Duffel's own live offer
     // currency). If it differs from the quote's target currency, convert
@@ -198,7 +265,10 @@ export async function POST(req: NextRequest) {
     // cost) ahead of the later UI-integration phase. The verified supplier
     // amount is preserved unconverted in supplierCostMinor/supplierCurrency
     // for margin/reconciliation, per the non-negotiable "never relabel"
-    // requirement.
+    // requirement. This is identical for manual mode: sellingPriceMinor/
+    // markupMinor above are already resolved by this point, so the FX
+    // arithmetic below has no idea (and does not need to know) which mode
+    // produced them.
     let finalCostMinor = costMinor
     let finalMarkupMinor = markupMinor
     let finalServiceFeeMinor = serviceFeeMinor
@@ -224,7 +294,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const allSegs: NormalizedFlightSegment[] = [...offer.segments, ...offer.returnSegments]
+    // V1.4 — build from EVERY journey (offer.journeys[]), not just the
+    // 2-leg-only segments+returnSegments pair: a 3+-journey multi-city offer
+    // (from the now-fixed journeys[] normalisation) previously lost every
+    // journey beyond the first two. `journeys` is only absent on an older/
+    // minimal offer fixture — the segments+returnSegments fallback preserves
+    // exact prior behavior for that case (one-way: returnSegments is simply
+    // empty; round-trip: the same 2-leg pair as before). Order is preserved
+    // either way.
+    const allSegs: NormalizedFlightSegment[] = offer.journeys?.length
+      ? offer.journeys.flatMap(j => j.segments)
+      : [...offer.segments, ...offer.returnSegments]
     const firstSeg = allSegs[0]
 
     const flightOption = await prisma.quoteFlightOption.create({

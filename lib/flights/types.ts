@@ -24,6 +24,10 @@ export interface FlightSearchParams {
   legs:        FlightLeg[]
   flexDates?:  boolean
   directOnly?: boolean
+  /** Server-side stop preference: 0 = direct only, 1 = max 1 stop, 2 = max 2
+   *  stops, undefined = any. Applies to EACH leg/journey independently, never
+   *  to a summed total across the whole trip. */
+  maxConnections?: 0 | 1 | 2
 }
 
 export interface Airport {
@@ -80,15 +84,33 @@ export interface BaggageInfo {
   included: boolean
 }
 
+/**
+ * One leg of a trip — a round-trip has 2, a multi-city trip has N. Kept
+ * alongside (not instead of) the legacy segments/returnSegments fields below
+ * so existing 2-leg-only consumers (seat-map, offers, search, add-to-quote,
+ * revalidate, Jade) see byte-identical output; only journeys[] carries every
+ * slice of a 3+ leg multi-city offer.
+ */
+export interface FlightJourney {
+  direction:      'outbound' | 'return' | 'leg'
+  segments:       FlightSegment[]
+  stops:          number
+  durationMinutes: number
+  layovers:       LayoverInfo[]
+}
+
 export interface FlightItinerary {
   id:              string
-  segments:        FlightSegment[]     // outbound segments
+  segments:        FlightSegment[]     // outbound segments (= journeys[0])
   stops:           number
   totalDuration:   number
   layovers:        LayoverInfo[]
-  returnSegments?: FlightSegment[]     // return leg segments (round-trip only)
+  returnSegments?: FlightSegment[]     // return leg segments (= journeys[1], round-trip only)
   returnDuration?: number
   returnLayovers?: LayoverInfo[]
+  /** EVERY leg of the offer, in order. Length 1 = one-way, 2 = return or a
+   *  2-leg multi-city, 3+ = multi-city. Never truncated. */
+  journeys?:       FlightJourney[]
   price:           FarePrice
   fareType:        FareType
   refundable:      boolean

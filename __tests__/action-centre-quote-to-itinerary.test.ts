@@ -12,6 +12,7 @@
 import fs from 'fs'
 import path from 'path'
 import { buildItineraryDraftFromQuote, type QuoteForConversion, type QuoteItemForConversion, type QuoteFlightOptionForConversion, type QuoteHotelOptionForConversion, type QuoteMediaForConversion } from '@/lib/action-centre/quote-to-itinerary'
+import { isUnifiedFlight, sumClientTotals, type UnifiedFlightBooking } from '@/lib/itinerary/unified-booking'
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 
@@ -69,6 +70,7 @@ const FLIGHT: QuoteFlightOptionForConversion = {
   sortOrder: 0,
   sellingPriceMinor: BigInt(60000),
   currency: 'GBP',
+  tripType: 'return',
   segments: [
     {
       segmentOrder: 0,
@@ -161,12 +163,13 @@ describe('buildItineraryDraftFromQuote — price-unit conversion', () => {
     expect(draft.totalPrice).toBeNull()
   })
 
-  it('flight option selling price is attached only to the FIRST segment (no double count in componentPrices sums)', () => {
+  it('flight option selling price is attached ONCE at booking level (one unified row per option, not per segment — no double count in componentPrices sums)', () => {
     const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [FLIGHT], NO_HOTELS, NO_MEDIA)
-    const flights = JSON.parse(draft.flights) as Array<{ cost?: number }>
-    expect(flights).toHaveLength(2)
-    expect(flights[0].cost).toBe(600) // 60000 minor / 100
-    expect(flights[1].cost).toBeUndefined()
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights).toHaveLength(1) // ONE QuoteFlightOption → ONE unified row, not one per segment
+    expect(flights[0].cost).toBe(600) // 60000 minor / 100 — booking-level, once
+    expect(flights[0].supplierCost).toBe(0) // no supplierCostMinor/costMinor on this fixture
+    expect(sumClientTotals(flights as unknown as Array<Record<string, unknown>>)).toBe(600)
   })
 
   it('hotel option selling price converts correctly', () => {
@@ -191,15 +194,119 @@ describe('buildItineraryDraftFromQuote — price-unit conversion', () => {
 // ── Shape correctness ────────────────────────────────────────────────────
 
 describe('buildItineraryDraftFromQuote — shape correctness', () => {
-  it('maps flights into the exact RawFlight shape _ProposalPage.tsx/page.tsx read (from/to/fromCity/toCity/airline/flightNumber/date/departureTime/arrivalTime/class/stops/cost)', () => {
+  it('maps flights into the UnifiedFlightBooking shape (bookingKind/journeys/id, legacy-mirror top-level fields, booking-level cost once) that _ProposalPage.tsx/page.tsx and the itinerary planner already read for research-added flights', () => {
     const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [FLIGHT], NO_HOTELS, NO_MEDIA)
-    const flights = JSON.parse(draft.flights)
-    expect(flights[0]).toMatchObject({
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights).toHaveLength(1)
+    const row = flights[0]
+    expect(isUnifiedFlight(row as unknown as Record<string, unknown>)).toBe(true)
+    expect(typeof row.id).toBe('string')
+    expect(row.id.length).toBeGreaterThan(0)
+    expect(row.bookingKind).toBe('unified-flight')
+    expect(row.tripType).toBe('return')
+    expect(row.journeys).toHaveLength(2)
+    expect(row.journeys[0].direction).toBe('outbound')
+    expect(row.journeys[1].direction).toBe('return')
+    expect(row.journeys[0].segments).toHaveLength(1)
+    expect(row.journeys[1].segments).toHaveLength(1)
+    // legacy-mirror top-level fields — first journey's first segment
+    expect(row.journeys[0].segments[0]).toMatchObject({
       from: 'LHR', to: 'DXB', fromCity: 'London', toCity: 'Dubai',
       airline: 'Emirates', flightNumber: 'EK002', date: '2026-11-01',
-      departureTime: '10:00', arrivalTime: '20:30', class: 'Business', stops: 0,
-      airlineLogoUrl: 'https://cdn.example.com/ek.png',
+      time: '10:00', arrivalTime: '20:30', cabin: 'Business',
     })
+    expect(row.journeys[1].segments[0]).toMatchObject({
+      from: 'DXB', to: 'LHR', fromCity: 'Dubai', toCity: 'London',
+      flightNumber: 'EK001', date: '2026-11-08', time: '14:00', arrivalTime: '18:00',
+    })
+    expect(row).toMatchObject({
+      from: 'LHR', to: 'LHR', airline: 'Emirates', flightNumber: 'EK002',
+      class: 'Business', airlineLogoUrl: 'https://cdn.example.com/ek.png',
+      cost: 600, supplierCost: 0,
+    })
+    expect(row.pricing).toMatchObject({ currency: 'GBP', clientTotal: 600 })
+    // no duffelOfferId on this fixture — manual-origin, no fabricated offer
+    expect(row.offer).toBeUndefined()
+  })
+
+  it('one-way quote flight (tripType one-way) maps to a single outbound journey', () => {
+    const oneWay: QuoteFlightOptionForConversion = {
+      ...FLIGHT,
+      tripType: 'one-way',
+      segments: [FLIGHT.segments[0]],
+    }
+    const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [oneWay], NO_HOTELS, NO_MEDIA)
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights).toHaveLength(1)
+    expect(flights[0].tripType).toBe('one-way')
+    expect(flights[0].journeys).toHaveLength(1)
+    expect(flights[0].journeys[0].direction).toBe('outbound')
+    expect(flights[0].journeys[0].segments).toHaveLength(1)
+    expect(flights[0].cost).toBe(600)
+  })
+
+  it('a quote option with segments but no tripType set falls back to ONE outbound journey holding every segment (documented fallback — no split is guessed from segment order)', () => {
+    const noTripType: QuoteFlightOptionForConversion = {
+      ...FLIGHT,
+      tripType: undefined,
+    }
+    const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [noTripType], NO_HOTELS, NO_MEDIA)
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights).toHaveLength(1)
+    expect(flights[0].tripType).toBe('one-way') // fallback label — see module report
+    expect(flights[0].journeys).toHaveLength(1)
+    expect(flights[0].journeys[0].segments).toHaveLength(2) // BOTH segments kept, undivided
+    expect(flights[0].cost).toBe(600) // price still booking-level, once
+  })
+
+  it('a "return" option with 3 segments and NO reset signal (strictly increasing segmentOrder) does not guess an uneven 1+2 split — it safely falls back to one journey rather than mislabel which segments are outbound vs return', () => {
+    const ambiguousReturn: QuoteFlightOptionForConversion = {
+      ...FLIGHT,
+      tripType: 'return',
+      segments: [
+        { ...FLIGHT.segments[0], segmentOrder: 0, originCode: 'LHR', destinationCode: 'CDG', flightNumber: 'BA1' },
+        { ...FLIGHT.segments[0], segmentOrder: 1, originCode: 'CDG', destinationCode: 'DXB', flightNumber: 'EK9' },
+        { ...FLIGHT.segments[1], segmentOrder: 2, originCode: 'DXB', destinationCode: 'LHR', flightNumber: 'EK1' },
+      ],
+    }
+    const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [ambiguousReturn], NO_HOTELS, NO_MEDIA)
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights).toHaveLength(1)
+    // Must NOT confidently (and wrongly) split into a 1-segment "outbound"
+    // (LHR->CDG) and a 2-segment "return" (CDG->DXB, DXB->LHR) — that would
+    // mislabel the CDG->DXB leg as part of the return journey.
+    expect(flights[0].journeys).toHaveLength(1)
+    expect(flights[0].journeys[0].segments).toHaveLength(3)
+    expect(flights[0].journeys[0].segments.map((s) => s.flightNumber)).toEqual(['BA1', 'EK9', 'EK1'])
+    expect(flights[0].cost).toBe(600) // price still booking-level, once
+  })
+
+  it('a manually-entered quote flight option (no duffelOfferId) omits `offer` rather than fabricating a supplier offer id, while still using the unified shape', () => {
+    const manual: QuoteFlightOptionForConversion = { ...FLIGHT, duffelOfferId: null }
+    const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [manual], NO_HOTELS, NO_MEDIA)
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights[0].bookingKind).toBe('unified-flight')
+    expect(flights[0].offer).toBeUndefined()
+  })
+
+  it('a live-search-origin quote flight option (duffelOfferId set) carries an `offer` snapshot with the real provider offer id', () => {
+    const liveSearch: QuoteFlightOptionForConversion = {
+      ...FLIGHT,
+      duffelOfferId: 'off_00009hthhsUZ8W4LxQgkjb',
+      costMinor: BigInt(50000),
+      supplierCostMinor: BigInt(50000),
+      supplierCurrency: 'GBP',
+    }
+    const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [liveSearch], NO_HOTELS, NO_MEDIA)
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights[0].offer).toMatchObject({
+      provider: 'duffel',
+      providerOfferId: 'off_00009hthhsUZ8W4LxQgkjb',
+      supplierCurrency: 'GBP',
+      supplierTotal: 500,
+    })
+    expect(flights[0].supplierCost).toBe(500)
+    expect(flights[0].cost).toBe(600) // client total unaffected by supplier fields
   })
 
   it('maps hotels into the exact RawHotel shape (name/location/checkIn/checkOut/roomType/nights/mealPlan/images/cost)', () => {

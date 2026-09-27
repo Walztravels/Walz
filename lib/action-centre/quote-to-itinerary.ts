@@ -29,6 +29,14 @@
  */
 
 import { minorToDecimal } from '@/lib/currency'
+import type {
+  BookingPricing,
+  FlightJourney,
+  FlightTripType,
+  UnifiedFlightBooking,
+  UnifiedSegment,
+} from '@/lib/itinerary/unified-booking'
+import { sumClientTotals } from '@/lib/itinerary/unified-booking'
 
 // ── Inputs (subset of the Prisma Quote/QuoteItem/... rows we actually need) ──
 
@@ -71,10 +79,18 @@ export interface QuoteFlightSegmentForConversion {
   arrivalAt: Date
   flightNumber: string | null
   stops: number
+  // V1.4 — Agent D (quote → itinerary conversion, unified-flight shape).
+  // Optional/nullable so callers/fixtures that don't set it keep compiling;
+  // Prisma's `include: { flightOptions: { include: { segments: true } } }`
+  // in the convert route (untouched — not this module's file) already
+  // returns the full QuoteFlightSegment row, no `select` narrowing, so this
+  // is already present at runtime once the route re-reads a fresh row.
+  durationMinutes?: number | null
 }
 
 export interface QuoteFlightOptionForConversion {
   airline: string
+  airlineCode?: string | null
   airlineLogoUrl: string | null
   cabinClass: string
   isRecommended: boolean
@@ -82,6 +98,19 @@ export interface QuoteFlightOptionForConversion {
   sellingPriceMinor: bigint
   currency: string
   segments: QuoteFlightSegmentForConversion[]
+  // V1.4 — Agent D: fields needed to build a UnifiedFlightBooking row (one
+  // row per option, see mapFlights) instead of one legacy row per segment.
+  // All optional/nullable — see the segment comment above for why this is
+  // safe without a query change (full QuoteFlightOption row already flows
+  // through the existing `include`).
+  tripType?: string | null
+  costMinor?: bigint | null
+  markupMinor?: bigint | null
+  supplierCostMinor?: bigint | null
+  supplierCurrency?: string | null
+  duffelOfferId?: string | null
+  createdAt?: Date | null
+  fareExpiresAt?: Date | null
 }
 
 export interface QuoteHotelOptionForConversion {
@@ -140,15 +169,12 @@ export interface ItineraryDraftFields {
 }
 
 // ── Raw* JSON shapes (mirrors app/itinerary/[ref]/page.tsx's Raw* types) ──
+//
+// Flights are the one exception: since V1.4 (Agent D), `flights` holds
+// UnifiedFlightBooking rows (lib/itinerary/unified-booking.ts) — the same
+// shape Research → Add to Itinerary produces — instead of one legacy
+// per-segment row per QuoteFlightSegment. See mapFlights below.
 
-interface RawFlight {
-  from?: string; to?: string; fromCity?: string; toCity?: string
-  airline?: string; flightNumber?: string; date?: string
-  departureTime?: string; arrivalTime?: string
-  class?: string; stops?: number
-  airlineLogoUrl?: string
-  cost?: number | null
-}
 interface RawHotel {
   name?: string; location?: string; checkIn?: string; checkOut?: string
   roomType?: string; nights?: number; mealPlan?: string; images?: string[]
@@ -237,36 +263,263 @@ function deriveDateRange(
   return { startDate: sorted[0], endDate: sorted[sorted.length - 1] }
 }
 
-function mapFlights(flightOptions: QuoteFlightOptionForConversion[]): RawFlight[] {
-  const out: RawFlight[] = []
-  for (const opt of [...flightOptions].sort((a, b) => a.sortOrder - b.sortOrder)) {
-    const segments = [...opt.segments].sort((a, b) => a.segmentOrder - b.segmentOrder)
-    segments.forEach((seg, i) => {
-      out.push({
-        from: seg.originCode,
-        to: seg.destinationCode,
-        fromCity: seg.originCity ?? undefined,
-        toCity: seg.destinationCity ?? undefined,
-        airline: opt.airline,
-        flightNumber: seg.flightNumber ?? undefined,
-        date: isoDate(seg.departureAt),
-        departureTime: isoTime(seg.departureAt),
-        arrivalTime: isoTime(seg.arrivalAt),
-        class: opt.cabinClass,
-        stops: seg.stops,
-        airlineLogoUrl: opt.airlineLogoUrl ?? undefined,
-        // The flight OPTION carries one selling price for the whole
-        // journey (which may span several segments, e.g. outbound +
-        // return, or a connection). Attaching it to every segment would
-        // double-count in the proposal page's componentPrices sum
-        // (app/itinerary/[ref]/page.tsx's _sumClientPrice adds every
-        // flights[].cost) — so only the FIRST segment of each option
-        // carries the price.
-        cost: i === 0 ? money(opt.sellingPriceMinor, opt.currency) : undefined,
-      })
-    })
+/** Same non-DB id convention lib/itinerary/research-add.ts's freshId() uses
+ * for JSON-row (not Prisma-row) ids — this module is a pure function and
+ * never touches the database, so a local generator matching that format
+ * (rather than importing across the itinerary-owned file boundary) keeps
+ * the two modules independently editable. */
+function freshFlightRowId(): string {
+  return `bk_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+}
+
+/** 'one-way'/'oneway', 'return'/'round-trip'/'roundtrip', 'multi-city'/
+ * 'multicity' (case/separator-insensitive) → the FlightTripType union.
+ * Anything else (including the Prisma column's bare default "roundtrip"
+ * written by nothing real, or a genuinely absent value) is UNRECOGNISED. */
+function normalizeTripType(raw: string | null | undefined): FlightTripType | null {
+  const s = (raw ?? '').trim().toLowerCase().replace(/[\s_]/g, '-')
+  if (s === 'one-way' || s === 'oneway') return 'one-way'
+  if (s === 'return' || s === 'round-trip' || s === 'roundtrip') return 'return'
+  if (s === 'multi-city' || s === 'multicity') return 'multi-city'
+  return null
+}
+
+function sortByOrder(segs: QuoteFlightSegmentForConversion[]): QuoteFlightSegmentForConversion[] {
+  return [...segs].sort((a, b) => a.segmentOrder - b.segmentOrder)
+}
+
+/**
+ * Split one option's FLAT segment list (in the order it was supplied — see
+ * below for why this must not be a blind global sort) into journeys/legs.
+ *
+ * `segmentOrder` means two different things depending on how the option
+ * was created (an existing inconsistency in this codebase, not introduced
+ * here): live-search imports (app/api/admin/travel-search/add-to-quote/
+ * route.ts's `allSegs = [...offer.segments, ...offer.returnSegments]`,
+ * built from per-journey-zero-based NormalizedFlightSegment.segmentOrder)
+ * RESET to 0 at the start of every leg, while manually-entered options
+ * give every segment in the option one incrementing index with no resets.
+ * We detect which convention is in play from the data itself:
+ *   - a repeated/non-increasing segmentOrder value anywhere in the
+ *     supplied order → per-leg-reset convention → split wherever the
+ *     order does not strictly increase versus the previous segment.
+ *   - otherwise (strictly increasing, no repeats) → split evenly by the
+ *     requested journey count, in segmentOrder order (this is the common
+ *     manual-entry, direct-flights case: a 2-segment return becomes one
+ *     outbound + one return segment).
+ * `journeyCount` is a target for the second case only; the reset-detection
+ * branch always reports the legs the data itself shows.
+ */
+function splitSegmentsIntoLegs(
+  segments: QuoteFlightSegmentForConversion[],
+  journeyCount: number,
+): QuoteFlightSegmentForConversion[][] {
+  if (segments.length === 0) return []
+  if (journeyCount <= 1) return [sortByOrder(segments)]
+
+  const seen = new Set<number>()
+  let hasReset = false
+  for (const s of segments) {
+    if (seen.has(s.segmentOrder)) { hasReset = true; break }
+    seen.add(s.segmentOrder)
   }
-  return out
+
+  if (hasReset) {
+    const legs: QuoteFlightSegmentForConversion[][] = []
+    let current: QuoteFlightSegmentForConversion[] = []
+    for (const s of segments) {
+      if (current.length > 0 && s.segmentOrder <= current[current.length - 1].segmentOrder) {
+        legs.push(current)
+        current = []
+      }
+      current.push(s)
+    }
+    if (current.length > 0) legs.push(current)
+    return legs
+  }
+
+  // No reset signal: only split when segments divide EVENLY across the
+  // journeys (an unambiguous case, e.g. 1-per-leg or 2-per-leg symmetric
+  // connections). An uneven count (e.g. 3 segments / 2 journeys) has no
+  // confident split — return everything as ONE leg so the caller's
+  // `legs.length !== journeyCount` check falls back to the safe
+  // single-journey representation instead of silently mislabeling which
+  // segments belong to which direction.
+  const sorted = sortByOrder(segments)
+  if (sorted.length % journeyCount !== 0) return [sorted]
+  const perLeg = sorted.length / journeyCount
+  const legs: QuoteFlightSegmentForConversion[][] = []
+  for (let i = 0; i < journeyCount; i++) {
+    const start = i * perLeg
+    const slice = sorted.slice(start, start + perLeg)
+    if (slice.length > 0) legs.push(slice)
+  }
+  return legs
+}
+
+function toUnifiedSegment(seg: QuoteFlightSegmentForConversion, opt: QuoteFlightOptionForConversion): UnifiedSegment {
+  return {
+    from: seg.originCode,
+    to: seg.destinationCode,
+    fromCity: seg.originCity ?? null,
+    toCity: seg.destinationCity ?? null,
+    airline: opt.airline,
+    iataCode: opt.airlineCode ?? null,
+    flightNumber: seg.flightNumber ?? '',
+    departureAt: seg.departureAt.toISOString(),
+    arrivalAt: seg.arrivalAt.toISOString(),
+    date: isoDate(seg.departureAt),
+    time: isoTime(seg.departureAt),
+    arrivalTime: isoTime(seg.arrivalAt),
+    durationMinutes: seg.durationMinutes ?? null,
+    cabin: opt.cabinClass,
+    baggage: null,
+  }
+}
+
+function toJourney(
+  segs: QuoteFlightSegmentForConversion[],
+  index: number,
+  direction: FlightJourney['direction'],
+  opt: QuoteFlightOptionForConversion,
+): FlightJourney {
+  const sorted = sortByOrder(segs)
+  const segments = sorted.map(s => toUnifiedSegment(s, opt))
+  const summed = segments.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
+  return {
+    index,
+    direction,
+    segments,
+    durationMinutes: summed > 0 ? summed : null,
+    stops: Math.max(0, segments.length - 1),
+  }
+}
+
+/**
+ * Groups one option's segments into FlightJourney[] using the option's OWN
+ * `tripType` — never guessed from segment order (see module report).
+ *
+ * FALLBACK RULE (documented, tested): when `tripType` is missing or an
+ * unrecognised string, we do NOT attempt a structural split — every
+ * segment goes into a single 'outbound' journey. A staff-reviewed DRAFT
+ * itinerary with every segment visible under one heading is safer than a
+ * confidently wrong outbound/return split, and the option's booking-level
+ * price is unaffected either way (it is never attached per-segment).
+ */
+function groupSegmentsByTripType(
+  segments: QuoteFlightSegmentForConversion[],
+  opt: QuoteFlightOptionForConversion,
+): { tripType: FlightTripType; journeys: FlightJourney[] } {
+  if (segments.length === 0) return { tripType: 'one-way', journeys: [] }
+  const kind = normalizeTripType(opt.tripType)
+
+  if (kind === null || kind === 'one-way') {
+    return { tripType: kind ?? 'one-way', journeys: [toJourney(segments, 0, 'outbound', opt)] }
+  }
+
+  if (kind === 'return') {
+    const legs = splitSegmentsIntoLegs(segments, 2)
+    if (legs.length !== 2) {
+      // Couldn't confidently find 2 legs (malformed/short data) — keep the
+      // safe single-journey fallback rather than guess a bad split.
+      return { tripType: 'return', journeys: [toJourney(segments, 0, 'outbound', opt)] }
+    }
+    return {
+      tripType: 'return',
+      journeys: [toJourney(legs[0], 0, 'outbound', opt), toJourney(legs[1], 1, 'return', opt)],
+    }
+  }
+
+  // multi-city — one journey per structurally-detected leg (or, absent any
+  // reset signal, one segment per leg — the common case for this system).
+  const legs = splitSegmentsIntoLegs(segments, segments.length)
+  return { tripType: 'multi-city', journeys: legs.map((legSegs, i) => toJourney(legSegs, i, 'leg', opt)) }
+}
+
+/**
+ * ONE QuoteFlightOption → ONE UnifiedFlightBooking row (never one row per
+ * segment — see module report). Mirrors research-add.ts's
+ * buildUnifiedFlightFromDuffelOffer field-population pattern, adapted to a
+ * quote's own fields instead of a raw Duffel offer.
+ */
+function buildUnifiedFlightFromQuoteOption(opt: QuoteFlightOptionForConversion): UnifiedFlightBooking {
+  const { tripType, journeys } = groupSegmentsByTripType(opt.segments, opt)
+  const firstJourney = journeys[0]
+  const lastJourney = journeys[journeys.length - 1]
+  const first = firstJourney?.segments[0]
+  const lastOfLast = lastJourney?.segments[lastJourney.segments.length - 1]
+
+  const clientTotal = money(opt.sellingPriceMinor, opt.currency)
+  const supplierCurrency = opt.supplierCurrency ?? opt.currency
+  // Prefer the verified supplier cost (supplierCostMinor, in its own
+  // currency) over the plain costMinor (already in the quote's currency)
+  // — the same preference order as the QuoteItem V1.3 FX-provenance fields
+  // this mirrors (see the schema comment on QuoteFlightOption).
+  const supplierTotal = opt.supplierCostMinor != null
+    ? money(opt.supplierCostMinor, supplierCurrency)
+    : opt.costMinor != null
+      ? money(opt.costMinor, opt.currency)
+      : 0
+
+  const pricing: BookingPricing = {
+    currency: opt.currency,
+    supplierTotal,
+    markupPercent: null,
+    markupAmount: opt.markupMinor != null ? money(opt.markupMinor, opt.currency) : null,
+    clientTotal,
+    supplierCurrency: opt.supplierCurrency ?? null,
+    supplierTotalOriginal: opt.supplierCostMinor != null ? supplierTotal : null,
+    source: 'quote',
+  }
+
+  const row: UnifiedFlightBooking = {
+    id: freshFlightRowId(),
+    bookingKind: 'unified-flight',
+    tripType,
+    journeys,
+    from: first?.from ?? '',
+    to: lastOfLast?.to ?? '',
+    airline: opt.airline,
+    iataCode: opt.airlineCode ?? '',
+    flightNumber: first?.flightNumber ?? '',
+    date: first?.date ?? '',
+    time: first?.time ?? '',
+    arrivalTime: lastOfLast?.arrivalTime ?? '',
+    class: opt.cabinClass,
+    pnr: '',
+    // BOOKING-LEVEL prices, each exactly once — never split/duplicated
+    // across journeys (sumClientTotals() adds `cost` once per row).
+    cost: clientTotal,
+    supplierCost: supplierTotal,
+    status: 'Pending',
+    notes: '',
+    pricing,
+    addedFrom: 'quote',
+    ...(opt.airlineLogoUrl ? { airlineLogoUrl: opt.airlineLogoUrl } : {}),
+  }
+
+  // A manually-entered quote flight (no duffelOfferId) has no supplier
+  // offer to snapshot — exactly like a manual dummy-ticket/itinerary entry
+  // has none. `offer` is optional on UnifiedFlightBooking, so it is
+  // omitted rather than fabricated for these rows.
+  if (opt.duffelOfferId) {
+    row.offer = {
+      provider: 'duffel',
+      providerOfferId: opt.duffelOfferId,
+      searchedAt: (opt.createdAt ?? new Date()).toISOString(),
+      expiresAt: opt.fareExpiresAt ? opt.fareExpiresAt.toISOString() : null,
+      supplierCurrency,
+      supplierTotal,
+    }
+  }
+
+  return row
+}
+
+function mapFlights(flightOptions: QuoteFlightOptionForConversion[]): UnifiedFlightBooking[] {
+  return [...flightOptions]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map(opt => buildUnifiedFlightFromQuoteOption(opt))
 }
 
 function mapHotels(
@@ -371,6 +624,29 @@ export function buildItineraryDraftFromQuote(
 ): ItineraryDraftFields {
   const { startDate, endDate } = deriveDateRange(hotelOptions, flightOptions)
   const { tours, transfers } = mapToursAndTransfers(items)
+  const flights = mapFlights(flightOptions)
+  const hotels = mapHotels(hotelOptions, media)
+
+  // Nice-to-have cross-check (V1.4 — see module report, item 6): confirms
+  // this rewrite did not change the AGGREGATE flights total — only how
+  // each option's one price is represented (one unified row instead of
+  // one row per segment). This is a self-consistency check of mapFlights,
+  // not a general Quote.totalMinor reconciliation: Quote.totalMinor is
+  // computed (app/api/admin/quotes/route.ts) from only clientVisible
+  // items + RECOMMENDED flight/hotel options, while flights/hotels here
+  // include every option (recommended and alternatives) as draft rows —
+  // a pre-existing, intentional mismatch this module does not change or
+  // attempt to reconcile (out of scope; the itinerary planner's own
+  // isTotalStale already covers staleness once a draft is opened there).
+  // totalPrice below is never touched by this check.
+  const flightsSellingTotal = flightOptions.reduce((s, o) => s + money(o.sellingPriceMinor, o.currency), 0)
+  const flightsMappedTotal = sumClientTotals(flights as unknown as Array<Record<string, unknown>>)
+  if (Math.abs(flightsMappedTotal - flightsSellingTotal) > 0.01) {
+    // eslint-disable-next-line no-console -- staff-visible diagnostic only, never thrown/blocking
+    console.warn(
+      `[quote-to-itinerary] Quote ${quote.reference}: mapped flights total (${flightsMappedTotal}) does not match the sum of flight options' sellingPriceMinor (${flightsSellingTotal}) — a booking-level price was lost or duplicated during conversion.`,
+    )
+  }
 
   return {
     title: quote.title,
@@ -382,8 +658,8 @@ export function buildItineraryDraftFromQuote(
     endDate,
     numberOfTravellers: deriveNumberOfTravellers(hotelOptions),
     currency: quote.currency,
-    flights: JSON.stringify(mapFlights(flightOptions)),
-    hotels: JSON.stringify(mapHotels(hotelOptions, media)),
+    flights: JSON.stringify(flights),
+    hotels: JSON.stringify(hotels),
     tours: JSON.stringify(tours),
     transfers: JSON.stringify(transfers),
     totalPrice: quote.totalMinor > BigInt(0) ? money(quote.totalMinor, quote.currency) : null,

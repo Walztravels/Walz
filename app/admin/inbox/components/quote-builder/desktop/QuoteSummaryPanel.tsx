@@ -44,6 +44,18 @@ import type { AttachedLiveItem, LiveServiceType, QuoteBuilderState, ServiceKey }
 import { fmtMinor, statusLabel, CURRENCIES } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
 import { inputCls, labelCls } from '@/app/admin/inbox/components/quote-builder/styles'
 
+// V1.4 — margin convention for the "Edit pricing" preview, matched EXACTLY
+// to calculateBookingPrice's own formula (lib/pricing/booking-price.ts:
+// 82-86): grossProfit = sellingPrice - netAmount (cost); marginPercent =
+// grossProfit / sellingPrice * 100. Not reinvented — this is the identical
+// arithmetic SelectPricePanel's own manual-mode preview uses (see
+// desktop/SelectPricePanel.tsx), applied here to an already-attached item's
+// stored costMinor instead of a pending offer's supplierMinor.
+function marginPercentOf(sellingMinor: number, costMinor: number): number {
+  if (sellingMinor <= 0) return 0
+  return Math.round(((sellingMinor - costMinor) / sellingMinor) * 10000) / 100
+}
+
 export interface QuoteSummaryPanelProps {
   state: QuoteBuilderState
 }
@@ -91,19 +103,40 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
   // V1.3 — inline "Edit pricing" for one attached item at a time. Plain
   // local UI state (per this file's own established convention: the shared
   // hook only owns business/network state).
+  // V1.4 — same Default Markup / Manual Selling Price toggle as
+  // SelectPricePanel's pre-add form, added here for post-add editing.
   const [pricingEditKey, setPricingEditKey] = useState<string | null>(null)
+  const [pricingEditMode, setPricingEditMode] = useState<'markup' | 'manual'>('markup')
   const [pricingEditMarkup, setPricingEditMarkup] = useState('')
   const [pricingEditFee, setPricingEditFee] = useState('')
+  const [pricingEditSellingMajor, setPricingEditSellingMajor] = useState('')
   const [pricingEditValidationError, setPricingEditValidationError] = useState<string | null>(null)
 
   function beginPricingEdit(item: AttachedLiveItem) {
     setPricingEditKey(item.key)
+    setPricingEditMode('markup')
     setPricingEditMarkup(String(item.markupMinor))
     setPricingEditFee(String(item.serviceFeeMinor))
+    setPricingEditSellingMajor((item.sellingPriceMinor / 100).toFixed(2))
     setPricingEditValidationError(null)
   }
   function cancelPricingEdit() { setPricingEditKey(null); setPricingEditValidationError(null) }
   async function savePricingEdit(key: string) {
+    if (pricingEditMode === 'manual') {
+      const sellingMajor = pricingEditSellingMajor.trim()
+      const sellingPriceMinor = Math.round(Number(sellingMajor) * 100)
+      if (sellingMajor === '' || !Number.isFinite(sellingPriceMinor) || sellingPriceMinor <= 0) {
+        setPricingEditValidationError('Selling price must be a positive number.')
+        return
+      }
+      setPricingEditValidationError(null)
+      // Positional args 2/3 (markupMinor/serviceFeeMinor) are ignored server-
+      // side once sellingPriceMinor (4th arg) is present — passed as 0 here
+      // only to satisfy the (unchanged) function signature.
+      await updateAttachedItemPricing(key, 0, 0, sellingPriceMinor)
+      if (!liveErrorRef.current) setPricingEditKey(null)
+      return
+    }
     const markupInput = pricingEditMarkup.trim()
     const feeInput = pricingEditFee.trim()
     const markupMinor = Math.round(Number(markupInput))
@@ -278,24 +311,72 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
 
                   {isEditingPrice ? (
                     <div className="space-y-1.5 rounded-lg border border-walz-border bg-walz-off-white p-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className={labelCls} htmlFor={`dw-ep-markup-${item.key}`}>Markup (minor units)</label>
-                          <input
-                            id={`dw-ep-markup-${item.key}`} type="number" min={0} inputMode="numeric"
-                            value={pricingEditMarkup} onChange={e => setPricingEditMarkup(e.target.value)}
-                            className={inputCls}
-                          />
-                        </div>
-                        <div>
-                          <label className={labelCls} htmlFor={`dw-ep-fee-${item.key}`}>Service fee (minor units)</label>
-                          <input
-                            id={`dw-ep-fee-${item.key}`} type="number" min={0} inputMode="numeric"
-                            value={pricingEditFee} onChange={e => setPricingEditFee(e.target.value)}
-                            className={inputCls}
-                          />
-                        </div>
+                      {/* V1.4 — same Default Markup / Manual Selling Price
+                          toggle as the pre-add SelectPricePanel. */}
+                      <div role="radiogroup" aria-label="Pricing mode" className="flex gap-1 rounded-md border border-walz-border p-0.5">
+                        <button
+                          type="button" role="radio" aria-checked={pricingEditMode === 'markup'} disabled={liveBusy}
+                          onClick={() => setPricingEditMode('markup')}
+                          className={`flex-1 min-h-[24px] rounded text-[10px] font-semibold transition-colors disabled:opacity-60 ${
+                            pricingEditMode === 'markup' ? 'bg-walz-gold text-walz-deep-navy' : 'text-walz-muted-strong hover:bg-walz-navy/5'
+                          }`}
+                        >
+                          Default Markup
+                        </button>
+                        <button
+                          type="button" role="radio" aria-checked={pricingEditMode === 'manual'} disabled={liveBusy}
+                          onClick={() => setPricingEditMode('manual')}
+                          className={`flex-1 min-h-[24px] rounded text-[10px] font-semibold transition-colors disabled:opacity-60 ${
+                            pricingEditMode === 'manual' ? 'bg-walz-gold text-walz-deep-navy' : 'text-walz-muted-strong hover:bg-walz-navy/5'
+                          }`}
+                        >
+                          Manual Selling Price
+                        </button>
                       </div>
+
+                      {pricingEditMode === 'markup' ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className={labelCls} htmlFor={`dw-ep-markup-${item.key}`}>Markup (minor units)</label>
+                            <input
+                              id={`dw-ep-markup-${item.key}`} type="number" min={0} inputMode="numeric"
+                              value={pricingEditMarkup} onChange={e => setPricingEditMarkup(e.target.value)}
+                              className={inputCls}
+                            />
+                          </div>
+                          <div>
+                            <label className={labelCls} htmlFor={`dw-ep-fee-${item.key}`}>Service fee (minor units)</label>
+                            <input
+                              id={`dw-ep-fee-${item.key}`} type="number" min={0} inputMode="numeric"
+                              value={pricingEditFee} onChange={e => setPricingEditFee(e.target.value)}
+                              className={inputCls}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className={labelCls} htmlFor={`dw-ep-selling-${item.key}`}>Selling price ({item.currency})</label>
+                          <input
+                            id={`dw-ep-selling-${item.key}`} inputMode="decimal"
+                            value={pricingEditSellingMajor} onChange={e => setPricingEditSellingMajor(e.target.value)}
+                            className={inputCls}
+                          />
+                          {/* Supplier price is immutable here — read straight
+                              from the stored QuoteFlightOption/QuoteItem row,
+                              never editable from this form. */}
+                          <div className="flex justify-between pt-1"><span>Supplier price</span><span className="font-mono">{fmtMinor(item.costMinor, item.currency)}</span></div>
+                          {(() => {
+                            const previewSellingMinor = Math.round((Number(pricingEditSellingMajor) || 0) * 100)
+                            const previewMargin = marginPercentOf(previewSellingMinor, item.costMinor)
+                            return (
+                              <div className={`flex justify-between ${previewMargin < 0 ? 'text-red-700' : ''}`}>
+                                <span>Margin</span>
+                                <span className="font-mono">{fmtMinor(previewSellingMinor - item.costMinor, item.currency)} ({previewMargin}%)</span>
+                              </div>
+                            )
+                          })()}
+                        </div>
+                      )}
                       {pricingEditValidationError && (
                         <p role="alert" className="text-red-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {pricingEditValidationError}</p>
                       )}

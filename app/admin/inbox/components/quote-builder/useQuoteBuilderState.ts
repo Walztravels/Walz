@@ -43,6 +43,36 @@ export interface DraftLineItem {
 export const ITEM_TYPES = ['flight', 'hotel', 'activity', 'transfer', 'tour', 'package', 'visa_service', 'custom'] as const
 export const CURRENCIES = ['GBP', 'USD', 'EUR', 'CAD', 'NGN'] as const
 
+// QUOTE BUILDER V1.4 (Agent C) — manual flight entry. A structured
+// one-way/return/multi-city flight built entirely by staff, with no
+// supplier offer behind it (duffelOfferId is always null server-side).
+// Deliberately its own local constant, not imported from
+// FlightPanel.tsx/live-search code (out of this agent's file ownership) —
+// same 4 values as that dropdown, kept in sync by convention/comment.
+export const MANUAL_FLIGHT_CABINS = ['economy', 'premium_economy', 'business', 'first'] as const
+export type ManualFlightCabin = typeof MANUAL_FLIGHT_CABINS[number]
+// Mirrors MC_MAX_LEGS below (the live-search multi-city cap) — kept as a
+// separate constant rather than sharing MC_MAX_LEGS directly, since that
+// constant belongs to the live-search multi-city ownership this agent does
+// not touch.
+export const MAX_MANUAL_FLIGHT_LEGS = 5
+
+export interface ManualFlightLeg {
+  originCode: string; originCity: string
+  destinationCode: string; destinationCity: string
+  departDate: string; departTime: string
+  arriveDate: string; arriveTime: string
+  flightNumber: string
+  stops: string
+}
+export function emptyManualFlightLeg(): ManualFlightLeg {
+  return {
+    originCode: '', originCity: '', destinationCode: '', destinationCity: '',
+    departDate: '', departTime: '', arriveDate: '', arriveTime: '',
+    flightNumber: '', stops: '0',
+  }
+}
+
 const STATUS_GLYPH: Record<string, string> = {
   draft: 'Draft', sent: '⏳ Sent', viewed: '👁 Viewed', accepted: '✓ Accepted',
   declined: '✗ Declined', changes_requested: 'Changes requested', expired: 'Expired',
@@ -107,6 +137,18 @@ export interface PendingOffer {
   extra?: { rateKey: string }
   markupPercent: number
   serviceFeeMajor: string
+  // V1.4 — pricing-mode toggle (SelectPricePanel, both platforms).
+  // 'markup' (default, unchanged behaviour) uses markupPercent/
+  // serviceFeeMajor above exactly as before. 'manual' uses
+  // manualSellingPriceMajor instead — staff types the final client-facing
+  // total directly; markupMinor is derived from it at add-time
+  // (confirmAddPending), never the other way round. Switching TO 'manual'
+  // also resets serviceFeeMajor to '0' (see openPending/SelectPricePanel's
+  // mode-switch handler) so costMinor + markupMinor + serviceFeeMinor =
+  // sellingPriceMinor holds by construction — the same invariant every
+  // other pricing path in this codebase relies on.
+  pricingMode: 'markup' | 'manual'
+  manualSellingPriceMajor: string
   // 'skip' — no revalidate route for this product (activity/transfer)
   revalidateState: 'skip' | 'checking' | 'ok' | 'stale' | 'error'
   revalidateMessage?: string
@@ -174,6 +216,28 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
   const [itemDesc, setItemDesc] = useState('')
   const [itemPrice, setItemPrice] = useState('')
 
+  // QUOTE BUILDER V1.4 (Agent C) — manual flight entry state. Entirely
+  // separate from itemType/itemTitle/itemDesc/itemPrice above (those stay
+  // exactly as they were, for visa/walz_service/custom/non-flight manual
+  // items) — a manual FLIGHT needs a structured, multi-field, multi-journey
+  // shape those four fields cannot represent. See addManualFlightItem's own
+  // comment for the persistence-path rationale.
+  const [mfAirline, setMfAirline] = useState('')
+  const [mfAirlineCode, setMfAirlineCode] = useState('')
+  const [mfCabin, setMfCabin] = useState<ManualFlightCabin>('economy')
+  const [mfFareClass, setMfFareClass] = useState('')
+  const [mfBaggage, setMfBaggage] = useState('')
+  const [mfCostMajor, setMfCostMajor] = useState('')
+  const [mfPriceMajor, setMfPriceMajor] = useState('')
+  const [mfNotes, setMfNotes] = useState('')
+  // Leg count derives the trip type sent to the server: 1 -> one-way,
+  // 2 -> round-trip, 3+ -> multi-city. Leg 0 (outbound) can never be
+  // removed; every other leg (the return leg, or any extra multi-city leg)
+  // can be removed individually, down to a single one-way leg.
+  const [mfLegs, setMfLegs] = useState<ManualFlightLeg[]>([emptyManualFlightLeg()])
+  const [mfBusy, setMfBusy] = useState(false)
+  const [mfError, setMfError] = useState<string | null>(null)
+
   // QUOTE BUILDER V1.2 — which service is the active center-workspace/mobile
   // screen. A superset of LiveServiceType (adds visa/walz_service/manual,
   // which all route to the existing manual-item form — no new pricing/
@@ -227,6 +291,10 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
   const [flReturn, setFlReturn] = useState('')
   const [flTrip, setFlTrip] = useState<'one-way' | 'round-trip' | 'multi-city'>('one-way')
   const [flCabin, setFlCabin] = useState('economy')
+  // Stop preference: 'any' | 'direct' | 'max-1-stop' | 'max-2-stops' — sent
+  // verbatim to /api/admin/travel-search/flights, which maps it to Duffel's
+  // max_connections and enforces it per-journey server-side.
+  const [flStops, setFlStops] = useState('any')
   const [flAdults, setFlAdults] = useState(1)
   const [flightResults, setFlightResults] = useState<NormalizedFlightOffer[]>([])
   // Multi-city legs (Item C) — mirrors FlightSearchWidget.tsx's mcLegs
@@ -314,11 +382,15 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     setLiveTab('flight'); setAttachedLive([]); setPending(null); setPriceChange(null)
     setLiveBusy(false); setLiveSearching(false); setLiveError(null)
     setFlFromQuery(''); setFlFrom(''); setFlFromSug([]); setFlToQuery(''); setFlTo(''); setFlToSug([])
-    setFlDepart(''); setFlReturn(''); setFlTrip('one-way'); setFlCabin('economy'); setFlAdults(1); setFlightResults([])
+    setFlDepart(''); setFlReturn(''); setFlTrip('one-way'); setFlCabin('economy'); setFlStops('any'); setFlAdults(1); setFlightResults([])
     setMcLegs([emptyFlLeg(), emptyFlLeg()])
     setHtDest(''); setHtIn(''); setHtOut(''); setHtAdults(2); setHtRooms(1); setHotelResults([])
     setAcDest(''); setAcFrom(''); setAcTo(''); setAcAdults(2); setActivityResults([])
     setTrPickupType('IATA'); setTrPickupCode(''); setTrDropType('HOTEL'); setTrDropCode(''); setTrDate(''); setTrAdults(2); setTransferResults([]); setTransferUnavailable(null)
+    // QUOTE BUILDER V1.4 (Agent C) — manual flight entry reset
+    setMfAirline(''); setMfAirlineCode(''); setMfCabin('economy'); setMfFareClass(''); setMfBaggage('')
+    setMfCostMajor(''); setMfPriceMajor(''); setMfNotes(''); setMfLegs([emptyManualFlightLeg()])
+    setMfBusy(false); setMfError(null)
     void loadRecent()
   }, [loadRecent])
 
@@ -345,6 +417,126 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     setItemPrice(String(fee.amount))
   }
 
+  // ── QUOTE BUILDER V1.4 (Agent C) — manual flight entry ──────────────────
+  // Leg 0 (outbound) is fixed — never removable, never inserted anywhere
+  // but the end. Leg count alone determines trip type: 1 -> one-way,
+  // 2 -> round-trip, 3+ -> multi-city (see addManualFlightItem). Auto-fills
+  // a new leg's origin from the previous leg's destination, same courtesy
+  // FlightSearchWidget.tsx's/this hook's own live-search mcLegs gives.
+  function mfUpdateLeg(i: number, patch: Partial<ManualFlightLeg>) {
+    setMfLegs(prev => {
+      const next = [...prev]
+      next[i] = { ...next[i], ...patch }
+      return next
+    })
+  }
+  function mfAddLeg() {
+    setMfLegs(prev => {
+      if (prev.length >= MAX_MANUAL_FLIGHT_LEGS) return prev
+      const last = prev[prev.length - 1]
+      return [...prev, { ...emptyManualFlightLeg(), originCode: last.destinationCode, originCity: last.destinationCity }]
+    })
+  }
+  function mfRemoveLeg(i: number) {
+    if (i === 0) return // outbound is mandatory
+    setMfLegs(prev => (prev.length <= 1 ? prev : prev.filter((_, idx) => idx !== i)))
+  }
+
+  // Persists a manually-entered flight (one-way/return/multi-city) as ONE
+  // server-side item, immediately — NOT deferred to quote-creation time the
+  // way itemType/itemTitle/itemDesc/itemPrice above are (see DraftLineItem/
+  // handleCreate). That deferred flow only ever produces a single flat
+  // QuoteItem per entry (no linked option row, no segments), which cannot
+  // represent a structured multi-journey flight without either (a) one
+  // QuoteItem per journey — the exact regression this feature exists to
+  // prevent — or (b) touching app/api/admin/quotes/route.ts's items[]
+  // handling, outside this agent's file ownership for this pass.
+  //
+  // Instead this calls a NEW endpoint, app/api/admin/quotes/[id]/items/
+  // route.ts (POST), which — mirroring the EXISTING dual-write pattern
+  // app/api/admin/travel-search/add-to-quote/route.ts already uses for a
+  // live-search flight attach — creates exactly ONE QuoteFlightOption row
+  // with N QuoteFlightSegment rows (one per journey, in order) and ONE
+  // linked QuoteItem row, in a single request. A manual entry has no
+  // supplier offer to revalidate (duffelOfferId is always null server-side)
+  // — unlike confirmAddPending's live-search path, there is no
+  // revalidateState gate here; the staff-entered cost/selling price are
+  // trusted as this item's record of truth (the server still validates
+  // shape/positivity/dates — see that route's own comment for the full
+  // rationale).
+  //
+  // Ensures a quote exists first exactly like confirmAddPending does
+  // (handleCreate({ allowEmptyItems: true })), then pushes the new item into
+  // the SAME attachedLive list live-search flights use — 'flight' is
+  // already a LiveServiceType, so every existing attachedLive consumer
+  // (basket/summary rendering, removeAttachedItem, updateAttachedItemPricing)
+  // handles a manually-created flight identically to a live-search one with
+  // zero changes to those (out-of-ownership) call sites.
+  async function addManualFlightItem() {
+    if (mfBusy) return
+    if (!mfAirline.trim()) { setMfError('Airline is required.'); return }
+    const costMajor = Number(mfCostMajor)
+    const priceMajor = Number(mfPriceMajor)
+    if (!isValidAmountMajor(costMajor)) { setMfError('Enter a valid supplier cost.'); return }
+    if (!isValidAmountMajor(priceMajor)) { setMfError('Enter a valid client selling price.'); return }
+    const incompleteLeg = mfLegs.some(l =>
+      !l.originCode.trim() || !l.destinationCode.trim() || !l.departDate || !l.departTime || !l.arriveDate || !l.arriveTime)
+    if (incompleteLeg) { setMfError('Every journey needs an origin, destination, departure and arrival date/time.'); return }
+    if (!title.trim()) { setMfError('Enter a quote title above before adding items.'); return }
+
+    setMfBusy(true); setMfError(null)
+    try {
+      let qid = quote?.id ?? null
+      if (!qid) {
+        const createdQuote = await handleCreate({ allowEmptyItems: true })
+        if (!createdQuote) return
+        qid = createdQuote.id
+      }
+      const tripType: 'one-way' | 'round-trip' | 'multi-city' =
+        mfLegs.length === 1 ? 'one-way' : mfLegs.length === 2 ? 'round-trip' : 'multi-city'
+      const costMinor = Math.round(costMajor * 100)
+      const sellingPriceMinor = Math.round(priceMajor * 100)
+      const res = await fetch(`/api/admin/quotes/${qid}/items`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'flight', sourceType: 'manual', tripType,
+          airline: mfAirline.trim(), airlineCode: mfAirlineCode.trim() || undefined,
+          cabinClass: mfCabin, fareClass: mfFareClass.trim() || undefined,
+          baggage: mfBaggage.trim() || undefined,
+          costMinor, sellingPriceMinor, currency,
+          notes: mfNotes.trim() || undefined,
+          segments: mfLegs.map(l => ({
+            originCode: l.originCode, originCity: l.originCity || undefined,
+            destinationCode: l.destinationCode, destinationCity: l.destinationCity || undefined,
+            departureAt: `${l.departDate}T${l.departTime}:00`,
+            arrivalAt: `${l.arriveDate}T${l.arriveTime}:00`,
+            flightNumber: l.flightNumber.trim() || undefined,
+            stops: l.stops ? Number(l.stops) : 0,
+          })),
+        }),
+      })
+      if (res.status === 401) { router.push('/admin/login'); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setMfError(typeof data?.error === 'string' ? data.error : 'Could not add this flight to the quote.'); return }
+      const returnedItem = data?.item as { id?: unknown; title?: unknown } | undefined
+      setAttachedLive(prev => [...prev, {
+        key: crypto.randomUUID(), type: 'flight',
+        title: typeof returnedItem?.title === 'string' ? returnedItem.title : mfAirline.trim(),
+        costMinor, markupMinor: sellingPriceMinor - costMinor, serviceFeeMinor: 0,
+        sellingPriceMinor, currency,
+        itemId: String(returnedItem?.id ?? ''),
+      }])
+      // Reset the form for the next manual flight entry.
+      setMfAirline(''); setMfAirlineCode(''); setMfFareClass(''); setMfBaggage('')
+      setMfCostMajor(''); setMfPriceMajor(''); setMfNotes('')
+      setMfLegs([emptyManualFlightLeg()])
+    } catch {
+      setMfError('Could not add this flight to the quote.')
+    } finally {
+      setMfBusy(false)
+    }
+  }
+
   // ── UX-4.2b — live search (Flight/Hotel/Activity/Transfer) ──────────────
   // Every call below hits an existing /api/admin/travel-search/* route —
   // no supplier client code, no parallel normalization layer.
@@ -368,11 +560,11 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       body = {
         trip: 'multi-city',
         segments: mcLegs.map(l => ({ from: l.fromCode, to: l.toCode, date: l.depart })),
-        cabin: flCabin, adults: flAdults,
+        cabin: flCabin, adults: flAdults, stops: flStops,
       }
     } else {
       if (!flFrom.trim() || !flTo.trim() || !flDepart) { setLiveError('Select an origin, destination and departure date.'); return }
-      body = { from: flFrom, to: flTo, depart: flDepart, return: flReturn, trip: flTrip, cabin: flCabin, adults: flAdults }
+      body = { from: flFrom, to: flTo, depart: flDepart, return: flReturn, trip: flTrip, cabin: flCabin, adults: flAdults, stops: flStops }
     }
     setLiveSearching(true); setLiveError(null)
     try {
@@ -529,6 +721,11 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       token: seq, type, offer, title, supplierMinor, offerCurrency, supplier, productType, extra,
       markupPercent: defaultMarkupPercent(productType, supplier),
       serviceFeeMajor: '0',
+      // V1.4 — every pending offer opens in the existing default-markup
+      // mode; staff opts into Manual Selling Price per SelectPricePanel's
+      // toggle (see PendingOffer's own comment for the mode-switch contract).
+      pricingMode: 'markup',
+      manualSellingPriceMajor: '',
       revalidateState: needsRevalidation ? 'checking' : 'skip',
     })
     if (type === 'flight') void revalidateFlight(seq, (offer as NormalizedFlightOffer).providerOfferId)
@@ -639,15 +836,22 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     }
   }
 
-  async function updateAttachedItemPricing(key: string, markupMinor: number, serviceFeeMinor: number) {
+  // V1.4 — `sellingPriceMinor` is a NEW optional 4th parameter (direct-edit
+  // mode, matching the item-level PATCH route's own new `{sellingPriceMinor}`
+  // body shape). The original 3-arg call (markupMinor, serviceFeeMinor) is
+  // completely unchanged when this 4th argument is omitted — mobile's
+  // QuoteBasketSheet.tsx still calls this exact 3-arg form and its behavior
+  // is untouched by this addition.
+  async function updateAttachedItemPricing(key: string, markupMinor: number, serviceFeeMinor: number, sellingPriceMinor?: number) {
     if (liveBusy || !quote) return
     const target = attachedLive.find(i => i.key === key)
     if (!target?.itemId) return
     setLiveBusy(true); setLiveError(null)
     try {
+      const body = sellingPriceMinor !== undefined ? { sellingPriceMinor } : { markupMinor, serviceFeeMinor }
       const res = await fetch(`/api/admin/quotes/${quote.id}/items/${target.itemId}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markupMinor, serviceFeeMinor }),
+        body: JSON.stringify(body),
       })
       if (res.status === 401) { router.push('/admin/login'); return }
       const data = await res.json().catch(() => ({}))
@@ -658,7 +862,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
             ...i,
             markupMinor: updated?.markupMinor ?? markupMinor,
             serviceFeeMinor: updated?.serviceFeeMinor ?? serviceFeeMinor,
-            sellingPriceMinor: updated?.sellingPriceMinor ?? i.sellingPriceMinor,
+            sellingPriceMinor: updated?.sellingPriceMinor ?? sellingPriceMinor ?? i.sellingPriceMinor,
           }
         : i))
     } catch {
@@ -745,6 +949,19 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     }
     if ((pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok') return
     if (!title.trim()) { setLiveError('Enter a quote title above before adding items.'); return }
+    // V1.4 — Manual Selling Price mode: the single client-facing total staff
+    // typed must be a valid positive amount before this proceeds any further
+    // (mirrors the existing markup-mode path, which has no equivalent gate
+    // since markupPercent/serviceFeeMajor always coerce to a number via
+    // `|| 0`). Never silently falls back to 0/NaN — that would attach at a
+    // supplier-price-only selling price without staff realizing it.
+    if (pending.pricingMode === 'manual') {
+      const manualMajor = Number(pending.manualSellingPriceMajor)
+      if (!Number.isFinite(manualMajor) || manualMajor <= 0) {
+        setLiveError('Enter a valid selling price before adding to quote.')
+        return
+      }
+    }
     setLiveBusy(true); setLiveError(null)
     try {
       let qid = quote?.id ?? null
@@ -753,16 +970,51 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
         if (!createdQuote) return
         qid = createdQuote.id
       }
-      const pricing = calculateBookingPrice({
-        productType: pending.productType, supplier: pending.supplier,
-        netAmount: pending.supplierMinor / 100, currency: pending.offerCurrency,
-        markupPercent: pending.markupPercent, serviceFee: Number(pending.serviceFeeMajor) || 0,
-      })
-      const costMinor = Math.round(pricing.supplierCost * 100)
-      const markupMinor = Math.round(pricing.markupAmount * 100)
-      const serviceFeeMinor = Math.round(pricing.serviceFee * 100)
-      const sellingPriceMinor = Math.round(pricing.sellingPrice * 100)
-      const result = await postAddToQuote(buildAttachPayload(qid, pending, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor))
+      // V1.4 — Manual mode computes costMinor/markupMinor/serviceFeeMinor/
+      // sellingPriceMinor directly from the revalidated supplier cost and the
+      // staff-typed selling price, instead of running calculateBookingPrice's
+      // markup% derivation. markupMinor = sellingPriceMinor − costMinor,
+      // matching the exact convention calculateBookingPrice itself uses for
+      // grossProfit (booking-price.ts: `grossProfit = sellingPrice -
+      // netAmount`, i.e. the fee is never subtracted a second time) — see
+      // SelectPricePanel's mode-switch handler, which resets serviceFeeMajor
+      // to '0' on entering manual mode so this identity
+      // (cost + markup + fee = selling) always holds exactly, never just
+      // approximately. costMinor here is never written anywhere as
+      // authoritative on its own — the server independently re-verifies it
+      // against the live supplier offer before persisting (add-to-quote/
+      // route.ts), exactly as markup mode already requires.
+      let costMinor: number, markupMinor: number, serviceFeeMinor: number, sellingPriceMinor: number
+      if (pending.pricingMode === 'manual') {
+        costMinor = Math.round(pending.supplierMinor)
+        serviceFeeMinor = Math.round((Number(pending.serviceFeeMajor) || 0) * 100)
+        sellingPriceMinor = Math.round(Number(pending.manualSellingPriceMajor) * 100)
+        markupMinor = sellingPriceMinor - costMinor
+      } else {
+        const pricing = calculateBookingPrice({
+          productType: pending.productType, supplier: pending.supplier,
+          netAmount: pending.supplierMinor / 100, currency: pending.offerCurrency,
+          markupPercent: pending.markupPercent, serviceFee: Number(pending.serviceFeeMajor) || 0,
+        })
+        costMinor = Math.round(pricing.supplierCost * 100)
+        markupMinor = Math.round(pricing.markupAmount * 100)
+        serviceFeeMinor = Math.round(pricing.serviceFee * 100)
+        sellingPriceMinor = Math.round(pricing.sellingPrice * 100)
+      }
+      // V1.4 — pricingMode/manualSellingPriceMinor are additive fields not on
+      // the shared AddToQuotePayload type (out of this file's ownership to
+      // widen) — attached via a loosely-typed intermediate object rather than
+      // a direct literal assignment, then cast for the one call that sends
+      // it. add-to-quote/route.ts's flight branch reads them with its own
+      // local intersection type; hotel/activity/transfer ignore the extra
+      // fields entirely and behave exactly as before (pricingMode is only
+      // ever 'markup' or absent for those three today).
+      const attachPayload: Record<string, unknown> = {
+        ...buildAttachPayload(qid, pending, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor),
+        pricingMode: pending.pricingMode,
+      }
+      if (pending.pricingMode === 'manual') attachPayload.manualSellingPriceMinor = sellingPriceMinor
+      const result = await postAddToQuote(attachPayload as unknown as AddToQuotePayload)
       if (!result) return
       const { res, data } = result
       if (!res.ok) {
@@ -786,11 +1038,36 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
         }
         return
       }
+      // V1.4 — duplicate-add protection (server-side, flights only —
+      // add-to-quote/route.ts). `data.duplicate === true` means the server
+      // found and returned an EXISTING QuoteFlightOption/QuoteItem instead of
+      // creating a second one; its own already-persisted figures are the
+      // authoritative ones to display, never this attempt's freshly computed
+      // (and never actually written) costMinor/markupMinor/etc. If this
+      // exact server item is already tracked client-side (the far more
+      // common double-click case — a stale response arriving after the first
+      // success already added it), skip adding a second attachedLive row for
+      // it too.
+      const returnedItem = data?.item as {
+        id?: unknown; costMinor?: number; markupMinor?: number; serviceFeeMinor?: number
+        sellingPriceMinor?: number; currency?: string
+      } | undefined
+      const returnedItemId = String(returnedItem?.id ?? '')
+      const isDuplicate = data?.duplicate === true
+      if (isDuplicate && attachedLive.some(i => i.itemId === returnedItemId)) {
+        setPending(null)
+        return
+      }
       setAttachedLive(prev => [...prev, {
         key: crypto.randomUUID(), type: pending.type, title: pending.title,
-        costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
-        itemId: String((data?.item as { id?: unknown } | undefined)?.id ?? ''),
+        costMinor: isDuplicate ? Number(returnedItem?.costMinor ?? costMinor) : costMinor,
+        markupMinor: isDuplicate ? Number(returnedItem?.markupMinor ?? markupMinor) : markupMinor,
+        serviceFeeMinor: isDuplicate ? Number(returnedItem?.serviceFeeMinor ?? serviceFeeMinor) : serviceFeeMinor,
+        sellingPriceMinor: isDuplicate ? Number(returnedItem?.sellingPriceMinor ?? sellingPriceMinor) : sellingPriceMinor,
+        currency: isDuplicate ? String(returnedItem?.currency ?? currency) : currency,
+        itemId: returnedItemId,
       }])
+      if (isDuplicate && opSeq === liveOpSeqRef.current) setLiveError('This flight is already on the quote.')
       setPending(null)
     } catch {
       if (opSeq === liveOpSeqRef.current) setLiveError('Could not add this item to the quote.')
@@ -971,7 +1248,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     liveTab, setLiveTab, attachedLive, pending, setPending, liveBusy, liveSearching, liveError,
     // flight
     flFromQuery, flFrom, flFromSug, flToQuery, flTo, flToSug,
-    flDepart, setFlDepart, flReturn, setFlReturn, flTrip, setFlTrip, flCabin, setFlCabin, flAdults, setFlAdults,
+    flDepart, setFlDepart, flReturn, setFlReturn, flTrip, setFlTrip, flCabin, setFlCabin, flStops, setFlStops, flAdults, setFlAdults,
     flightResults, mcLegs,
     onFlFromChange, onFlToChange, selectFlFrom, selectFlTo,
     updateMcLeg, addMcLeg, removeMcLeg, onMcFromChange, onMcToChange, selectMcFrom, selectMcTo,
@@ -993,6 +1270,11 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     submitting, submitError, created, duplicateOf, profileGate, setProfileGate, quote, finalizing, copied, sending, sent,
     handleCreate, handleFinalize, buildQuoteMessage, handleCopy, handleInsert, handleSendToClient,
     isFinalized,
+    // QUOTE BUILDER V1.4 (Agent C) — manual flight entry
+    mfAirline, setMfAirline, mfAirlineCode, setMfAirlineCode,
+    mfCabin, setMfCabin, mfFareClass, setMfFareClass, mfBaggage, setMfBaggage,
+    mfCostMajor, setMfCostMajor, mfPriceMajor, setMfPriceMajor, mfNotes, setMfNotes,
+    mfLegs, mfUpdateLeg, mfAddLeg, mfRemoveLeg, mfBusy, mfError, addManualFlightItem,
     // reset — CreateQuoteDrawer.tsx's open-effect calls this
     resetAndOpen,
   }

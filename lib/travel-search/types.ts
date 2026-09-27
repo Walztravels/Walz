@@ -59,10 +59,22 @@ export interface NormalizedFlightOffer {
   mealIncluded:      boolean
   seatsLeft:         number | null
 
-  // Segments (outbound)
+  // Segments (outbound) — for a multi-city offer this is journeys[0] only.
   segments:          NormalizedFlightSegment[]
-  // Return leg (round-trip)
+  // Return leg (round-trip) — for a multi-city offer this is journeys[1] only.
   returnSegments:    NormalizedFlightSegment[]
+  /** EVERY journey of the offer, in order and never truncated. Length 1 =
+   *  one-way, 2 = round-trip (exact reverse pair) or a 2-leg multi-city,
+   *  3+ = multi-city. Each journey's `stops` is independent of the others —
+   *  never a total across the whole trip. */
+  journeys:          NormalizedFlightJourney[]
+}
+
+export interface NormalizedFlightJourney {
+  direction:        'outbound' | 'return' | 'leg'
+  segments:          NormalizedFlightSegment[]
+  stops:             number
+  durationMinutes:   number | null
 }
 
 export interface NormalizedHotelRate {

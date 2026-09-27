@@ -84,7 +84,24 @@ export function SelectPricePanel({ state }: SelectPricePanelProps) {
     markupPercent: pending.markupPercent, serviceFee: Number(pending.serviceFeeMajor) || 0,
   })
 
-  const addDisabled = liveBusy || pendingCurrencyMismatch
+  // V1.4 — Manual Selling Price mode preview. costMajor is the same
+  // immutable, revalidated supplier figure the "Supplier / net cost" line
+  // above already shows. Margin here matches calculateBookingPrice's OWN
+  // convention exactly (lib/pricing/booking-price.ts:82-86 —
+  // `grossProfit = sellingPrice - netAmount`, `marginPercent =
+  // grossProfit / sellingPrice * 100`, i.e. margin is a percentage of the
+  // SELLING price, not of supplier cost, and the fee is never subtracted a
+  // second time from grossProfit) rather than a new formula — serviceFeeMajor
+  // is always '0' in manual mode (reset on mode-switch below), so this
+  // reduces to margin = (manualPrice − cost) / manualPrice, no fee needed
+  // in the calculation either way.
+  const manualMajor = Number(pending.manualSellingPriceMajor)
+  const manualValid = pending.pricingMode !== 'manual' || (Number.isFinite(manualMajor) && manualMajor > 0)
+  const costMajor = pending.supplierMinor / 100
+  const manualMarkupMajor = Math.round((manualMajor - costMajor) * 100) / 100
+  const manualMarginPercent = manualMajor > 0 ? Math.round(((manualMajor - costMajor) / manualMajor) * 10000) / 100 : 0
+
+  const addDisabled = liveBusy || pendingCurrencyMismatch || !manualValid
     || ((pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok')
 
   return (
@@ -148,41 +165,105 @@ export function SelectPricePanel({ state }: SelectPricePanelProps) {
           )
         ) : null}
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelCls} htmlFor="dw-sp-markup">Markup %</label>
-            <input
-              id="dw-sp-markup"
-              type="number"
-              min={0}
-              value={pending.markupPercent}
-              onChange={e => setPending(prev => prev ? { ...prev, markupPercent: Number(e.target.value) || 0 } : prev)}
-              className={inputCls}
-            />
-          </div>
-          <div>
-            <label className={labelCls} htmlFor="dw-sp-fee">Service fee ({pending.offerCurrency})</label>
-            <input
-              id="dw-sp-fee"
-              inputMode="decimal"
-              value={pending.serviceFeeMajor}
-              onChange={e => setPending(prev => prev ? { ...prev, serviceFeeMajor: e.target.value } : prev)}
-              className={inputCls}
-            />
-          </div>
+        {/* V1.4 — pricing-mode toggle. "Default Markup" (unchanged) stays
+            selected by default; switching TO "Manual Selling Price" resets
+            serviceFeeMajor to '0' so cost + markup + fee = selling holds
+            exactly for the manual figure staff types (see PendingOffer's own
+            comment in useQuoteBuilderState.ts for the full rationale). */}
+        <div role="radiogroup" aria-label="Pricing mode" className="flex gap-1.5 rounded-lg border border-walz-border p-1">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={pending.pricingMode === 'markup'}
+            onClick={() => setPending(prev => prev ? { ...prev, pricingMode: 'markup' } : prev)}
+            className={`flex-1 min-h-[32px] rounded-md text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-walz-gold/60 ${
+              pending.pricingMode === 'markup' ? 'bg-walz-gold text-walz-deep-navy' : 'text-walz-muted-strong hover:bg-walz-navy/5'
+            }`}
+          >
+            Default Markup
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={pending.pricingMode === 'manual'}
+            onClick={() => setPending(prev => prev ? { ...prev, pricingMode: 'manual', serviceFeeMajor: '0' } : prev)}
+            className={`flex-1 min-h-[32px] rounded-md text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-walz-gold/60 ${
+              pending.pricingMode === 'manual' ? 'bg-walz-gold text-walz-deep-navy' : 'text-walz-muted-strong hover:bg-walz-navy/5'
+            }`}
+          >
+            Manual Selling Price
+          </button>
         </div>
 
-        <div className="text-sm space-y-1 border-t border-walz-border pt-3">
-          <div className="flex justify-between text-walz-muted-strong">
-            <span>Markup</span><span className="font-mono">{pending.offerCurrency} {preview.markupAmount.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between font-semibold text-walz-deep-navy">
-            <span>Client price</span><span className="font-mono">{pending.offerCurrency} {preview.sellingPrice.toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between text-walz-muted-strong">
-            <span>Margin</span><span className="font-mono">{preview.marginPercent}%</span>
-          </div>
-        </div>
+        {pending.pricingMode === 'markup' ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls} htmlFor="dw-sp-markup">Markup %</label>
+                <input
+                  id="dw-sp-markup"
+                  type="number"
+                  min={0}
+                  value={pending.markupPercent}
+                  onChange={e => setPending(prev => prev ? { ...prev, markupPercent: Number(e.target.value) || 0 } : prev)}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="dw-sp-fee">Service fee ({pending.offerCurrency})</label>
+                <input
+                  id="dw-sp-fee"
+                  inputMode="decimal"
+                  value={pending.serviceFeeMajor}
+                  onChange={e => setPending(prev => prev ? { ...prev, serviceFeeMajor: e.target.value } : prev)}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+
+            <div className="text-sm space-y-1 border-t border-walz-border pt-3">
+              <div className="flex justify-between text-walz-muted-strong">
+                <span>Markup</span><span className="font-mono">{pending.offerCurrency} {preview.markupAmount.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-walz-deep-navy">
+                <span>Client price</span><span className="font-mono">{pending.offerCurrency} {preview.sellingPrice.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between text-walz-muted-strong">
+                <span>Margin</span><span className="font-mono">{preview.marginPercent}%</span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <label className={labelCls} htmlFor="dw-sp-manual">Selling price ({pending.offerCurrency})</label>
+              <input
+                id="dw-sp-manual"
+                inputMode="decimal"
+                value={pending.manualSellingPriceMajor}
+                onChange={e => setPending(prev => prev ? { ...prev, manualSellingPriceMajor: e.target.value } : prev)}
+                placeholder="0.00"
+                className={inputCls}
+              />
+              {!manualValid && (
+                <p role="alert" className="text-xs text-red-700 mt-1">Enter a selling price greater than zero.</p>
+              )}
+            </div>
+
+            <div className="text-sm space-y-1 border-t border-walz-border pt-3">
+              <div className={`flex justify-between ${manualMarkupMajor < 0 ? 'text-red-700' : 'text-walz-muted-strong'}`}>
+                <span>Markup{manualMarkupMajor < 0 ? ' (below cost)' : ''}</span>
+                <span className="font-mono">{pending.offerCurrency} {manualMarkupMajor.toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-walz-deep-navy">
+                <span>Client price</span><span className="font-mono">{pending.offerCurrency} {(manualMajor || 0).toLocaleString()}</span>
+              </div>
+              <div className={`flex justify-between ${manualMarginPercent < 0 ? 'text-red-700' : 'text-walz-muted-strong'}`}>
+                <span>Margin</span><span className="font-mono">{manualMarginPercent}%</span>
+              </div>
+            </div>
+          </>
+        )}
 
         {priceChange ? (
           <div className="rounded-lg border border-walz-gold bg-walz-off-white p-3 space-y-2">

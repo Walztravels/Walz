@@ -67,7 +67,7 @@ export interface BookingPricing {
   /** original supplier currency when converted into the itinerary currency */
   supplierCurrency?: string | null
   supplierTotalOriginal?: number | null
-  source: 'research' | 'copilot' | 'manual'
+  source: 'research' | 'copilot' | 'manual' | 'quote'
 }
 
 /** Enough to understand the offer after it expires, and to revalidate it later. */
@@ -117,7 +117,7 @@ export interface UnifiedFlightBooking extends FlightLegacyFields {
   pricing: BookingPricing
   offer?: OfferSnapshot
   passengers?: { adults: number; children: number }
-  addedFrom: 'research' | 'copilot' | 'manual'
+  addedFrom: 'research' | 'copilot' | 'manual' | 'quote'
   addedAt?: string
 }
 

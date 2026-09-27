@@ -7,17 +7,37 @@
 // mcLegs/updateMcLeg/addMcLeg/removeMcLeg/onMcFromChange/onMcToChange/
 // selectMcFrom/selectMcTo — no new leg state.
 
+import { useMemo } from 'react'
 import { Trash2 } from 'lucide-react'
 import { AirportDropdown } from '@/app/admin/inbox/components/AirportDropdown'
-import { MC_MAX_LEGS, type QuoteBuilderState } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
+import { MC_MAX_LEGS, type QuoteBuilderState, type FlLeg } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
 import { inputCls, labelCls } from '@/app/admin/inbox/components/quote-builder/styles'
 
 export interface MultiCityLegsDesktopProps {
   state: QuoteBuilderState
 }
 
+// V1.4 (Agent A) — client-side pre-check mirroring the SAME chronology rule
+// the server now enforces (app/api/admin/travel-search/flights/route.ts:
+// "Segment N: departure date cannot be before Segment N-1's departure
+// date."). This is a UI-level convenience only — it never replaces the
+// server check, which still runs on every request regardless of what this
+// returns. Only legs with BOTH dates filled are compared, so an
+// in-progress incomplete leg never falsely triggers it.
+export function mcLegsChronologyError(legs: FlLeg[]): string | null {
+  for (let i = 1; i < legs.length; i++) {
+    const prev = legs[i - 1].depart
+    const cur = legs[i].depart
+    if (prev && cur && cur < prev) {
+      return `Flight ${i + 1}: departure date cannot be before Flight ${i}'s departure date.`
+    }
+  }
+  return null
+}
+
 export function MultiCityLegsDesktop({ state }: MultiCityLegsDesktopProps) {
   const { mcLegs, updateMcLeg, addMcLeg, removeMcLeg, onMcFromChange, onMcToChange, selectMcFrom, selectMcTo } = state
+  const chronoError = useMemo(() => mcLegsChronologyError(mcLegs), [mcLegs])
 
   return (
     <div className="space-y-2">
@@ -25,7 +45,10 @@ export function MultiCityLegsDesktop({ state }: MultiCityLegsDesktopProps) {
         <div key={i} className="rounded-lg border border-dashed border-walz-border p-3">
           <div className="flex items-center justify-between mb-1">
             <p className={labelCls}>Flight {i + 1}</p>
-            {mcLegs.length > 2 && (
+            {/* Leg 1 and Leg 2 (index 0/1) are mandatory — no Remove. Legs
+                3+ (index >= 2) may be removed; removeMcLeg's own min-2 guard
+                stays the source of truth, this is just the affordance. */}
+            {i >= 2 && (
               <button
                 type="button"
                 onClick={() => removeMcLeg(i)}
@@ -72,6 +95,7 @@ export function MultiCityLegsDesktop({ state }: MultiCityLegsDesktopProps) {
           )}
         </div>
       ))}
+      {chronoError && <p role="alert" className="text-xs text-red-700">{chronoError}</p>}
       {mcLegs.length < MC_MAX_LEGS && (
         <button
           type="button"

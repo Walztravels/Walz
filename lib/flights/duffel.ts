@@ -1,7 +1,29 @@
 import type {
-  FlightSearchParams, FlightItinerary, FlightSegment, FlightAmenity,
+  FlightSearchParams, FlightItinerary, FlightJourney, FlightSegment, FlightAmenity,
   LayoverInfo, BaggageInfo, CabinClass,
 } from './types'
+
+/**
+ * Classify a raw Duffel offer's slices WITHOUT truncating to 2. Only an exact
+ * reverse pair (slice 1 goes back where slice 0 came from) is a return trip;
+ * everything else — including an open-jaw pair or 3+ slices — is multi-city.
+ * Mirrors the equivalent, independently-maintained classifier in
+ * lib/itinerary/research-add.ts (a different feature's booking model); kept
+ * as plain logic here rather than a shared import so this file has no
+ * dependency on itinerary-specific types.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function classifyFlightTripType(slices: any[] | null | undefined): 'one-way' | 'round-trip' | 'multi-city' {
+  const list = Array.isArray(slices) ? slices : []
+  if (list.length <= 1) return 'one-way'
+  if (list.length === 2) {
+    const a = list[0], b = list[1]
+    const aFrom = a?.origin?.iata_code, aTo = a?.destination?.iata_code
+    const bFrom = b?.origin?.iata_code, bTo = b?.destination?.iata_code
+    if (aFrom && aTo && aFrom === bTo && aTo === bFrom) return 'round-trip'
+  }
+  return 'multi-city'
+}
 
 const BASE = 'https://api.duffel.com'
 const VER  = process.env.DUFFEL_API_VERSION ?? 'v2'
@@ -119,12 +141,33 @@ function mapSlice(slice: any, prefix = ''): { segments: FlightSegment[]; layover
 // ── Transform a Duffel offer → our FlightItinerary ────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItinerary {
-  const outbound = mapSlice(offer.slices[0], 'out_')
-  const { segments, layovers, duration: totalDuration } = outbound
+  const rawSlices: any[] = Array.isArray(offer.slices) ? offer.slices : []
+  const tripType = classifyFlightTripType(rawSlices)
 
-  // Return slice (round-trip)
-  const hasReturn     = offer.slices.length > 1
-  const returnSlice   = hasReturn ? mapSlice(offer.slices[1], 'ret_') : null
+  // Every slice, in order — never just slices[0]/[1]. journeys[0]/[1] below
+  // are also what populate the legacy segments/returnSegments fields, so a
+  // one-way or round-trip offer sees byte-identical output to before; only a
+  // 3+ slice multi-city offer gains the journeys it used to lose.
+  const journeys: FlightJourney[] = rawSlices.map((slice, i) => {
+    const mapped = mapSlice(slice, `s${i}_`)
+    return {
+      direction: tripType === 'round-trip' ? (i === 0 ? 'outbound' : 'return') : i === 0 ? 'outbound' : tripType === 'multi-city' ? 'leg' : 'return',
+      segments: mapped.segments,
+      stops: Math.max(0, mapped.segments.length - 1),
+      durationMinutes: mapped.duration,
+      layovers: mapped.layovers,
+    }
+  })
+
+  const outbound = journeys[0] ?? { segments: [], layovers: [], durationMinutes: 0 }
+  const { segments } = outbound
+  const layovers = outbound.layovers
+  const totalDuration = outbound.durationMinutes ?? 0
+
+  // Return slice (round-trip) — journeys[1], kept as a separate field for
+  // every existing consumer that reads returnSegments/returnDuration.
+  const hasReturn     = journeys.length > 1
+  const returnSlice   = hasReturn ? journeys[1] : null
 
   const totalAmount = parseFloat(offer.total_amount ?? offer.base_amount ?? '0')
   const baseAmount  = parseFloat(offer.base_amount ?? '0')
@@ -153,9 +196,10 @@ export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItin
     layovers,
     ...(returnSlice ? {
       returnSegments: returnSlice.segments,
-      returnDuration: returnSlice.duration,
+      returnDuration: returnSlice.durationMinutes,
       returnLayovers: returnSlice.layovers,
     } : {}),
+    journeys,
     price: {
       total:     totalAmount,
       base:      baseAmount,
@@ -221,6 +265,11 @@ export async function searchFlights(params: FlightSearchParams): Promise<FlightI
     passengers,
     cabin_class: toDuffelCabin(params.cabin),
     return_offers: true,
+    // Duffel precedent: lib/sources/duffel.ts sends the same field for its
+    // directOnly case. Applies to the whole request; Duffel does not
+    // guarantee it holds per-leg on a multi-city search, so it is only a
+    // hint here — the authoritative filter is server-side below.
+    ...(params.maxConnections !== undefined ? { max_connections: params.maxConnections } : {}),
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -230,11 +279,25 @@ export async function searchFlights(params: FlightSearchParams): Promise<FlightI
   })
 
   const paxCount = passengers.length
-  const itineraries = (offerRequest.offers ?? [])
+  let itineraries: FlightItinerary[] = (offerRequest.offers ?? [])
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((offer: any) => duffelOfferToItinerary(offer, paxCount))
-    .slice(0, 20)
 
+  // Authoritative stop filter: EVERY journey of the offer must satisfy the
+  // limit independently (never a total across the whole trip). Applied here
+  // regardless of whether Duffel's own max_connections held, so a caller can
+  // never receive an offer that violates the requested stop preference.
+  if (params.maxConnections !== undefined) {
+    const limit = params.maxConnections
+    itineraries = itineraries.filter((it) => {
+      const journeys: Array<{ stops: number }> = it.journeys && it.journeys.length > 0
+        ? it.journeys
+        : [{ stops: it.stops }, ...(it.returnSegments ? [{ stops: it.returnSegments.length - 1 }] : [])]
+      return journeys.every((j) => j.stops <= limit)
+    })
+  }
+
+  itineraries = itineraries.slice(0, 20)
   return assignBadges(itineraries)
 }
 

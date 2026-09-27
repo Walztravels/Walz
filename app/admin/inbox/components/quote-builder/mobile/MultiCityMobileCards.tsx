@@ -7,10 +7,27 @@
 // inside the hook's addMcLeg/removeMcLeg (both already no-op at the
 // boundaries per useQuoteBuilderState.ts) — this component only ever calls
 // them, never re-implements the guard.
+import { useMemo } from 'react'
 import { Trash2, Plane } from 'lucide-react'
 import { AirportDropdown } from '@/app/admin/inbox/components/AirportDropdown'
-import { MC_MAX_LEGS, type QuoteBuilderState } from '../useQuoteBuilderState'
+import { MC_MAX_LEGS, type QuoteBuilderState, type FlLeg } from '../useQuoteBuilderState'
 import { inputCls, labelCls } from '../styles'
+
+// V1.4 (Agent A) — client-side pre-check mirroring the SAME chronology rule
+// the server enforces (app/api/admin/travel-search/flights/route.ts:
+// "Segment N: departure date cannot be before Segment N-1's departure
+// date."). A UI-level convenience only — never a replacement for the
+// server check. Only legs with BOTH dates filled are compared.
+function mcLegsChronologyError(legs: FlLeg[]): string | null {
+  for (let i = 1; i < legs.length; i++) {
+    const prev = legs[i - 1].depart
+    const cur = legs[i].depart
+    if (prev && cur && cur < prev) {
+      return `Flight ${i + 1}: departure date cannot be before Flight ${i}'s departure date.`
+    }
+  }
+  return null
+}
 
 export interface MultiCityMobileCardsProps {
   state: QuoteBuilderState
@@ -21,11 +38,25 @@ export interface MultiCityMobileCardsProps {
   onSearch: () => void
 }
 
+// V1.4 (Agent A) — same stops search-form control as FlightPanel.tsx (both
+// desktop and mobile), values matching the route's STOPS_MAP keys exactly.
+// Multi-city's cabin/adults fields live here (not in mobile FlightPanel.tsx,
+// which only renders them for the plain one-way/return branch), so Stops
+// needs its own copy here too or a multi-city search on mobile would never
+// be able to change it.
+const STOPS_SEARCH_OPTIONS: { value: string; label: string }[] = [
+  { value: 'any', label: 'Any' },
+  { value: 'direct', label: 'Direct' },
+  { value: 'max-1-stop', label: 'Max 1 Stop' },
+  { value: 'max-2-stops', label: 'Max 2 Stops' },
+]
+
 export function MultiCityMobileCards({ state, onSearch }: MultiCityMobileCardsProps) {
   const {
     mcLegs, updateMcLeg, addMcLeg, removeMcLeg, onMcFromChange, onMcToChange, selectMcFrom, selectMcTo,
-    flCabin, setFlCabin, flAdults, setFlAdults, liveSearching,
+    flCabin, setFlCabin, flAdults, setFlAdults, flStops, setFlStops, liveSearching,
   } = state
+  const chronoError = useMemo(() => mcLegsChronologyError(mcLegs), [mcLegs])
 
   return (
     <div className="space-y-3">
@@ -36,7 +67,10 @@ export function MultiCityMobileCards({ state, onSearch }: MultiCityMobileCardsPr
             <p className="text-xs font-bold text-walz-deep-navy flex items-center gap-1">
               <Plane className="w-3.5 h-3.5" /> Flight {i + 1}
             </p>
-            {mcLegs.length > 2 && (
+            {/* Leg 1 and Leg 2 (index 0/1) are mandatory — no Remove. Legs
+                3+ (index >= 2) may be removed; removeMcLeg's own min-2
+                guard stays the source of truth, this is just the affordance. */}
+            {i >= 2 && (
               <button
                 type="button"
                 onClick={() => removeMcLeg(i)}
@@ -65,6 +99,7 @@ export function MultiCityMobileCards({ state, onSearch }: MultiCityMobileCardsPr
           <input type="date" value={leg.depart} onChange={e => updateMcLeg(i, { depart: e.target.value })} className={inputCls} aria-label={`Leg ${i + 1} departure date`} />
         </div>
       ))}
+      {chronoError && <p role="alert" className="text-xs text-red-700">{chronoError}</p>}
       {mcLegs.length < MC_MAX_LEGS && (
         <button
           type="button"
@@ -89,9 +124,29 @@ export function MultiCityMobileCards({ state, onSearch }: MultiCityMobileCardsPr
           <input id="mc-adults" type="number" min={1} max={9} value={flAdults} onChange={e => setFlAdults(Number(e.target.value))} className={inputCls} />
         </div>
       </div>
+      <div>
+        <label className={labelCls} id="mc-stops-label">Stops</label>
+        <div role="group" aria-labelledby="mc-stops-label" className="grid grid-cols-4 gap-1.5">
+          {STOPS_SEARCH_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setFlStops(opt.value)}
+              aria-pressed={flStops === opt.value}
+              className={`min-h-[40px] px-1 rounded-lg border text-[11px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-walz-gold/60 ${
+                flStops === opt.value
+                  ? 'bg-walz-navy text-white border-walz-navy'
+                  : 'bg-white text-walz-deep-navy border-walz-border hover:bg-walz-navy/5'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <button
         type="button"
-        onClick={onSearch}
+        onClick={() => { if (!chronoError) onSearch() }}
         disabled={liveSearching}
         className="w-full min-h-[48px] rounded-lg bg-walz-gold text-walz-deep-navy text-sm font-bold hover:brightness-95 transition-all disabled:opacity-60"
       >

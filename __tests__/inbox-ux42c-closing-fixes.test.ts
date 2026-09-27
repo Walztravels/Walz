@@ -61,9 +61,12 @@ describe('Fix 1 — session-expiry (401) handling on the 8 new fetch call sites'
   // which follow the identical 401-redirect convention. createRevision (a
   // `{id,reference} | null`-returning call, like handleCreate) uses a
   // `return null` variant instead, checked separately below.
-  it('11 fetch call sites in useQuoteBuilderState check res.status === 401 and redirect to /admin/login (`return` variant)', () => {
+  it('12 fetch call sites in useQuoteBuilderState check res.status === 401 and redirect to /admin/login (`return` variant)', () => {
+    // 12, not 11: Quote Builder V1.4 added addManualFlightItem's own fetch
+    // call (structured manual flight entry, POST /api/admin/quotes/[id]/items),
+    // which follows this same 401-redirect convention.
     const occurrences = hookSrc.split("if (res.status === 401) { router.push('/admin/login'); return }").length - 1
-    expect(occurrences).toBe(11)
+    expect(occurrences).toBe(12)
   })
 
   it('handleCreate (the `GeneratedQuote | null`-returning quote-persistence call) also checks res.status === 401', () => {
@@ -121,7 +124,11 @@ describe('Fix 1 — session-expiry (401) handling on the 8 new fetch call sites'
 const mockPrisma = {
   quote: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   quoteItem: { create: jest.fn(), findMany: jest.fn() },
-  quoteFlightOption: { create: jest.fn() },
+  // V1.4 — duplicate-add protection: the flight branch now looks up an
+  // existing option for (quoteId, duffelOfferId) before creating one;
+  // findFirst defaults to null (no existing row) below so every pre-existing
+  // test here keeps attaching exactly as before.
+  quoteFlightOption: { create: jest.fn(), findFirst: jest.fn() },
   quoteHotelOption: { create: jest.fn() },
   itinerary: { findUnique: jest.fn(), create: jest.fn(), delete: jest.fn() },
   quoteActivity: { create: jest.fn() },
@@ -191,6 +198,7 @@ beforeEach(() => {
   ;(hasPermission as jest.Mock).mockReturnValue(true)
   mockPrisma.quoteItem.findMany.mockResolvedValue([])
   mockPrisma.quote.update.mockResolvedValue({})
+  mockPrisma.quoteFlightOption.findFirst.mockResolvedValue(null)
   mockPrisma.quoteFlightOption.create.mockResolvedValue({ id: 'fo1', segments: [] })
   mockPrisma.quoteHotelOption.create.mockResolvedValue({ id: 'ho1' })
   mockPrisma.quoteItem.create.mockResolvedValue({ id: 'qi1' })

@@ -152,11 +152,16 @@ export async function DELETE(
 }
 
 // PATCH /api/admin/quotes/[id]/items/[itemId] — Edit Pricing
-// Body: { markupMinor?: number, serviceFeeMinor?: number } only. Never
-// accepts cost/offer fields — cost is supplier-owned and only ever moves
-// via a fresh, revalidated add-to-quote/Replace. No supplier revalidation
-// runs here: markup/service fee are purely internal Walz figures with no
-// supplier-side expiry to re-check, unlike a fresh attach.
+// Body: EITHER { markupMinor?: number, serviceFeeMinor?: number } (the
+// original markup%/fee model) OR { sellingPriceMinor: number } (V1.4 —
+// direct manual-price edit: staff types the final client-facing total and
+// the server derives markupMinor to match, never the other way around).
+// Never accepts cost/offer fields in either mode — cost is supplier-owned
+// (read from the stored QuoteFlightOption/QuoteItem row, never from this
+// request body) and only ever moves via a fresh, revalidated add-to-quote/
+// Replace. No supplier revalidation runs here: markup/service fee/selling
+// price are purely internal Walz figures with no supplier-side expiry to
+// re-check, unlike a fresh attach.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string; itemId: string } },
@@ -172,17 +177,35 @@ export async function PATCH(
   if (gate) return gate
 
   const body = await req.json()
-  if (body.markupMinor === undefined && body.serviceFeeMinor === undefined) {
-    return NextResponse.json({ error: 'No updatable fields provided' }, { status: 400 })
-  }
-  const nextMarkupMinor = body.markupMinor !== undefined ? Math.round(Number(body.markupMinor)) : Number(item.markupMinor)
-  const nextServiceFeeMinor = body.serviceFeeMinor !== undefined ? Math.round(Number(body.serviceFeeMinor)) : Number(item.serviceFeeMinor)
-  if (!Number.isFinite(nextMarkupMinor) || !Number.isFinite(nextServiceFeeMinor) || nextMarkupMinor < 0 || nextServiceFeeMinor < 0) {
-    return NextResponse.json({ error: 'markupMinor and serviceFeeMinor must be non-negative numbers.' }, { status: 400 })
-  }
-
   const costMinor = Number(item.costMinor)
-  const nextSellingPriceMinor = costMinor + nextMarkupMinor + nextServiceFeeMinor
+
+  let nextMarkupMinor: number
+  let nextServiceFeeMinor: number
+  let nextSellingPriceMinor: number
+
+  if (body.sellingPriceMinor !== undefined) {
+    // V1.4 — direct-sellingPrice mode. serviceFeeMinor is left exactly as it
+    // was (an internal figure this mode never touches); markupMinor is
+    // derived server-side from the ONLY value that changed, so
+    // costMinor + markupMinor + serviceFeeMinor === sellingPriceMinor holds
+    // by construction, same invariant the markup%/fee path already keeps.
+    nextSellingPriceMinor = Math.round(Number(body.sellingPriceMinor))
+    nextServiceFeeMinor = Number(item.serviceFeeMinor)
+    if (!Number.isFinite(nextSellingPriceMinor) || nextSellingPriceMinor <= 0) {
+      return NextResponse.json({ error: 'sellingPriceMinor must be a positive number.' }, { status: 400 })
+    }
+    nextMarkupMinor = nextSellingPriceMinor - costMinor - nextServiceFeeMinor
+  } else {
+    if (body.markupMinor === undefined && body.serviceFeeMinor === undefined) {
+      return NextResponse.json({ error: 'No updatable fields provided' }, { status: 400 })
+    }
+    nextMarkupMinor = body.markupMinor !== undefined ? Math.round(Number(body.markupMinor)) : Number(item.markupMinor)
+    nextServiceFeeMinor = body.serviceFeeMinor !== undefined ? Math.round(Number(body.serviceFeeMinor)) : Number(item.serviceFeeMinor)
+    if (!Number.isFinite(nextMarkupMinor) || !Number.isFinite(nextServiceFeeMinor) || nextMarkupMinor < 0 || nextServiceFeeMinor < 0) {
+      return NextResponse.json({ error: 'markupMinor and serviceFeeMinor must be non-negative numbers.' }, { status: 400 })
+    }
+    nextSellingPriceMinor = costMinor + nextMarkupMinor + nextServiceFeeMinor
+  }
 
   const updatedItem = await prisma.quoteItem.update({
     where: { id: item.id },

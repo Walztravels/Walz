@@ -2,8 +2,16 @@ import { NextRequest, NextResponse }            from 'next/server'
 import { getAdminSession }                       from '@/lib/admin-auth'
 import { hasPermission }                         from '@/lib/admin/permissions'
 import { searchFlights, assignBadges }           from '@/lib/flights/duffel'
-import type { FlightSearchParams, CabinClass, FlightItinerary, FlightSegment } from '@/lib/flights/types'
-import type { NormalizedFlightOffer, NormalizedFlightSegment } from '@/lib/travel-search/types'
+import type { FlightSearchParams, CabinClass, FlightItinerary, FlightSegment, FlightJourney } from '@/lib/flights/types'
+import type { NormalizedFlightOffer, NormalizedFlightSegment, NormalizedFlightJourney } from '@/lib/travel-search/types'
+
+/** UI stop-preference value → Duffel/normaliser max stops per journey. */
+const STOPS_MAP: Record<string, 0 | 1 | 2 | undefined> = {
+  direct: 0,
+  'max-1-stop': 1,
+  'max-2-stops': 2,
+  any: undefined,
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -35,11 +43,34 @@ function segmentToNormalized(seg: FlightSegment, order: number): NormalizedFligh
   }
 }
 
+function journeyToNormalized(j: FlightJourney, index: number): NormalizedFlightJourney {
+  return {
+    direction: j.direction,
+    segments: j.segments.map((s, i) => segmentToNormalized(s, i)),
+    stops: j.stops,
+    durationMinutes: j.durationMinutes ?? null,
+  }
+}
+
 function itineraryToNormalized(it: FlightItinerary, searchedAt: string): NormalizedFlightOffer {
   const outSegs  = it.segments ?? []
   const retSegs  = it.returnSegments ?? []
   const first    = outSegs[0]
   const last     = outSegs[outSegs.length - 1]
+  // journeys[] carries EVERY leg (never truncated to 2); fall back to the
+  // legacy 2-field shape only for an offer somehow built without it.
+  const journeys: NormalizedFlightJourney[] = it.journeys && it.journeys.length > 0
+    ? it.journeys.map(journeyToNormalized)
+    : [
+        { direction: 'outbound' as const, segments: outSegs, stops: Math.max(0, outSegs.length - 1), durationMinutes: it.totalDuration ?? null },
+        ...(retSegs.length > 0 ? [{ direction: 'return' as const, segments: retSegs, stops: Math.max(0, retSegs.length - 1), durationMinutes: it.returnDuration ?? null }] : []),
+      ].map((j) => ({ ...j, segments: j.segments.map((s, i) => segmentToNormalized(s, i)) }))
+  // Trip type from the ACTUAL journey count/shape, never a segment-count
+  // heuristic on already-truncated data (the prior bug: a genuine 3-leg
+  // multi-city offer with 1 segment per leg was misread as one-way because
+  // outSegs.length was 1).
+  const tripType: NormalizedFlightOffer['tripType'] =
+    journeys.length <= 1 ? 'one-way' : journeys.length === 2 && journeys[1].direction === 'return' ? 'round-trip' : 'multi-city'
 
   const supplierTotalAmount = it.price?.total ?? 0
   const currency            = it.price?.currency ?? 'GBP'
@@ -51,8 +82,6 @@ function itineraryToNormalized(it: FlightItinerary, searchedAt: string): Normali
     ? parseInt(bag.checked.match(/(\d+)\s*[x×]/i)![1], 10)
     : null
   const checkedWeight = bag?.checked?.match(/\d+\s*kg/i)?.[0] ?? null
-
-  const tripType = retSegs.length > 0 ? 'round-trip' : outSegs.length > 2 ? 'multi-city' : 'one-way'
 
   return {
     provider:          'duffel',
@@ -80,8 +109,9 @@ function itineraryToNormalized(it: FlightItinerary, searchedAt: string): Normali
     seatIncluded:      false,
     mealIncluded:      false,
     seatsLeft:         it.seatsLeft ?? null,
-    segments:          outSegs.map((s, i) => segmentToNormalized(s, i)),
-    returnSegments:    retSegs.map((s, i) => segmentToNormalized(s, i)),
+    segments:          journeys[0]?.segments ?? [],
+    returnSegments:    journeys[1]?.direction === 'return' ? journeys[1].segments : [],
+    journeys,
   }
 }
 
@@ -96,7 +126,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { from, to, depart, return: ret, trip, cabin, adults, children, infants, segments } = body
+    const { from, to, depart, return: ret, trip, cabin, adults, children, infants, segments, stops } = body
 
     // Closing security hardening: the UI already caps multi-city at 5 legs
     // (CreateQuoteDrawer.tsx / FlightSearchWidget.tsx, MC_MAX_LEGS) — that
@@ -129,6 +159,13 @@ export async function POST(req: NextRequest) {
         if (typeof s?.date !== 'string' || !DATE_RE.test(s.date.trim()) || Number.isNaN(new Date(s.date).getTime())) {
           return NextResponse.json({ error: `Segment ${i + 1}: a valid departure date is required.` }, { status: 400 })
         }
+        // Chronology: each leg must depart on or after the previous leg's departure.
+        if (i > 0) {
+          const prevDate = (segments[i - 1] as { date?: unknown })?.date
+          if (typeof prevDate === 'string' && s.date.trim() < prevDate.trim()) {
+            return NextResponse.json({ error: `Segment ${i + 1}: departure date cannot be before Segment ${i}'s departure date.` }, { status: 400 })
+          }
+        }
       }
     }
 
@@ -157,6 +194,7 @@ export async function POST(req: NextRequest) {
         infants:  Number(infants)  || 0,
       },
       legs,
+      maxConnections: STOPS_MAP[String(stops ?? 'any').toLowerCase()],
     }
 
     const searchedAt = new Date().toISOString()
@@ -169,7 +207,7 @@ export async function POST(req: NextRequest) {
       searchedAt,
       totalOffers: offers.length,
       provider: 'duffel',
-      searchParams: { from, to, depart, return: ret, trip, cabin, adults, children, infants },
+      searchParams: { from, to, depart, return: ret, trip, cabin, adults, children, infants, stops: stops ?? 'any' },
     })
 
   } catch (err: unknown) {

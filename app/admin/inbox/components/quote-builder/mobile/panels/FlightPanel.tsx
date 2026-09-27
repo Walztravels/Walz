@@ -5,11 +5,55 @@
 // block into two full mobile screens: 'search' shows only the form,
 // 'results' shows only the list — MobileWorkspace decides which is
 // current; this component just renders whichever half it's asked for.
+import { useMemo, useState } from 'react'
 import { AirportDropdown } from '@/app/admin/inbox/components/AirportDropdown'
 import { RefreshCw, ArrowLeft } from 'lucide-react'
-import { fmtMinor, type QuoteBuilderState } from '../../useQuoteBuilderState'
+import { type QuoteBuilderState } from '../../useQuoteBuilderState'
 import { inputCls, labelCls } from '../../styles'
 import { MultiCityMobileCards } from '../MultiCityMobileCards'
+import { FlightResultCard } from '../../desktop/cards/FlightResultCard'
+import type { NormalizedFlightOffer } from '@/lib/travel-search/types'
+
+// V1.4 (Agent A) — same stops search-form control as desktop FlightPanel.tsx
+// (app/admin/inbox/components/quote-builder/desktop/panels/FlightPanel.tsx),
+// values matching the route's STOPS_MAP keys exactly.
+const STOPS_SEARCH_OPTIONS: { value: string; label: string }[] = [
+  { value: 'any', label: 'Any' },
+  { value: 'direct', label: 'Direct' },
+  { value: 'max-1-stop', label: 'Max 1 Stop' },
+  { value: 'max-2-stops', label: 'Max 2 Stops' },
+]
+
+// V1.4 (Agent A) — same client-side RESULT filter convention as desktop
+// FlightPanel.tsx: stops filter uses the WORST journey's stop count,
+// departure bucket reads the outbound journey's first segment.
+type ResultStopsFilter = 'any' | 'direct' | '1' | '2+'
+type DepartureFilter = 'any' | 'morning' | 'afternoon' | 'evening' | 'night'
+
+function worstJourneyStops(offer: NormalizedFlightOffer): number {
+  const journeys = offer.journeys ?? []
+  return journeys.reduce((max, j) => Math.max(max, j.stops), 0)
+}
+
+function matchesStopsFilter(offer: NormalizedFlightOffer, filter: ResultStopsFilter): boolean {
+  if (filter === 'any') return true
+  const worst = worstJourneyStops(offer)
+  if (filter === 'direct') return worst === 0
+  if (filter === '1') return worst === 1
+  return worst >= 2
+}
+
+function departureBucket(offer: NormalizedFlightOffer): DepartureFilter | null {
+  const iso = offer.journeys?.[0]?.segments?.[0]?.departureAt ?? offer.segments[0]?.departureAt
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const hour = d.getHours()
+  if (hour < 12) return 'morning'
+  if (hour < 17) return 'afternoon'
+  if (hour < 21) return 'evening'
+  return 'night'
+}
 
 export interface FlightPanelProps {
   state: QuoteBuilderState
@@ -28,10 +72,31 @@ export interface FlightPanelProps {
 export function FlightPanel({ state, screen, onSearched, onEditSearch, showEditSearch = true }: FlightPanelProps) {
   const {
     flTrip, setFlTrip, flFromQuery, flFromSug, flToQuery, flToSug,
-    flDepart, setFlDepart, flReturn, setFlReturn, flCabin, setFlCabin, flAdults, setFlAdults,
+    flDepart, setFlDepart, flReturn, setFlReturn, flCabin, setFlCabin, flStops, setFlStops, flAdults, setFlAdults,
     flightResults, onFlFromChange, onFlToChange, selectFlFrom, selectFlTo,
     searchFlightsLive, liveSearching, liveError, openPending,
   } = state
+
+  // V1.4 — result filters are local UI state, never persisted in
+  // useQuoteBuilderState.ts: they only narrow flightResults, never trigger
+  // a new search. Same convention as desktop FlightPanel.tsx.
+  const [filterStops, setFilterStops] = useState<ResultStopsFilter>('any')
+  const [filterAirline, setFilterAirline] = useState('all')
+  const [filterDeparture, setFilterDeparture] = useState<DepartureFilter>('any')
+
+  const airlineOptions = useMemo(
+    () => Array.from(new Set(flightResults.map(o => o.airline).filter(Boolean))).sort(),
+    [flightResults],
+  )
+
+  const filteredResults = useMemo(
+    () => flightResults.filter(o =>
+      matchesStopsFilter(o, filterStops)
+      && (filterAirline === 'all' || o.airline === filterAirline)
+      && (filterDeparture === 'any' || departureBucket(o) === filterDeparture),
+    ),
+    [flightResults, filterStops, filterAirline, filterDeparture],
+  )
 
   async function runSearch() {
     await searchFlightsLive()
@@ -53,26 +118,50 @@ export function FlightPanel({ state, screen, onSearched, onEditSearch, showEditS
         {!liveSearching && !liveError && flightResults.length === 0 && (
           <p className="text-xs text-walz-muted-strong">No flights found. Try adjusting your search.</p>
         )}
+        {flightResults.length > 0 && (
+          <div className="rounded-xl border border-walz-border bg-white p-3 grid grid-cols-3 gap-2">
+            <div>
+              <label className={labelCls} htmlFor="mobile-fl-filter-stops">Stops</label>
+              <select id="mobile-fl-filter-stops" value={filterStops} onChange={e => setFilterStops(e.target.value as ResultStopsFilter)} className={inputCls}>
+                <option value="any">Any</option>
+                <option value="direct">Direct</option>
+                <option value="1">1 stop</option>
+                <option value="2+">2+ stops</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="mobile-fl-filter-airline">Airline</label>
+              <select id="mobile-fl-filter-airline" value={filterAirline} onChange={e => setFilterAirline(e.target.value)} className={inputCls}>
+                <option value="all">All airlines</option>
+                {airlineOptions.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="mobile-fl-filter-departure">Departure</label>
+              <select id="mobile-fl-filter-departure" value={filterDeparture} onChange={e => setFilterDeparture(e.target.value as DepartureFilter)} className={inputCls}>
+                <option value="any">Any time</option>
+                <option value="morning">Morning (&lt;12:00)</option>
+                <option value="afternoon">Afternoon (12:00-17:00)</option>
+                <option value="evening">Evening (17:00-21:00)</option>
+                <option value="night">Night (&gt;=21:00)</option>
+              </select>
+            </div>
+          </div>
+        )}
+        {flightResults.length > 0 && filteredResults.length === 0 && (
+          <p className="text-xs text-walz-muted-strong">No flights match the selected filters.</p>
+        )}
         <ul className="space-y-2">
-          {flightResults.map((o, i) => (
-            <li key={i} className="rounded-xl border border-walz-border p-3 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold text-walz-deep-navy truncate">
-                  {o.airline} · {o.segments[0]?.originCode} → {o.segments[o.segments.length - 1]?.destinationCode}
-                </span>
-                <span className="font-mono text-xs text-walz-muted-strong flex-shrink-0">{fmtMinor(o.supplierTotalMinor, o.supplierCurrency)}</span>
-              </div>
-              <div className="text-xs text-walz-muted-strong mt-1">
-                {o.cabinClass} · {o.tripType} · {o.segments.length - 1} stop(s){o.checkedBaggage ? ` · ${o.checkedBaggage}` : ''}
-              </div>
-              <button
-                type="button"
-                onClick={() => openPending('flight', o, `${o.airline} · ${o.segments[0]?.originCode} → ${o.segments[o.segments.length - 1]?.destinationCode}`, o.supplierTotalMinor, o.supplierCurrency)}
-                className="mt-2 w-full min-h-[44px] rounded-lg bg-walz-navy text-white text-sm font-semibold hover:bg-walz-deep-navy transition-colors"
-              >
-                Select &amp; price
-              </button>
-            </li>
+          {filteredResults.map((o, i) => (
+            <FlightResultCard
+              key={i}
+              offer={o}
+              onSelect={() => openPending(
+                'flight', o,
+                `${o.airline} · ${o.segments[0]?.originCode} → ${o.segments[o.segments.length - 1]?.destinationCode}`,
+                o.supplierTotalMinor, o.supplierCurrency,
+              )}
+            />
           ))}
         </ul>
       </div>
@@ -127,6 +216,26 @@ export function FlightPanel({ state, screen, onSearched, onEditSearch, showEditS
             <div>
               <label className={labelCls} htmlFor="mobile-flight-adults">Adults</label>
               <input id="mobile-flight-adults" type="number" min={1} max={9} value={flAdults} onChange={e => setFlAdults(Number(e.target.value))} className={inputCls} />
+            </div>
+          </div>
+          <div>
+            <label className={labelCls} id="mobile-flight-stops-label">Stops</label>
+            <div role="group" aria-labelledby="mobile-flight-stops-label" className="grid grid-cols-4 gap-1.5">
+              {STOPS_SEARCH_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setFlStops(opt.value)}
+                  aria-pressed={flStops === opt.value}
+                  className={`min-h-[40px] px-1 rounded-lg border text-[11px] font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-walz-gold/60 ${
+                    flStops === opt.value
+                      ? 'bg-walz-navy text-white border-walz-navy'
+                      : 'bg-white text-walz-deep-navy border-walz-border hover:bg-walz-navy/5'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
           <button

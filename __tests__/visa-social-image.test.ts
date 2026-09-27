@@ -162,8 +162,15 @@ describe('(e) out-of-scope metadata untouched', () => {
     expect(src).not.toContain('visa-social')
   })
   it('git is available and root/itinerary/flight/hotel/tour metadata is unchanged vs base', () => {
+    // lib/itinerary/unified-booking.ts is excluded: the Quote Builder V1.4
+    // release deliberately widens its pricing.source/addedFrom unions by one
+    // member ('quote') so a quote-converted flight can be represented as a
+    // real unified booking — reviewed, additive, and unrelated to this
+    // visa-image change. Everything else this guard protects (metadata,
+    // itinerary pages/routes, /og, flights/hotels/tours pages) must still be
+    // untouched.
     const out = execSync(
-      'git diff ee02398a --name-only -- app/layout.tsx lib/itinerary app/itinerary app/og app/flights app/hotels app/tours app/page.tsx',
+      'git diff ee02398a --name-only -- app/layout.tsx lib/itinerary app/itinerary app/og app/flights app/hotels app/tours app/page.tsx -- ":(exclude)lib/itinerary/unified-booking.ts"',
       { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
     ).toString().trim()
     expect(out).toBe('')

@@ -72,6 +72,16 @@ export function SelectPricePanel({ state }: SelectPricePanelProps) {
     markupPercent: pending.markupPercent, serviceFee: Number(pending.serviceFeeMajor) || 0,
   })
 
+  // V1.4 — Manual Selling Price mode preview. Matches desktop/
+  // SelectPricePanel.tsx's identical block exactly — see its comment for the
+  // full rationale (margin convention cited from lib/pricing/booking-price.ts
+  // :82-86, matched exactly, not reinvented).
+  const manualMajor = Number(pending.manualSellingPriceMajor)
+  const manualValid = pending.pricingMode !== 'manual' || (Number.isFinite(manualMajor) && manualMajor > 0)
+  const costMajor = pending.supplierMinor / 100
+  const manualMarkupMajor = Math.round((manualMajor - costMajor) * 100) / 100
+  const manualMarginPercent = manualMajor > 0 ? Math.round(((manualMajor - costMajor) / manualMajor) * 10000) / 100 : 0
+
   return (
     <div className="absolute inset-0 z-30 flex flex-col justify-end" role="presentation">
       <button
@@ -140,30 +150,83 @@ export function SelectPricePanel({ state }: SelectPricePanelProps) {
             )
           ) : null}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Markup %</label>
-              <input
-                type="number" min={0} value={pending.markupPercent}
-                onChange={e => state.setPending(prev => prev ? { ...prev, markupPercent: Number(e.target.value) || 0 } : prev)}
-                className={inputCls}
-              />
-            </div>
-            <div>
-              <label className={labelCls}>Service fee ({pending.offerCurrency})</label>
-              <input
-                inputMode="decimal" value={pending.serviceFeeMajor}
-                onChange={e => state.setPending(prev => prev ? { ...prev, serviceFeeMajor: e.target.value } : prev)}
-                className={inputCls}
-              />
-            </div>
+          {/* V1.4 — pricing-mode toggle. See desktop/SelectPricePanel.tsx's
+              identical block for the full rationale. */}
+          <div role="radiogroup" aria-label="Pricing mode" className="flex gap-1.5 rounded-lg border border-walz-border p-1">
+            <button
+              type="button" role="radio" aria-checked={pending.pricingMode === 'markup'}
+              onClick={() => state.setPending(prev => prev ? { ...prev, pricingMode: 'markup' } : prev)}
+              className={`flex-1 min-h-[36px] rounded-md text-xs font-semibold transition-colors ${
+                pending.pricingMode === 'markup' ? 'bg-walz-gold text-walz-deep-navy' : 'text-walz-muted-strong hover:bg-walz-navy/5'
+              }`}
+            >
+              Default Markup
+            </button>
+            <button
+              type="button" role="radio" aria-checked={pending.pricingMode === 'manual'}
+              onClick={() => state.setPending(prev => prev ? { ...prev, pricingMode: 'manual', serviceFeeMajor: '0' } : prev)}
+              className={`flex-1 min-h-[36px] rounded-md text-xs font-semibold transition-colors ${
+                pending.pricingMode === 'manual' ? 'bg-walz-gold text-walz-deep-navy' : 'text-walz-muted-strong hover:bg-walz-navy/5'
+              }`}
+            >
+              Manual Selling Price
+            </button>
           </div>
 
-          <div className="text-xs space-y-0.5 border-t border-walz-border pt-2">
-            <div className="flex justify-between text-walz-muted-strong"><span>Markup</span><span className="font-mono">{pending.offerCurrency} {preview.markupAmount.toLocaleString()}</span></div>
-            <div className="flex justify-between font-semibold text-walz-deep-navy text-sm"><span>Client price</span><span className="font-mono">{pending.offerCurrency} {preview.sellingPrice.toLocaleString()}</span></div>
-            <div className="flex justify-between text-walz-muted-strong"><span>Margin</span><span className="font-mono">{preview.marginPercent}%</span></div>
-          </div>
+          {pending.pricingMode === 'markup' ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Markup %</label>
+                  <input
+                    type="number" min={0} value={pending.markupPercent}
+                    onChange={e => state.setPending(prev => prev ? { ...prev, markupPercent: Number(e.target.value) || 0 } : prev)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Service fee ({pending.offerCurrency})</label>
+                  <input
+                    inputMode="decimal" value={pending.serviceFeeMajor}
+                    onChange={e => state.setPending(prev => prev ? { ...prev, serviceFeeMajor: e.target.value } : prev)}
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div className="text-xs space-y-0.5 border-t border-walz-border pt-2">
+                <div className="flex justify-between text-walz-muted-strong"><span>Markup</span><span className="font-mono">{pending.offerCurrency} {preview.markupAmount.toLocaleString()}</span></div>
+                <div className="flex justify-between font-semibold text-walz-deep-navy text-sm"><span>Client price</span><span className="font-mono">{pending.offerCurrency} {preview.sellingPrice.toLocaleString()}</span></div>
+                <div className="flex justify-between text-walz-muted-strong"><span>Margin</span><span className="font-mono">{preview.marginPercent}%</span></div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className={labelCls}>Selling price ({pending.offerCurrency})</label>
+                <input
+                  inputMode="decimal" value={pending.manualSellingPriceMajor}
+                  onChange={e => state.setPending(prev => prev ? { ...prev, manualSellingPriceMajor: e.target.value } : prev)}
+                  placeholder="0.00"
+                  className={inputCls}
+                />
+                {!manualValid && (
+                  <p role="alert" className="text-xs text-red-700 mt-1">Enter a selling price greater than zero.</p>
+                )}
+              </div>
+
+              <div className="text-xs space-y-0.5 border-t border-walz-border pt-2">
+                <div className={`flex justify-between ${manualMarkupMajor < 0 ? 'text-red-700' : 'text-walz-muted-strong'}`}>
+                  <span>Markup{manualMarkupMajor < 0 ? ' (below cost)' : ''}</span>
+                  <span className="font-mono">{pending.offerCurrency} {manualMarkupMajor.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-walz-deep-navy text-sm"><span>Client price</span><span className="font-mono">{pending.offerCurrency} {(manualMajor || 0).toLocaleString()}</span></div>
+                <div className={`flex justify-between ${manualMarginPercent < 0 ? 'text-red-700' : 'text-walz-muted-strong'}`}>
+                  <span>Margin</span><span className="font-mono">{manualMarginPercent}%</span>
+                </div>
+              </div>
+            </>
+          )}
 
           {priceChange ? (
             <div className="rounded-lg border border-walz-gold bg-walz-off-white p-3 space-y-2">
@@ -192,7 +255,7 @@ export function SelectPricePanel({ state }: SelectPricePanelProps) {
               <button
                 type="button"
                 onClick={() => void state.confirmAddPending()}
-                disabled={state.liveBusy || state.pendingCurrencyMismatch || ((pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok')}
+                disabled={state.liveBusy || state.pendingCurrencyMismatch || !manualValid || ((pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok')}
                 className="flex-1 min-h-[48px] rounded-lg bg-walz-gold text-walz-deep-navy text-sm font-bold hover:brightness-95 transition-all disabled:opacity-50"
               >
                 {state.liveBusy ? 'Adding…' : 'Add to quote'}

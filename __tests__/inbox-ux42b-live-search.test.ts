@@ -25,7 +25,11 @@ import { Prisma } from '@prisma/client'
 const mockPrisma = {
   quote:            { findUnique: jest.fn(), update: jest.fn() },
   quoteItem:        { create: jest.fn(), findMany: jest.fn() },
-  quoteFlightOption: { create: jest.fn() },
+  // V1.4 — the flight branch now looks up an existing option for the same
+  // (quoteId, duffelOfferId) before creating one (duplicate-add protection);
+  // findFirst defaults to null (no existing row) in beforeEach below so every
+  // pre-existing test here keeps attaching exactly as before.
+  quoteFlightOption: { create: jest.fn(), findFirst: jest.fn() },
   quoteHotelOption:  { create: jest.fn() },
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
@@ -102,6 +106,7 @@ beforeEach(() => {
   mockPrisma.quote.findUnique.mockResolvedValue({ id: 'q1', status: 'draft', currency: 'GBP' })
   mockPrisma.quoteItem.findMany.mockResolvedValue([])
   mockPrisma.quote.update.mockResolvedValue({})
+  mockPrisma.quoteFlightOption.findFirst.mockResolvedValue(null)
   mockPrisma.quoteFlightOption.create.mockResolvedValue({ id: 'fo1', segments: [] })
   mockPrisma.quoteHotelOption.create.mockResolvedValue({ id: 'ho1' })
   mockPrisma.quoteItem.create.mockResolvedValue({ id: 'qi1' })
