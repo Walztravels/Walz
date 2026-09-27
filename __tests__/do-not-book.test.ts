@@ -177,7 +177,11 @@ describe('booking-flow wiring', () => {
   })
 
   it('quotes/new checks the client email against the block before creating', () => {
-    const src = read('app/admin/quotes/new/page.tsx')
+    // P1 route-fix (2026-09): app/admin/quotes/new/page.tsx is now a thin
+    // Suspense-wrapped shell (a Next.js page file may only have a default
+    // export) — all of its actual implementation, including this
+    // do-not-book check, lives in the sibling NewQuotePageContent.tsx.
+    const src = read('app/admin/quotes/new/NewQuotePageContent.tsx')
     expect(src).toContain('DoNotBookWarning')
     expect(src).toContain('/api/admin/clients/do-not-book?email=')
   })

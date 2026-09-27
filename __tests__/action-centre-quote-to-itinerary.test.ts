@@ -259,6 +259,37 @@ describe('buildItineraryDraftFromQuote — shape correctness', () => {
     expect(flights[0].cost).toBe(600) // price still booking-level, once
   })
 
+  it('a genuine 3-leg multi-city option with UNEVEN per-journey segment counts (one leg has a connection) reconstructs correctly via the reset-detection branch — regression test for the P1 route-fix bug where app/admin/quotes/new/page.tsx briefly renumbered segmentOrder continuously (0..N-1) instead of forwarding each journey-local value, which defeats reset detection whenever legs do not all have an equal segment count', () => {
+    const unevenMultiCity: QuoteFlightOptionForConversion = {
+      ...FLIGHT,
+      tripType: 'multi-city',
+      segments: [
+        // Leg 1: LOS -> ADD -> DXB (1 connection, 2 segments, local order 0,1)
+        { ...FLIGHT.segments[0], segmentOrder: 0, originCode: 'LOS', originCity: 'Lagos', destinationCode: 'ADD', destinationCity: 'Addis Ababa' },
+        { ...FLIGHT.segments[1], segmentOrder: 1, originCode: 'ADD', originCity: 'Addis Ababa', destinationCode: 'DXB', destinationCity: 'Dubai' },
+        // Leg 2: DXB -> JFK (direct, 1 segment, local order resets to 0)
+        { ...FLIGHT.segments[0], segmentOrder: 0, originCode: 'DXB', originCity: 'Dubai', destinationCode: 'JFK', destinationCity: 'New York' },
+        // Leg 3: JFK -> LOS (direct, 1 segment, local order resets to 0)
+        { ...FLIGHT.segments[0], segmentOrder: 0, originCode: 'JFK', originCity: 'New York', destinationCode: 'LOS', destinationCity: 'Lagos' },
+      ],
+    }
+    const draft = buildItineraryDraftFromQuote(baseQuote(), NO_ITEMS, [unevenMultiCity], NO_HOTELS, NO_MEDIA)
+    const flights = JSON.parse(draft.flights) as UnifiedFlightBooking[]
+    expect(flights).toHaveLength(1)
+    expect(flights[0].tripType).toBe('multi-city')
+    // The bug under test: a continuous 0,1,2,3 renumbering has no repeat, so
+    // hasReset is never detected, and 4 segments / 3 journeys doesn't divide
+    // evenly (4 % 3 !== 0) — the safe-fallback then collapses everything
+    // into ONE journey. Forwarding each segment's own per-journey-local
+    // order (0,1,0,0) DOES trip the reset-detection branch, correctly
+    // reconstructing all 3 journeys regardless of the uneven segment count.
+    expect(flights[0].journeys).toHaveLength(3)
+    expect(flights[0].journeys.map(j => j.segments.length)).toEqual([2, 1, 1])
+    expect(flights[0].journeys[0].segments.map(s => s.to)).toEqual(['ADD', 'DXB'])
+    expect(flights[0].journeys[1].segments.map(s => s.to)).toEqual(['JFK'])
+    expect(flights[0].journeys[2].segments.map(s => s.to)).toEqual(['LOS'])
+  })
+
   it('a "return" option with 3 segments and NO reset signal (strictly increasing segmentOrder) does not guess an uneven 1+2 split — it safely falls back to one journey rather than mislabel which segments are outbound vs return', () => {
     const ambiguousReturn: QuoteFlightOptionForConversion = {
       ...FLIGHT,

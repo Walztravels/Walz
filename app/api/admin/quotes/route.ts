@@ -5,6 +5,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import { generateQuoteReference } from '@/lib/quote-reference'
 import { sendQuoteProposalEmail } from '@/lib/email-quote-proposal'
+import { getOffer } from '@/lib/flights/duffel'
 // INBOX UX-4.2 (Create Quote from the Client Action Centre) — used ONLY when
 // the body carries a conversationId; the plain admin path never touches these.
 import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
@@ -17,6 +18,40 @@ import { resolveCanonicalContact, evaluateProfileCompleteness, type ProfileField
 const QUOTE_REQUIRED_FIELDS: ProfileField[] = ['name', 'email']
 
 export const dynamic = 'force-dynamic'
+
+// Price-integrity gap fix (2026-09-27): this route's flightOptions[] were
+// previously persisted from client-submitted costMinor/markupMinor/
+// sellingPriceMinor with NO server-side check against the live Duffel
+// offer — unlike app/api/admin/travel-search/add-to-quote/route.ts, which
+// already solves exactly this problem for its own (single-item, incremental
+// add) endpoint. This is a faithful duplicate of that route's
+// revalidateFlightTotalMinor() — route files in this app aren't meant to
+// import from one another, so duplicating this small, already-reviewed
+// helper is the established pattern here (see that route's own comment:
+// "Reuses the exact Duffel/Hotelbeds calls the sibling revalidate routes
+// make"). Any change to the pricing logic itself belongs in BOTH copies.
+async function revalidateFlightTotalMinor(
+  offerId: string,
+): Promise<{ ok: true; totalAmountMinor: number; currency: string | null } | { ok: false; error: string }> {
+  let rawOffer: Record<string, unknown>
+  try {
+    rawOffer = await getOffer(offerId)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('404') || msg.includes('not_found')) {
+      return { ok: false, error: 'This fare is no longer available. Please re-search.' }
+    }
+    throw err
+  }
+  const data    = (rawOffer.data ?? rawOffer) as Record<string, unknown>
+  const expires = (data.expires_at as string) ?? null
+  if (expires && new Date(expires) < new Date()) {
+    return { ok: false, error: 'This fare has expired. Please re-search.' }
+  }
+  const totalAmount = parseFloat(String((data.total_amount ?? data.base_amount ?? 0)))
+  const currency = (data.total_currency ?? data.base_currency ?? null) as string | null
+  return { ok: true, totalAmountMinor: Math.round(totalAmount * 100), currency }
+}
 
 const PAGE_SIZE = 20
 
@@ -268,6 +303,62 @@ export async function POST(req: NextRequest) {
     .reduce((sum, h) => sum + (h.sellingPriceMinor ?? 0), 0)
 
   const subtotalMinor = BigInt(itemsTotal + flightTotal + hotelTotal)
+
+  // Pre-transaction flight price revalidation (closing fix, 2026-09-27).
+  // Unlike add-to-quote's single-item attach, THIS endpoint can create
+  // MULTIPLE flightOptions[] in one request, all inside the SAME
+  // prisma.$transaction below. A live HTTP call to Duffel must never run
+  // inside that transaction (a slow supplier round-trip would hold the DB
+  // transaction, and every row lock it takes, open for the duration) — so
+  // every live_search flight option is independently re-verified here,
+  // BEFORE the transaction starts, and the ENTIRE request is rejected on
+  // the first failure rather than letting some options persist and others
+  // not. Manually-entered flight options — identified by `sourceType ===
+  // 'manual'` and/or a missing/empty `duffelOfferId` — have no live
+  // supplier offer to check against and are skipped entirely: this mirrors
+  // the existing, already-reviewed "no revalidation for manual, intentional"
+  // decision in app/api/admin/quotes/[id]/items/route.ts for a different
+  // (single manual-flight) write path.
+  for (let fi = 0; fi < (flightOptions as Array<Record<string, unknown>>).length; fi++) {
+    const fo = (flightOptions as Array<Record<string, unknown>>)[fi]
+    const duffelOfferId = fo.duffelOfferId as string | null | undefined
+    const isManual = fo.sourceType === 'manual' || !duffelOfferId
+    if (isManual) continue
+
+    const foLabel = (fo.label as string | null) || `flight option ${fi + 1}`
+    const revalidated = await revalidateFlightTotalMinor(String(duffelOfferId))
+    if (!revalidated.ok) {
+      return NextResponse.json(
+        { error: `${revalidated.error} (${foLabel})`, code: 'PRICE_REVALIDATION_FAILED' },
+        { status: 400 },
+      )
+    }
+    // Same fallback the persistence site below uses for this field
+    // (`String(fo.currency ?? currency)`) — the check must validate the
+    // SAME effective cost/currency values that will actually be persisted.
+    const foCostMinor = Number(fo.costMinor ?? 0)
+    const foCurrency  = String(fo.currency ?? currency)
+    if (revalidated.totalAmountMinor !== foCostMinor) {
+      return NextResponse.json(
+        {
+          error: `This fare’s price has changed since it was selected. Please re-search and try again. (${foLabel})`,
+          code: 'PRICE_MISMATCH',
+        },
+        { status: 400 },
+      )
+    }
+    // A magnitude match alone isn't enough — a numerically-equal amount in
+    // the wrong currency must not silently pass (mirrors add-to-quote).
+    if (revalidated.currency && revalidated.currency.toUpperCase() !== foCurrency.toUpperCase()) {
+      return NextResponse.json(
+        {
+          error: `This fare is priced in a different currency than expected. Please re-search and try again. (${foLabel})`,
+          code: 'PRICE_MISMATCH',
+        },
+        { status: 400 },
+      )
+    }
+  }
 
   let quote: Awaited<ReturnType<typeof prisma.quote.create>>
   try {
