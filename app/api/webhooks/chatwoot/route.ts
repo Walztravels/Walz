@@ -7,11 +7,18 @@
  * Register in Chatwoot: Settings → Integrations → Webhooks → Add
  *   URL:   https://www.walztravels.com/api/webhooks/chatwoot
  *   Events: conversation_status_changed (Jade takeover/resume), message_created, conversation_created, conversation_updated, conversation_resolved
+ *   Copy that webhook's own Secret (shown after saving) into
+ *   CHATWOOT_ACCOUNT_WEBHOOK_SECRET below — do NOT reuse the Jade AgentBot's
+ *   Webhook Secret here; Chatwoot generates them independently per
+ *   webhook/bot and this route will not accept the wrong one.
  *
  * Required SQL (run once in Supabase SQL Editor):
  *   ALTER TABLE leads ADD COLUMN IF NOT EXISTS chatwoot_conversation_id bigint;
  *   ALTER TABLE leads ADD COLUMN IF NOT EXISTS chatwoot_contact_id bigint;
  *   CREATE INDEX IF NOT EXISTS idx_leads_chatwoot_conv ON leads(chatwoot_conversation_id);
+ *
+ * Required env var (request verification — see lib/webhooks/verify.ts):
+ *   CHATWOOT_ACCOUNT_WEBHOOK_SECRET — this webhook's own Chatwoot-generated Secret
  *
  * Optional env vars (for sending replies via Chatwoot API):
  *   CHATWOOT_BASE_URL      — e.g. https://chatwoot-production-d486.up.railway.app
@@ -44,20 +51,31 @@ const JADE_AGENT_ID = process.env.JADE_CHATWOOT_AGENT_ID
   ? Number(process.env.JADE_CHATWOOT_AGENT_ID)
   : null
 
-// ── Request verification (INBOX-0S.4) ─────────────────────────────────────────
+// ── Request verification (P1 fix, 2026-09-27 — corrects INBOX-0S.4) ──────────
 // FAIL CLOSED: with no webhook secret configured, nothing is accepted.
-// Chatwoot 4.15 account webhooks send no signature, so the supported
-// mechanism is a shared token in the callback URL (?token=...) configured
-// in Chatwoot → Settings → Integrations → Webhooks; the header and HMAC
-// forms are also honored where a proxy provides them.
+// Chatwoot 4.15 signs this account-level webhook the same way it signs
+// Agent Bot webhooks (X-Chatwoot-Signature/-Timestamp/-Delivery — see
+// lib/webhooks/verify.ts's header comment for the exact formula and why
+// the previous "Chatwoot sends no signature" comment here was wrong). This
+// route's own HMAC secret is CHATWOOT_ACCOUNT_WEBHOOK_SECRET — deliberately
+// a DIFFERENT env var from the AgentBot route's CHATWOOT_AGENTBOT_WEBHOOK_SECRET,
+// since Chatwoot generates a separate secret per webhook/bot and nothing in
+// this codebase can prove the two are ever the same value for a given
+// Chatwoot account; if they genuinely are identical in this deployment,
+// simply set both env vars to that same value — no code change needed
+// either way. A legacy shared-token mode (?token=/x-chatwoot-token against
+// CHATWOOT_WEBHOOK_TOKEN) remains supported here as an independent,
+// optional, additional mechanism — unrelated to and not a substitute for
+// the HMAC secret above.
 function verifyRequest(req: Request, rawBody: string): 'ok' | 'invalid' | 'unconfigured' {
   return verifyChatwootRequest({
     rawBody,
-    headerToken: req.headers.get('x-chatwoot-token'),
-    queryToken:  new URL(req.url).searchParams.get('token'),
-    headerSig:   req.headers.get('x-chatwoot-signature'),
-    tokenSecret: process.env.CHATWOOT_WEBHOOK_TOKEN,
-    hmacSecret:  process.env.CHATWOOT_WEBHOOK_SECRET,
+    headerToken:     req.headers.get('x-chatwoot-token'),
+    queryToken:      new URL(req.url).searchParams.get('token'),
+    headerSig:       req.headers.get('x-chatwoot-signature'),
+    headerTimestamp: req.headers.get('x-chatwoot-timestamp'),
+    tokenSecret:     process.env.CHATWOOT_WEBHOOK_TOKEN,
+    hmacSecret:      process.env.CHATWOOT_ACCOUNT_WEBHOOK_SECRET,
   })
 }
 
@@ -159,7 +177,7 @@ export async function POST(req: Request) {
     const verdict = verifyRequest(req, rawBody)
     if (verdict !== 'ok') {
       console.warn(`[cw-hook] BLOCKED: ${verdict === 'unconfigured'
-        ? 'no CHATWOOT_WEBHOOK_TOKEN/SECRET configured — failing closed'
+        ? 'no CHATWOOT_ACCOUNT_WEBHOOK_SECRET/CHATWOOT_WEBHOOK_TOKEN configured — failing closed'
         : 'verification failed'}`)
       return new Response('Unauthorized', { status: 401 })
     }

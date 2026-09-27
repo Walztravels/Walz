@@ -16,7 +16,8 @@
 //   3. Skip reasons are now logged for diagnostics.
 //
 // Required env: ANTHROPIC_API_KEY, CHATWOOT_API_TOKEN,
-//               CHATWOOT_BASE_URL (optional), NEXT_PUBLIC_BASE_URL
+//               CHATWOOT_BASE_URL (optional), NEXT_PUBLIC_BASE_URL,
+//               CHATWOOT_AGENTBOT_WEBHOOK_SECRET (see auth block below)
 
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
@@ -44,33 +45,54 @@ const MODEL = "claude-sonnet-4-6";
 const MAX_TOOL_ROUNDS = 5;
 
 export async function POST(req: NextRequest) {
-  // ── Authentication (INBOX-0S.4A security review) ─────────────────────────
-  // This AgentBot endpoint previously accepted ANY caller: an attacker could
-  // post Jade-attributed messages into real customer conversations, run tool
-  // calls, and pre-claim ledger entries. Same shared-token mechanism as the
-  // account webhook (?token= in the bot's outgoing URL, Chatwoot → Settings
-  // → Bots). FAIL CLOSED, before the body is even read.
+  // ── Authentication (P1 fix, 2026-09-27 — corrects INBOX-0S.4A) ───────────
+  // This AgentBot endpoint previously checked a bearer-style `?token=`/
+  // x-chatwoot-token value against CHATWOOT_WEBHOOK_TOKEN. That mechanism
+  // was never what Chatwoot actually sends for a signed webhook: Chatwoot's
+  // Agent Bot "Webhook Secret" (Chatwoot → Settings → Bots → Jade → Webhook
+  // Secret) is used to SIGN each request, not to populate a literal
+  // token field — the previous check could never have succeeded against a
+  // real, correctly-configured Chatwoot delivery. Fixed to verify Chatwoot's
+  // actual documented signature contract instead of a token that was never
+  // sent. FAIL CLOSED, before the body is parsed. The `?token=` workaround
+  // is intentionally NOT used here (see lib/webhooks/verify.ts's header
+  // comment) — this route now requires a valid signature, full stop.
+  //
+  // The raw body is read ONCE, as text, BEFORE any JSON parsing — the
+  // signature is computed over the exact bytes Chatwoot signed; parsing
+  // and re-serializing JSON can change key order/whitespace/escaping and
+  // would silently break verification.
+  const rawBody = await req.text();
+
   const verdict = verifyChatwootRequest({
-    rawBody:     "",
-    headerToken: req.headers.get("x-chatwoot-token"),
-    queryToken:  req.nextUrl.searchParams.get("token"),
-    headerSig:   null,
-    tokenSecret: process.env.CHATWOOT_WEBHOOK_TOKEN,
-    hmacSecret:  undefined,
+    rawBody,
+    headerToken:     null,
+    queryToken:      null,
+    headerSig:       req.headers.get("x-chatwoot-signature"),
+    headerTimestamp: req.headers.get("x-chatwoot-timestamp"),
+    tokenSecret:     undefined,
+    hmacSecret:      process.env.CHATWOOT_AGENTBOT_WEBHOOK_SECRET,
   });
   if (verdict !== "ok") {
     console.warn(`[jade] BLOCKED: ${verdict === "unconfigured"
-      ? "no CHATWOOT_WEBHOOK_TOKEN configured — failing closed"
-      : "bot webhook verification failed"}`);
+      ? "no CHATWOOT_AGENTBOT_WEBHOOK_SECRET configured — failing closed"
+      : "bot webhook signature verification failed"}`);
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
   let payload: any;
   try {
-    payload = await req.json();
+    payload = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
+
+  // Chatwoot's unique per-delivery id — logged for diagnostics only. The
+  // idempotency CLAIM below still keys on Chatwoot's own domain-level
+  // message id (cw_bot_msg_<messageId>), which is stable across Chatwoot's
+  // own retries of the SAME message; delivery-id stability across retries
+  // isn't documented, so it is not used as the dedupe key itself.
+  const deliveryId = req.headers.get("x-chatwoot-delivery");
 
   // ---- 1. Filter: only respond to real incoming customer messages -------
   const event = payload.event;
@@ -142,7 +164,7 @@ export async function POST(req: NextRequest) {
   }
 
   // No message content in logs (0S.4 PII hygiene).
-  console.log(`[jade] incoming conv=${conversationId} msg=${messageId} len=${content.length}`);
+  console.log(`[jade] incoming conv=${conversationId} msg=${messageId} delivery=${deliveryId ?? "n/a"} len=${content.length}`);
 
   // ---- 2. ACK NOW, think later -------------------------------------------
   // Chatwoot gives agent-bot webhooks ~5s before timing out and handing off.

@@ -22,14 +22,24 @@ const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 // ── Chatwoot ─────────────────────────────────────────────────────────────────
 
 describe('Chatwoot webhook verification', () => {
-  const base = { rawBody: '{"event":"message_created"}', headerToken: null, queryToken: null, headerSig: null }
+  const base = {
+    rawBody: '{"event":"message_created"}',
+    headerToken: null, queryToken: null,
+    headerSig: null, headerTimestamp: null,
+  }
+  const NOW = 1_800_000_000 // fixed reference "now" for replay-window tests
+
+  /** Builds a genuine Chatwoot-shaped signature: sha256=HMAC(secret, `${ts}.${rawBody}`) */
+  function sign(secret: string, rawBody: string, ts: number | string) {
+    return 'sha256=' + createHmac('sha256', secret).update(`${ts}.${rawBody}`).digest('hex')
+  }
 
   it('FAILS CLOSED: no secret configured → unconfigured, never accepted', () => {
     expect(verifyChatwootRequest({ ...base, tokenSecret: undefined, hmacSecret: undefined })).toBe('unconfigured')
     expect(verifyChatwootRequest({ ...base, tokenSecret: '  ', hmacSecret: '' })).toBe('unconfigured')
   })
 
-  it('valid token accepted via query param or header', () => {
+  it('valid token accepted via query param or header (legacy shared-token mode, independent of HMAC)', () => {
     expect(verifyChatwootRequest({ ...base, queryToken: 's3cret', tokenSecret: 's3cret', hmacSecret: undefined })).toBe('ok')
     expect(verifyChatwootRequest({ ...base, headerToken: 's3cret', tokenSecret: 's3cret', hmacSecret: undefined })).toBe('ok')
   })
@@ -39,22 +49,118 @@ describe('Chatwoot webhook verification', () => {
     expect(verifyChatwootRequest({ ...base, tokenSecret: 's3cret', hmacSecret: undefined })).toBe('invalid')  // absent token
   })
 
-  it('HMAC signature verifies against the raw body', () => {
+  describe('HMAC signature (Chatwoot’s real contract: sha256=HMAC(secret, `${timestamp}.${rawBody}`))', () => {
     const secret = 'hmac-secret'
-    const sig = 'sha256=' + createHmac('sha256', secret).update(base.rawBody).digest('hex')
-    expect(verifyChatwootRequest({ ...base, headerSig: sig, tokenSecret: undefined, hmacSecret: secret })).toBe('ok')
-    expect(verifyChatwootRequest({ ...base, headerSig: sig.replace(/.$/, '0'), tokenSecret: undefined, hmacSecret: secret })).toBe('invalid')
-    expect(verifyChatwootRequest({ ...base, rawBody: base.rawBody + ' ', headerSig: sig, tokenSecret: undefined, hmacSecret: secret })).toBe('invalid')
+    const rawBody = base.rawBody
+    const ts = NOW // within the replay window of "now" = NOW
+
+    it('a genuinely valid signature + timestamp is accepted', () => {
+      const sig = sign(secret, rawBody, ts)
+      expect(verifyChatwootRequest({
+        ...base, rawBody, headerSig: sig, headerTimestamp: String(ts),
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('ok')
+    })
+
+    it('the WRONG secret is rejected', () => {
+      const sig = sign('a-different-secret', rawBody, ts)
+      expect(verifyChatwootRequest({
+        ...base, rawBody, headerSig: sig, headerTimestamp: String(ts),
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('invalid')
+    })
+
+    it('a body modified after signing is rejected', () => {
+      const sig = sign(secret, rawBody, ts)
+      expect(verifyChatwootRequest({
+        ...base, rawBody: rawBody + ' ', headerSig: sig, headerTimestamp: String(ts),
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('invalid')
+    })
+
+    it('a timestamp modified after signing is rejected — the timestamp is part of the signed material', () => {
+      const sig = sign(secret, rawBody, ts)
+      // Same signature, but claiming a different (still in-window) timestamp —
+      // the HMAC no longer matches because the signed string changed.
+      expect(verifyChatwootRequest({
+        ...base, rawBody, headerSig: sig, headerTimestamp: String(ts + 1),
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('invalid')
+    })
+
+    it('a missing signature is rejected even with a valid timestamp', () => {
+      expect(verifyChatwootRequest({
+        ...base, rawBody, headerSig: null, headerTimestamp: String(ts),
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('invalid')
+    })
+
+    it('a missing timestamp is rejected even with an otherwise-valid signature', () => {
+      const sig = sign(secret, rawBody, ts)
+      expect(verifyChatwootRequest({
+        ...base, rawBody, headerSig: sig, headerTimestamp: null,
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('invalid')
+    })
+
+    it('an EXPIRED timestamp is rejected even with an otherwise-valid signature (replay protection, 5-minute tolerance)', () => {
+      const staleTs = NOW - 6 * 60 // 6 minutes old — outside the 5-minute window
+      const sig = sign(secret, rawBody, staleTs)
+      expect(verifyChatwootRequest({
+        ...base, rawBody, headerSig: sig, headerTimestamp: String(staleTs),
+        tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+      })).toBe('invalid')
+    })
+
+    it('a timestamp just inside the 5-minute tolerance (past or future clock skew) is accepted', () => {
+      for (const skewTs of [NOW - 4 * 60, NOW + 4 * 60]) {
+        const sig = sign(secret, rawBody, skewTs)
+        expect(verifyChatwootRequest({
+          ...base, rawBody, headerSig: sig, headerTimestamp: String(skewTs),
+          tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+        })).toBe('ok')
+      }
+    })
+
+    it('a malformed signature is rejected safely (never reaches the crypto compare)', () => {
+      const malformed = ['not-a-signature', 'sha256=', 'sha1=' + 'a'.repeat(64), 'sha256=zz' + 'a'.repeat(62), 'sha256=' + 'a'.repeat(10)]
+      for (const headerSig of malformed) {
+        expect(verifyChatwootRequest({
+          ...base, rawBody, headerSig, headerTimestamp: String(ts),
+          tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+        })).toBe('invalid')
+      }
+    })
+
+    it('a non-numeric or non-positive timestamp is rejected safely', () => {
+      const sig = sign(secret, rawBody, 'not-a-number')
+      for (const headerTimestamp of ['not-a-number', '-100', '0', '']) {
+        expect(verifyChatwootRequest({
+          ...base, rawBody, headerSig: sig, headerTimestamp,
+          tokenSecret: undefined, hmacSecret: secret, nowSecondsForTest: NOW,
+        })).toBe('invalid')
+      }
+    })
   })
 
-  it('the AgentBot endpoint fails closed too — token verified before the body is read (0S.4A review)', () => {
+  it('the AgentBot endpoint requires a real Chatwoot signature — the ?token= workaround was removed (P1 fix)', () => {
     const s = read('app/api/chatwoot/bot/route.ts')
     expect(s).toContain('verifyChatwootRequest')
-    expect(s).toContain("req.nextUrl.searchParams.get(\"token\")")
+    expect(s).toContain('x-chatwoot-signature')
+    expect(s).toContain('x-chatwoot-timestamp')
+    expect(s).toContain('CHATWOOT_AGENTBOT_WEBHOOK_SECRET')
+    // the old bearer-token mechanism must be gone from this route's ACTUAL
+    // env read, not just unused (the string may still appear in a comment
+    // explaining what was fixed and why)
+    expect(s).not.toContain('req.nextUrl.searchParams.get("token")')
+    expect(s).not.toContain('process.env.CHATWOOT_WEBHOOK_TOKEN')
     expect(s).toContain('failing closed')
     expect(s).toContain('{ status: 401 }')
-    // auth precedes body parse and every side effect
-    expect(s.indexOf('verifyChatwootRequest({')).toBeLessThan(s.indexOf('req.json()'))
+    // raw body is read ONCE, as text, before verification AND before JSON.parse
+    expect(s).toContain('await req.text()')
+    expect(s).not.toContain('await req.json()')
+    // auth precedes JSON parsing and every side effect
+    expect(s.indexOf('verifyChatwootRequest({')).toBeLessThan(s.indexOf('JSON.parse(rawBody)'))
     expect(s.indexOf('verifyChatwootRequest({')).toBeLessThan(s.indexOf('claimWebhookEvent(', s.indexOf('export async function POST')))
   })
 
@@ -64,9 +170,16 @@ describe('Chatwoot webhook verification', () => {
     expect(s).toContain('tokenPresent')
   })
 
-  it('the route rejects unconfigured/invalid with 401 and never logs the raw body', () => {
+  it('the account/mirror webhook route also verifies a real signature, with its OWN, separately-named secret', () => {
     const s = read('app/api/webhooks/chatwoot/route.ts')
     expect(s).toContain("verifyChatwootRequest")
+    expect(s).toContain('x-chatwoot-signature')
+    expect(s).toContain('x-chatwoot-timestamp')
+    // Deliberately a DIFFERENT env var from the AgentBot route — Chatwoot
+    // generates a separate secret per webhook/bot; nothing here assumes
+    // they're the same value.
+    expect(s).toContain('CHATWOOT_ACCOUNT_WEBHOOK_SECRET')
+    expect(s).not.toContain('process.env.CHATWOOT_AGENTBOT_WEBHOOK_SECRET')
     expect(s).toContain("failing closed")
     expect(s).toContain("{ status: 401 }")
     expect(s).not.toContain('return true // no secret configured')
