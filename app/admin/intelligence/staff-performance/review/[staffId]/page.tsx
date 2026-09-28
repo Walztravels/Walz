@@ -207,6 +207,11 @@ export default function StaffPerformanceReviewPage() {
       {/* D. Activity evidence */}
       <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-5">
         <h2 className="text-sm font-bold text-[#0B1F3A] mb-3">D. Activity Evidence</h2>
+        <p className="text-xs text-gray-400 mb-3">
+          Non-authoritative context only. Quote attribution in this codebase is matched by staff email and may
+          undercount quotes logged under a staff ID instead — do not treat these figures as a complete record.
+          The sales-eligibility signal above (section C) never uses this data.
+        </p>
         <div className="grid grid-cols-3 gap-4 text-sm">
           <div><div className={LABEL}>Quotes Created</div>{data.activity.quotesCreated}</div>
           <div><div className={LABEL}>Quotes Accepted</div>{data.activity.quotesAccepted}</div>

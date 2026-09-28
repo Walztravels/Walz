@@ -59,6 +59,20 @@ export async function POST(req: NextRequest, { params }: { params: { docId: stri
   })
 
   if (!result.ok) {
+    if (result.blocked) {
+      // Content-free audit trail: record that the guard fired, never the
+      // flagged sentence text or the rest of Jade's draft.
+      await logPerformanceHistory({
+        caseId: document.caseId,
+        documentId: document.id,
+        actorStaffId: session.staffId ?? session.id,
+        actorName: session.name,
+        action: 'JADE_ASSIST',
+        documentVersion: document.version,
+        metadata: { jadeAction: body.action, blocked: true },
+      })
+      return NextResponse.json({ error: result.error, blocked: true }, { status: 422 })
+    }
     return NextResponse.json({ error: result.error }, { status: 502 })
   }
 

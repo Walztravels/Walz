@@ -87,6 +87,11 @@ export interface JadeAssistResult {
 export interface JadeAssistError {
   ok: false
   error: string
+  /** True specifically when blocked by checkForDisciplinaryRecommendation
+   *  (the deterministic HR-output guard) rather than a provider/generation
+   *  failure — callers use this to log distinct, content-free audit
+   *  metadata and to give the Super Admin a clearer message. */
+  blocked?: boolean
 }
 
 /** Loose, non-blocking check that Jade's output still contains the key
@@ -102,6 +107,55 @@ export function verifyProtectedFactsPresent(text: string, facts: ProtectedFacts)
   }
   if (!text.toLowerCase().includes(facts.employeeName.split(' ')[0].toLowerCase())) missing.push('employee name')
   return { ok: missing.length === 0, missing }
+}
+
+/**
+ * Deterministic, code-level HR-output guard (mission remediation P2). This
+ * is IN ADDITION TO the system prompt's own "never recommend a
+ * disciplinary outcome" instruction above — a prompt instruction is a
+ * request to the model, not an enforced guarantee, so this re-checks the
+ * actual output before it is ever returned to the client.
+ *
+ * A naive substring filter on words like "terminate"/"suspend" would also
+ * block entirely standard, legitimate HR boilerplate such as "failure to
+ * improve may result in further management action up to and including
+ * termination of employment" — exactly the kind of neutral, conditional
+ * language a real warning letter is expected to contain. So this checks,
+ * per SENTENCE, for the combination of (a) a disciplinary-outcome keyword
+ * AND (b) the ABSENCE of neutral/conditional framing in that same
+ * sentence. A sentence that actively recommends/decides an outcome
+ * ("I recommend terminating this employee", "this employee should be
+ * fired", "suspend this employee immediately") has neither hedge nor
+ * qualifier and gets flagged. A sentence that merely explains a possible
+ * future consequence ("may result in further management action",
+ * "could lead to termination of employment") is left alone.
+ */
+const DISCIPLINARY_KEYWORDS =
+  /\b(terminat(?:e|ed|es|ing|ion)|dismiss(?:ed|es|ing|al)?|fir(?:ed|ing)|suspend(?:ed|ing|s)?|demot(?:e|ed|es|ing|ion)|disciplinary escalation|punitive)\b/i
+
+const NEUTRAL_FRAMING =
+  /\b(may (?:result in|lead to|involve|include)|could (?:result in|lead to)|management (?:may|could|might) consider|further management action|up to and including|if (?:performance|improvement) (?:does not|is not))\b/i
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+export interface DisciplinaryGuardResult {
+  ok: boolean
+  /** Count only — the actual flagged sentence text is never persisted to
+   *  logs/history, per "log metadata about the validation failure without
+   *  logging unnecessary sensitive HR content". */
+  flaggedCount: number
+}
+
+export function checkForDisciplinaryRecommendation(text: string): DisciplinaryGuardResult {
+  const flaggedCount = splitSentences(text).filter(
+    (sentence) => DISCIPLINARY_KEYWORDS.test(sentence) && !NEUTRAL_FRAMING.test(sentence),
+  ).length
+  return { ok: flaggedCount === 0, flaggedCount }
 }
 
 export async function callJadeAssist(input: JadeAssistInput): Promise<JadeAssistResult | JadeAssistError> {
@@ -161,7 +215,23 @@ Task: ${ACTION_INSTRUCTION[action]}`
       return { ok: false, error: 'Jade returned an empty response. Please try again.' }
     }
 
-    return { ok: true, text: text.trim(), factsCheck: verifyProtectedFactsPresent(text, facts) }
+    const trimmed = text.trim()
+
+    // Deterministic guard, code-level, separate from the system prompt
+    // above. A blocked draft is never returned to the caller — the Super
+    // Admin sees only the block message, never the flagged text, and must
+    // regenerate or write the section manually.
+    const disciplinaryCheck = checkForDisciplinaryRecommendation(trimmed)
+    if (!disciplinaryCheck.ok) {
+      return {
+        ok: false,
+        blocked: true,
+        error:
+          "Jade's draft appeared to independently recommend or imply a disciplinary decision (e.g. termination, suspension, dismissal), which Jade is not permitted to do. Please regenerate, or write this section manually.",
+      }
+    }
+
+    return { ok: true, text: trimmed, factsCheck: verifyProtectedFactsPresent(trimmed, facts) }
   } catch (err) {
     console.error('[performance/jade] provider error:', err instanceof Error ? err.message : err)
     return { ok: false, error: 'Jade failed to generate a response. Please try again.' }

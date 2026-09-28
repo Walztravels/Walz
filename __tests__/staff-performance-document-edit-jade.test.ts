@@ -15,6 +15,7 @@ jest.mock('@/lib/performance/jade', () => ({
 
 import { getAdminSession } from '@/lib/admin-auth'
 import { callJadeAssist } from '@/lib/performance/jade'
+import { logPerformanceHistory } from '@/lib/performance/history'
 import { PATCH } from '@/app/api/admin/performance/documents/[docId]/route'
 import { POST as jadeAssist } from '@/app/api/admin/performance/documents/[docId]/jade/route'
 
@@ -71,6 +72,12 @@ describe('PATCH /api/admin/performance/documents/[docId]', () => {
     const res = await PATCH(req({ draftContent: 'tampered' }), ctx)
     expect(res.status).toBe(409)
   })
+
+  it('Jade cannot change the selected warning type — warningType is not in the editable field whitelist at all, so a PATCH attempt to change it is silently ignored', async () => {
+    await PATCH(req({ draftContent: 'Updated content', warningType: 'FINAL_WARNING' }), ctx)
+    const call = mockPrisma.staffPerformanceDocument.update.mock.calls[0][0]
+    expect(call.data).not.toHaveProperty('warningType')
+  })
 })
 
 describe('POST /api/admin/performance/documents/[docId]/jade', () => {
@@ -125,5 +132,30 @@ describe('POST /api/admin/performance/documents/[docId]/jade', () => {
     ;(callJadeAssist as jest.Mock).mockResolvedValue({ ok: false, error: 'provider down' })
     const res = await jadeAssist(req({ action: 'SUMMARIZE_EVIDENCE' }), ctx)
     expect(res.status).toBe(502)
+  })
+
+  it('returns 422 + blocked:true, never displays the text, and logs content-free audit metadata when the HR-output guard fires (mission remediation P2)', async () => {
+    ;(callJadeAssist as jest.Mock).mockResolvedValue({
+      ok: false, blocked: true,
+      error: "Jade's draft appeared to independently recommend or imply a disciplinary decision, which Jade is not permitted to do. Please regenerate, or write this section manually.",
+    })
+    const res = await jadeAssist(req({ action: 'DRAFT_WARNING' }), ctx)
+    expect(res.status).toBe(422)
+    const json = await res.json()
+    expect(json.blocked).toBe(true)
+    expect(json.text).toBeUndefined()
+    // Audit trail records that the guard fired, but never any HR content.
+    expect(logPerformanceHistory as jest.Mock).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'JADE_ASSIST',
+      metadata: { jadeAction: 'DRAFT_WARNING', blocked: true },
+    }))
+  })
+
+  it('a blocked response is distinguishable from a generic provider failure (422 vs 502) so the Super Admin sees the right message', async () => {
+    ;(callJadeAssist as jest.Mock).mockResolvedValue({ ok: false, blocked: true, error: 'blocked' })
+    expect((await jadeAssist(req({ action: 'DRAFT_WARNING' }), ctx)).status).toBe(422)
+
+    ;(callJadeAssist as jest.Mock).mockResolvedValue({ ok: false, error: 'provider down' })
+    expect((await jadeAssist(req({ action: 'DRAFT_WARNING' }), ctx)).status).toBe(502)
   })
 })

@@ -19,6 +19,21 @@ interface DocumentDetail {
   additionalNotes: string | null
   deliveredAt: string | null
   acknowledgedAt: string | null
+  emailDeliveryStatus: 'NOT_SENT' | 'QUEUED' | 'SENT' | 'FAILED'
+  emailDeliveryError: string | null
+}
+
+const DELIVERY_LABEL: Record<DocumentDetail['emailDeliveryStatus'], string> = {
+  NOT_SENT: 'EMAIL PENDING',
+  QUEUED:   'EMAIL PENDING',
+  SENT:     'EMAIL SENT',
+  FAILED:   'EMAIL FAILED',
+}
+const DELIVERY_STYLE: Record<DocumentDetail['emailDeliveryStatus'], string> = {
+  NOT_SENT: 'bg-amber-100 text-amber-800',
+  QUEUED:   'bg-amber-100 text-amber-800',
+  SENT:     'bg-green-100 text-green-800',
+  FAILED:   'bg-red-100 text-red-800',
 }
 
 const JADE_ACTIONS: { key: string; label: string }[] = [
@@ -52,6 +67,9 @@ export default function PerformanceDocumentPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [issuing, setIssuing] = useState(false)
   const [issueError, setIssueError] = useState('')
+
+  const [retrying, setRetrying] = useState(false)
+  const [retryNote, setRetryNote] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -140,11 +158,36 @@ export default function PerformanceDocumentPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.error ?? 'Failed to issue the document.')
       setShowConfirm(false)
+      // Issuance itself succeeded (res.ok) regardless of json.delivery —
+      // the document is now ISSUED and immutable either way. The delivery
+      // state is read back via load() and surfaced in its own banner
+      // below, never folded into issueError (which is reserved for
+      // issuance failing outright).
       await load()
     } catch (e) {
       setIssueError(e instanceof Error ? e.message : 'Failed to issue the document.')
     } finally {
       setIssuing(false)
+    }
+  }
+
+  async function retryEmail() {
+    setRetrying(true)
+    setRetryNote('')
+    try {
+      const res = await fetch(`/api/admin/performance/documents/${docId}/resend-email`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setRetryNote(json.error ?? 'Failed to retry.'); return }
+      setRetryNote(
+        json.delivery?.status === 'SENT'
+          ? (json.noop ? 'Email was already sent — nothing to retry.' : 'Email sent successfully.')
+          : `Retry failed: ${json.delivery?.error ?? 'unknown error'}`,
+      )
+      await load()
+    } catch {
+      setRetryNote('Network error — please try again.')
+    } finally {
+      setRetrying(false)
     }
   }
 
@@ -159,13 +202,45 @@ export default function PerformanceDocumentPage() {
       <Link href={`/admin/intelligence/staff-performance`} className="text-xs text-gray-400 hover:text-gray-600">← Back to Performance Management</Link>
       <div className="flex items-center justify-between mt-2 mb-1">
         <h1 className="text-2xl font-bold text-[#0B1F3A]">{doc.warningType.replace(/_/g, ' ')}</h1>
-        <span className={`px-3 py-1 rounded-full text-xs font-bold ${isIssued ? 'bg-green-100 text-green-800' : doc.status === 'APPROVED' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>{doc.status}</span>
+        <div className="flex items-center gap-2">
+          <span className={`px-3 py-1 rounded-full text-xs font-bold ${isIssued ? 'bg-green-100 text-green-800' : doc.status === 'APPROVED' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>{doc.status}</span>
+          {isIssued && (
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${DELIVERY_STYLE[doc.emailDeliveryStatus]}`}>
+              {DELIVERY_LABEL[doc.emailDeliveryStatus]}
+            </span>
+          )}
+        </div>
       </div>
       <p className="text-sm text-gray-500 mb-6">{doc.employeeNameSnapshot} — {doc.jobTitleSnapshot}, {doc.departmentSnapshot} · Review date {fmt(doc.reviewDate)}</p>
 
-      {isIssued && (
+      {isIssued && doc.emailDeliveryStatus === 'FAILED' && (
+        <div className="mb-5 bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3">
+          <p className="text-sm font-bold mb-1">Warning issued successfully, but email delivery failed.</p>
+          <p className="text-xs text-red-700 mb-2">The notice is issued and the employee can still access it via My Performance Notices — only the email notification did not go through.</p>
+          <div className="flex items-center gap-2">
+            <button disabled={retrying} onClick={retryEmail} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
+              {retrying ? 'Retrying…' : 'Retry Email'}
+            </button>
+            {retryNote && <span className="text-xs text-red-700">{retryNote}</span>}
+          </div>
+        </div>
+      )}
+
+      {isIssued && (doc.emailDeliveryStatus === 'NOT_SENT' || doc.emailDeliveryStatus === 'QUEUED') && (
+        <div className="mb-5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3">
+          <p className="text-sm font-bold mb-1">Warning issued — email delivery still pending.</p>
+          <div className="flex items-center gap-2">
+            <button disabled={retrying} onClick={retryEmail} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50">
+              {retrying ? 'Retrying…' : 'Retry Email'}
+            </button>
+            {retryNote && <span className="text-xs text-amber-700">{retryNote}</span>}
+          </div>
+        </div>
+      )}
+
+      {isIssued && doc.emailDeliveryStatus === 'SENT' && (
         <div className="mb-5 text-xs bg-green-50 border border-green-100 text-green-800 rounded-lg px-3 py-2">
-          This document was issued and is now immutable. {doc.acknowledgedAt ? `Acknowledged by the employee on ${fmt(doc.acknowledgedAt)}.` : 'Not yet acknowledged by the employee.'}
+          This document was issued and is now immutable. Notification email delivered. {doc.acknowledgedAt ? `Acknowledged by the employee on ${fmt(doc.acknowledgedAt)}.` : 'Not yet acknowledged by the employee.'}
         </div>
       )}
 

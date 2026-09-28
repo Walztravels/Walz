@@ -18,6 +18,8 @@ export type PerformanceHistoryAction =
   | 'EMAIL_QUEUED'
   | 'EMAIL_SENT'
   | 'EMAIL_FAILED'
+  | 'EMAIL_RETRY_REQUESTED'
+  | 'EMAIL_RETRY_NOOP_ALREADY_SENT'
   | 'OPENED'
   | 'ACKNOWLEDGED'
   | 'EMPLOYEE_RESPONSE'

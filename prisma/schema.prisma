@@ -6964,6 +6964,22 @@ model StaffPerformanceDocument {
   // Resend message id — support/troubleshooting only, never re-derives recipient.
   emailMessageId String? @map("email_message_id")
 
+  // Explicit delivery state, deliberately SEPARATE from `status` above.
+  // Issuance is authoritative and immutable the moment `status` flips to
+  // ISSUED, regardless of whether the notification email ever actually
+  // gets through — a Resend outage must never roll back an issued warning
+  // or block the employee's own authenticated access to it (see
+  // my-notices/[docId]/route.ts, which is gated on `status`, never on
+  // this field). NOT_SENT | QUEUED | SENT | FAILED — written only by
+  // lib/performance/delivery.ts, the single place that ever attempts a
+  // send. Super-Admin-visible only; never included in the employee-facing
+  // my-notices response.
+  emailDeliveryStatus String  @default("NOT_SENT") @map("email_delivery_status")
+  // Sanitized, length-capped provider error message (see
+  // lib/performance/delivery.ts::sanitizeDeliveryError) — never a raw
+  // exception/stack/API key. Cleared back to null on a successful send.
+  emailDeliveryError  String? @map("email_delivery_error") @db.Text
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -6972,6 +6988,7 @@ model StaffPerformanceDocument {
   @@index([caseId])
   @@index([staffId])
   @@index([status])
+  @@index([emailDeliveryStatus])
   @@map("staff_performance_documents")
 }
 
@@ -6987,7 +7004,8 @@ model StaffPerformanceHistory {
   actorName    String? @map("actor_name")
 
   // DRAFTED | EDITED | JADE_ASSIST | NOTES_UPDATED | APPROVED | ISSUED |
-  // EMAIL_QUEUED | EMAIL_SENT | EMAIL_FAILED | OPENED | ACKNOWLEDGED |
+  // EMAIL_QUEUED | EMAIL_SENT | EMAIL_FAILED | EMAIL_RETRY_REQUESTED |
+  // EMAIL_RETRY_NOOP_ALREADY_SENT | OPENED | ACKNOWLEDGED |
   // EMPLOYEE_RESPONSE | REMINDER_SENT | REVIEW_COMPLETED | CLOSED
   action String
 

@@ -145,9 +145,22 @@ CREATE TABLE IF NOT EXISTS staff_performance_documents (
   employee_response            text,
   employee_response_at         timestamptz,
   email_message_id             text,
+  -- Explicit delivery state (mission remediation P1) — separate from
+  -- `status` above. Issuance is authoritative and immutable regardless of
+  -- whether the notification email ever gets through. Written only by
+  -- lib/performance/delivery.ts.
+  email_delivery_status         text        NOT NULL DEFAULT 'NOT_SENT',
+  email_delivery_error          text,
   created_at                   timestamptz NOT NULL DEFAULT now(),
   updated_at                   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Idempotent even if this table already existed from an earlier partial
+-- run of this same migration file, before the delivery-state columns
+-- were added to it.
+ALTER TABLE staff_performance_documents
+  ADD COLUMN IF NOT EXISTS email_delivery_status text NOT NULL DEFAULT 'NOT_SENT',
+  ADD COLUMN IF NOT EXISTS email_delivery_error  text;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_staff_perf_documents_case') THEN
@@ -157,9 +170,10 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_case_id   ON staff_performance_documents (case_id);
-CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_staff_id  ON staff_performance_documents (staff_id);
-CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_status    ON staff_performance_documents (status);
+CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_case_id             ON staff_performance_documents (case_id);
+CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_staff_id            ON staff_performance_documents (staff_id);
+CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_status              ON staff_performance_documents (status);
+CREATE INDEX IF NOT EXISTS idx_staff_perf_documents_email_delivery      ON staff_performance_documents (email_delivery_status);
 
 ALTER TABLE staff_performance_documents ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE staff_performance_documents FROM anon, authenticated;
@@ -238,6 +252,9 @@ SELECT
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'staff_performance_cases')     AS cases_table_expect_1,
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'staff_performance_documents') AS documents_table_expect_1,
   (SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'staff_performance_history')   AS history_table_expect_1,
+  (SELECT COUNT(*) FROM information_schema.columns
+     WHERE table_name = 'staff_performance_documents'
+       AND column_name IN ('email_delivery_status','email_delivery_error'))                          AS delivery_columns_added_expect_2,
   (SELECT COUNT(*) FROM pg_constraint WHERE conname = 'fk_staff_perf_documents_case')                AS fk_documents_case_expect_1,
   (SELECT COUNT(*) FROM pg_constraint WHERE conname = 'fk_staff_perf_history_case')                  AS fk_history_case_expect_1,
   (SELECT COUNT(*) FROM pg_constraint WHERE conname = 'fk_staff_perf_history_document')              AS fk_history_document_expect_1,
@@ -249,4 +266,4 @@ SELECT
   (SELECT COUNT(*) FROM staff_performance_documents)                                                 AS documents_rows_expect_0,
   (SELECT COUNT(*) FROM staff_performance_history)                                                   AS history_rows_expect_0,
   (SELECT COUNT(*) FROM "Staff" WHERE hire_date IS NOT NULL OR performance_review_exempt = true)     AS staff_rows_touched_expect_0;
--- Expect: staff_performance_pip_v1 | 4 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0
+-- Expect: staff_performance_pip_v1 | 4 | 1 | 1 | 1 | 2 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0

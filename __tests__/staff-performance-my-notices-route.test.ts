@@ -82,6 +82,26 @@ describe('GET /api/admin/performance/my-notices/[docId] — IDOR guard', () => {
     const res = await getNotice(req() as unknown as Parameters<typeof getNotice>[0], { params: { docId: 'doc-own' } })
     expect(res.status).toBe(404)
   })
+
+  it('employee can still access an ISSUED notice whose email delivery FAILED — access is gated on status, never on email delivery state (mission remediation P1)', async () => {
+    mockPrisma.staffPerformanceDocument.findUnique.mockResolvedValue({
+      ...OWN_DOC, emailDeliveryStatus: 'FAILED', emailDeliveryError: 'Resend outage', deliveredAt: null,
+    })
+    mockPrisma.staffPerformanceDocument.update.mockResolvedValue({})
+    const res = await getNotice(req() as unknown as Parameters<typeof getNotice>[0], { params: { docId: 'doc-own' } })
+    expect(res.status).toBe(200)
+  })
+
+  it('never exposes emailDeliveryStatus/emailDeliveryError to the employee — Super-Admin-internal fields only', async () => {
+    mockPrisma.staffPerformanceDocument.findUnique.mockResolvedValue({
+      ...OWN_DOC, emailDeliveryStatus: 'FAILED', emailDeliveryError: 'Resend outage: domain not verified',
+    })
+    mockPrisma.staffPerformanceDocument.update.mockResolvedValue({})
+    const res = await getNotice(req() as unknown as Parameters<typeof getNotice>[0], { params: { docId: 'doc-own' } })
+    const json = await res.json()
+    expect(JSON.stringify(json)).not.toContain('emailDeliveryStatus')
+    expect(JSON.stringify(json)).not.toContain('Resend outage')
+  })
 })
 
 describe('POST .../acknowledge — fixed wording, idempotent, never implies agreement', () => {

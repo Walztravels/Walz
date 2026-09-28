@@ -81,7 +81,10 @@ export function evaluateQueueEligibility(staff: EligibilityStaff, now: Date = ne
 
   let tenureUnknown = false
   if (staff.hireDate) {
-    const days = Math.floor((now.getTime() - staff.hireDate.getTime()) / 86_400_000)
+    // Clamped at 0 — a hireDate in the future (bad data entry) must never
+    // display as a negative day count; it still correctly falls below
+    // MIN_TENURE_DAYS and excludes the staff member either way.
+    const days = Math.max(0, Math.floor((now.getTime() - staff.hireDate.getTime()) / 86_400_000))
     if (days < MIN_TENURE_DAYS) {
       reasons.push(`Joined ${days} day(s) ago — below the ${MIN_TENURE_DAYS}-day minimum tenure`)
     }

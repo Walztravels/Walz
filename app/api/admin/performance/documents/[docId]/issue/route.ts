@@ -3,24 +3,29 @@ import { createHash } from 'crypto'
 import prisma from '@/lib/db'
 import { requireSuperAdmin } from '@/lib/performance/authz'
 import { logPerformanceHistory } from '@/lib/performance/history'
-import { sendPerformanceNoticeEmail } from '@/lib/performance/email'
+import { attemptDeliverPerformanceNotice } from '@/lib/performance/delivery'
 
 export const dynamic = 'force-dynamic'
-
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
 
 function fmt(d: Date): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
 }
 
 // POST /api/admin/performance/documents/[docId]/issue — APPROVE & ISSUE
-// (mission brief §7/§8). This is the ONLY endpoint that ever sends a
-// performance warning email. Requires an explicit body.confirm === true,
-// matching the mandatory client-side confirmation dialog. The recipient
-// email is ALWAYS resolved server-side from the Staff record — the
-// request body is never trusted for an address. Idempotent: a document
-// already ISSUED/ACKNOWLEDGED can never be re-sent from here (checked via
-// an atomic compare-and-swap update before any email is sent).
+// (mission brief §7/§8). This is the ONLY endpoint that ever creates the
+// immutable issued snapshot. Requires an explicit body.confirm === true,
+// matching the mandatory client-side confirmation dialog. Idempotent: a
+// document already ISSUED/ACKNOWLEDGED can never be re-issued from here
+// (checked via an atomic compare-and-swap update).
+//
+// Issuance and email delivery are DELIBERATELY separate steps (mission
+// remediation P1): the compare-and-swap below is the ONLY thing that
+// makes the warning authoritative and immutable. Whatever happens to the
+// notification email afterwards — success or a provider outage — can
+// never roll that back, never creates a second warning, and never blocks
+// the employee's own authenticated access (my-notices gates on `status`,
+// never on delivery state). See lib/performance/delivery.ts for the
+// actual send attempt, shared with Retry Email (resend-email/route.ts).
 export async function POST(req: NextRequest, { params }: { params: { docId: string } }) {
   const auth = await requireSuperAdmin()
   if (!auth.ok) return auth.error
@@ -48,8 +53,9 @@ export async function POST(req: NextRequest, { params }: { params: { docId: stri
   const issuedContentHash = createHash('sha256').update(issuedContent).digest('hex')
 
   // Atomic compare-and-swap: only the request that wins this update
-  // proceeds to send the email. A concurrent duplicate click gets 0 rows
-  // updated and a clean 409 — no double-send.
+  // proceeds to attempt email delivery. A concurrent duplicate click gets
+  // 0 rows updated and a clean 409 — the issuance itself can never happen
+  // twice, regardless of what happens to email afterwards.
   const cas = await prisma.staffPerformanceDocument.updateMany({
     where: { id: document.id, status: { in: ['DRAFT', 'APPROVED'] } },
     data: {
@@ -93,53 +99,25 @@ export async function POST(req: NextRequest, { params }: { params: { docId: stri
     },
   })
 
-  await logPerformanceHistory({
-    caseId: document.caseId,
+  // Issuance is now DONE and irreversible, independent of everything below.
+  const delivery = await attemptDeliverPerformanceNotice({
     documentId: document.id,
+    caseId: document.caseId,
+    documentVersion: document.version,
+    staffId: staff.id,
+    reviewDate: document.reviewDate,
     actorStaffId: session.staffId ?? session.id,
     actorName: session.name,
-    action: 'EMAIL_QUEUED',
-    documentVersion: document.version,
+    isRetry: false,
   })
-
-  const reviewUrl = `${BASE_URL}/admin/my-performance/${document.id}`
-  const emailResult = await sendPerformanceNoticeEmail({
-    toEmail: staff.email,
-    employeeName: staff.name,
-    reviewDateDisplay: fmt(document.reviewDate),
-    reviewUrl,
-  })
-
-  if (emailResult.ok) {
-    await prisma.staffPerformanceDocument.update({
-      where: { id: document.id },
-      data: { deliveredAt: new Date(), emailMessageId: emailResult.messageId ?? null },
-    })
-    await logPerformanceHistory({
-      caseId: document.caseId,
-      documentId: document.id,
-      actorStaffId: session.staffId ?? session.id,
-      actorName: session.name,
-      action: 'EMAIL_SENT',
-      documentVersion: document.version,
-    })
-  } else {
-    await logPerformanceHistory({
-      caseId: document.caseId,
-      documentId: document.id,
-      actorStaffId: session.staffId ?? session.id,
-      actorName: session.name,
-      action: 'EMAIL_FAILED',
-      documentVersion: document.version,
-      metadata: { error: emailResult.error },
-    })
-  }
 
   // Confidential — deliberately NOT via createStaffNotification's broadcast-
   // style categories used elsewhere; uses the same private, staffId-scoped
   // StaffNotification model but the MANAGEMENT category, which only that
   // one staff member can ever read (app/api/admin/notifications is scoped
-  // to staffId: session.id).
+  // to staffId: session.id). Created regardless of email delivery outcome —
+  // it is a separate channel, and My Performance Notices access does not
+  // depend on the email having gone out.
   const { createStaffNotification } = await import('@/lib/notifications/staff')
   await createStaffNotification({
     staffId: staff.id,
@@ -152,5 +130,8 @@ export async function POST(req: NextRequest, { params }: { params: { docId: stri
   })
 
   const finalDocument = await prisma.staffPerformanceDocument.findUnique({ where: { id: document.id } })
-  return NextResponse.json({ document: finalDocument, emailSent: emailResult.ok, emailError: emailResult.error })
+  return NextResponse.json({
+    document: finalDocument,
+    delivery: { status: delivery.emailDeliveryStatus, error: delivery.emailDeliveryError },
+  })
 }

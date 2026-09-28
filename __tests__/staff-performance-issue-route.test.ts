@@ -1,8 +1,13 @@
 /**
  * POST /api/admin/performance/documents/[docId]/issue — Approve & Issue
- * (mission brief §7/§8). The single most sensitive endpoint in this
- * feature: it is the ONLY place an email is ever sent, and it must be
- * idempotent, confirmation-gated, and resolve the recipient server-side.
+ * (mission brief §7/§8, remediated per mission P1). The single most
+ * sensitive endpoint in this feature: it is the ONLY place a document is
+ * ever issued, and it must be idempotent, confirmation-gated, and resolve
+ * the recipient server-side. Issuance and email delivery are DELIBERATELY
+ * separate — this file mocks lib/performance/delivery.ts (itself covered
+ * by staff-performance-delivery.test.ts) so these tests focus on the
+ * route's OWN responsibility: the atomic issue itself, independent of
+ * whatever happens to the notification email afterwards.
  */
 const mockPrisma = {
   staffPerformanceDocument: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
@@ -12,11 +17,14 @@ const mockPrisma = {
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
 jest.mock('@/lib/admin-auth', () => ({ getAdminSession: jest.fn() }))
 jest.mock('@/lib/performance/history', () => ({ logPerformanceHistory: jest.fn() }))
-jest.mock('@/lib/performance/email', () => ({ sendPerformanceNoticeEmail: jest.fn() }))
 jest.mock('@/lib/notifications/staff', () => ({ createStaffNotification: jest.fn() }))
 
+const attemptDeliverPerformanceNotice = jest.fn()
+jest.mock('@/lib/performance/delivery', () => ({
+  attemptDeliverPerformanceNotice: (...args: unknown[]) => attemptDeliverPerformanceNotice(...args),
+}))
+
 import { getAdminSession } from '@/lib/admin-auth'
-import { sendPerformanceNoticeEmail } from '@/lib/performance/email'
 import { createStaffNotification } from '@/lib/notifications/staff'
 import { logPerformanceHistory } from '@/lib/performance/history'
 import { POST } from '@/app/api/admin/performance/documents/[docId]/issue/route'
@@ -46,7 +54,9 @@ beforeEach(() => {
   mockPrisma.staffPerformanceDocument.update.mockResolvedValue({})
   mockPrisma.staff.findUnique.mockResolvedValue(STAFF)
   mockPrisma.staffPerformanceCase.update.mockResolvedValue({})
-  ;(sendPerformanceNoticeEmail as jest.Mock).mockResolvedValue({ ok: true, messageId: 'msg1' })
+  attemptDeliverPerformanceNotice.mockResolvedValue({
+    emailDeliveryStatus: 'SENT', emailDeliveryError: null, deliveredAt: new Date(), emailMessageId: 'msg1',
+  })
 })
 
 describe('POST /api/admin/performance/documents/[docId]/issue', () => {
@@ -55,20 +65,19 @@ describe('POST /api/admin/performance/documents/[docId]/issue', () => {
     expect((await POST(req({ confirm: true }), ctx)).status).toBe(401)
     ;(getAdminSession as jest.Mock).mockResolvedValue({ id: 'x', staffRole: 'sales_rep' })
     expect((await POST(req({ confirm: true }), ctx)).status).toBe(403)
-    expect(sendPerformanceNoticeEmail).not.toHaveBeenCalled()
+    expect(attemptDeliverPerformanceNotice).not.toHaveBeenCalled()
   })
 
-  it('refuses without explicit confirm:true — no email on an unconfirmed request', async () => {
+  it('refuses without explicit confirm:true — no issuance on an unconfirmed request', async () => {
     const res = await POST(req({}), ctx)
     expect(res.status).toBe(400)
-    expect(sendPerformanceNoticeEmail).not.toHaveBeenCalled()
     expect(mockPrisma.staffPerformanceDocument.updateMany).not.toHaveBeenCalled()
+    expect(attemptDeliverPerformanceNotice).not.toHaveBeenCalled()
   })
 
   it('refuses confirm:false too', async () => {
     const res = await POST(req({ confirm: false }), ctx)
     expect(res.status).toBe(400)
-    expect(sendPerformanceNoticeEmail).not.toHaveBeenCalled()
   })
 
   it('404s an unknown document', async () => {
@@ -77,28 +86,21 @@ describe('POST /api/admin/performance/documents/[docId]/issue', () => {
     expect(res.status).toBe(404)
   })
 
-  it('409s a document that is already ISSUED/ACKNOWLEDGED — never re-sends', async () => {
+  it('409s a document that is already ISSUED/ACKNOWLEDGED — never re-issues', async () => {
     mockPrisma.staffPerformanceDocument.findUnique.mockResolvedValue({ ...DRAFT_DOC, status: 'ISSUED' })
     const res = await POST(req({ confirm: true }), ctx)
     expect(res.status).toBe(409)
-    expect(sendPerformanceNoticeEmail).not.toHaveBeenCalled()
+    expect(attemptDeliverPerformanceNotice).not.toHaveBeenCalled()
   })
 
-  it('409s (idempotency) when the compare-and-swap update matches zero rows (a concurrent duplicate request already issued it)', async () => {
+  it('409s (idempotency) when the compare-and-swap update matches zero rows (a concurrent duplicate request already issued it) — never creates a second warning', async () => {
     mockPrisma.staffPerformanceDocument.updateMany.mockResolvedValue({ count: 0 })
     const res = await POST(req({ confirm: true }), ctx)
     expect(res.status).toBe(409)
-    expect(sendPerformanceNoticeEmail).not.toHaveBeenCalled()
+    expect(attemptDeliverPerformanceNotice).not.toHaveBeenCalled()
   })
 
-  it('resolves the recipient address ONLY from the Staff record — an address in the request body is ignored entirely', async () => {
-    await POST(req({ confirm: true, toEmail: 'attacker@evil.com' } as Record<string, unknown>), ctx)
-    expect(sendPerformanceNoticeEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ toEmail: 'jane@walztravels.com' }),
-    )
-  })
-
-  it('freezes an immutable issuedContent + issuedContentHash BEFORE sending', async () => {
+  it('freezes an immutable issuedContent + issuedContentHash BEFORE attempting delivery', async () => {
     await POST(req({ confirm: true }), ctx)
     const casCall = mockPrisma.staffPerformanceDocument.updateMany.mock.calls[0][0]
     expect(casCall.data.issuedContent).toBe(DRAFT_DOC.draftContent)
@@ -106,53 +108,67 @@ describe('POST /api/admin/performance/documents/[docId]/issue', () => {
     expect(casCall.data.issuedContentHash.length).toBe(64) // sha256 hex
   })
 
-  it('never places sales figures/warning type detail in the email body — only a generic notice + link', async () => {
+  it('PROVIDER FAILURE CANNOT MUTATE THE IMMUTABLE ISSUED SNAPSHOT — the CAS already committed issuedContent/Hash before delivery is even attempted, and a FAILED delivery result never re-writes them', async () => {
+    attemptDeliverPerformanceNotice.mockResolvedValue({ emailDeliveryStatus: 'FAILED', emailDeliveryError: 'outage', deliveredAt: null, emailMessageId: null })
     await POST(req({ confirm: true }), ctx)
-    const emailArgs = (sendPerformanceNoticeEmail as jest.Mock).mock.calls[0][0]
-    expect(emailArgs).not.toHaveProperty('salesInPeriod')
-    expect(emailArgs).not.toHaveProperty('warningType')
-    expect(emailArgs).not.toHaveProperty('draftContent')
-    expect(Object.keys(emailArgs).sort()).toEqual(['employeeName', 'reviewDateDisplay', 'reviewUrl', 'toEmail'].sort())
+    const casCall = mockPrisma.staffPerformanceDocument.updateMany.mock.calls[0][0]
+    expect(casCall.data.issuedContent).toBe(DRAFT_DOC.draftContent)
+    expect(casCall.data.issuedContentHash).toHaveLength(64)
+    // The only other document write is inside attemptDeliverPerformanceNotice
+    // (mocked here, tested separately) — issue/route.ts itself never calls
+    // update() a second time with issuedContent/issuedContentHash.
+    for (const call of mockPrisma.staffPerformanceDocument.update.mock.calls) {
+      expect(call[0].data).not.toHaveProperty('issuedContent')
+      expect(call[0].data).not.toHaveProperty('issuedContentHash')
+    }
   })
 
-  it('the review link points into the authenticated admin portal, never a public path', async () => {
-    await POST(req({ confirm: true }), ctx)
-    const emailArgs = (sendPerformanceNoticeEmail as jest.Mock).mock.calls[0][0]
-    expect(emailArgs.reviewUrl).toContain('/admin/my-performance/')
-  })
-
-  it('marks deliveredAt only after a successful send, and logs EMAIL_SENT', async () => {
+  it('email success after issuance: passes the resolved staffId/reviewDate/actor to the delivery module and returns delivery: { status: SENT }', async () => {
     const res = await POST(req({ confirm: true }), ctx)
-    const json = await res.json()
-    expect(json.emailSent).toBe(true)
-    expect(mockPrisma.staffPerformanceDocument.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ deliveredAt: expect.any(Date) }) }),
-    )
-    expect(logPerformanceHistory).toHaveBeenCalledWith(expect.objectContaining({ action: 'EMAIL_SENT' }))
-  })
-
-  it('logs EMAIL_FAILED and does not set deliveredAt when the email provider fails, but the document is still ISSUED', async () => {
-    ;(sendPerformanceNoticeEmail as jest.Mock).mockResolvedValue({ ok: false, error: 'SMTP down' })
-    const res = await POST(req({ confirm: true }), ctx)
-    const json = await res.json()
     expect(res.status).toBe(200)
-    expect(json.emailSent).toBe(false)
-    expect(logPerformanceHistory).toHaveBeenCalledWith(expect.objectContaining({ action: 'EMAIL_FAILED' }))
-    expect(mockPrisma.staffPerformanceDocument.update).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ deliveredAt: expect.any(Date) }) }),
+    expect(attemptDeliverPerformanceNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: 'doc1', staffId: 's2', isRetry: false }),
+    )
+    const json = await res.json()
+    expect(json.delivery).toEqual({ status: 'SENT', error: null })
+  })
+
+  it('email failure after issuance: issuance still succeeds (200), document remains ISSUED, delivery reports FAILED — never a 500, never a rollback', async () => {
+    attemptDeliverPerformanceNotice.mockResolvedValue({ emailDeliveryStatus: 'FAILED', emailDeliveryError: 'Resend outage', deliveredAt: null, emailMessageId: null })
+    const res = await POST(req({ confirm: true }), ctx)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.delivery).toEqual({ status: 'FAILED', error: 'Resend outage' })
+    // The CAS (the actual issuance) already committed unconditionally, before delivery was attempted.
+    expect(mockPrisma.staffPerformanceDocument.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'ISSUED' }) }),
     )
   })
 
-  it('notifies the staff member via the private, staffId-scoped MANAGEMENT category — never a broadcast channel', async () => {
+  it('never creates another performance notice/case when delivery fails — no second updateMany/create anywhere', async () => {
+    attemptDeliverPerformanceNotice.mockResolvedValue({ emailDeliveryStatus: 'FAILED', emailDeliveryError: 'down', deliveredAt: null, emailMessageId: null })
+    await POST(req({ confirm: true }), ctx)
+    expect(mockPrisma.staffPerformanceDocument.updateMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('notifies the staff member via the private, staffId-scoped MANAGEMENT category regardless of delivery outcome — My Performance Notices access never depends on email success', async () => {
+    attemptDeliverPerformanceNotice.mockResolvedValue({ emailDeliveryStatus: 'FAILED', emailDeliveryError: 'down', deliveredAt: null, emailMessageId: null })
     await POST(req({ confirm: true }), ctx)
     expect(createStaffNotification).toHaveBeenCalledWith(
       expect.objectContaining({ staffId: 's2', category: 'MANAGEMENT' }),
     )
   })
 
-  it('logs the full lifecycle: APPROVED, ISSUED, EMAIL_QUEUED, EMAIL_SENT', async () => {
+  it('logs the issuance lifecycle: APPROVED, ISSUED (delivery lifecycle logging is delegated to, and tested in, lib/performance/delivery.ts)', async () => {
     await POST(req({ confirm: true }), ctx)
     const actions = (logPerformanceHistory as jest.Mock).mock.calls.map((c) => c[0].action)
-    expect(actions).toEqual(expect.arrayContaining(['APPROVED', 'ISSUED', 'EMAIL_QUEUED', 'EMAIL_SENT']))
+    expect(actions).toEqual(expect.arrayContaining(['APPROVED', 'ISSUED']))
+  })
+
+  it('404s if the staff record cannot be resolved at all — never issues a warning with no recipient to attribute it to', async () => {
+    mockPrisma.staff.findUnique.mockResolvedValue(null)
+    const res = await POST(req({ confirm: true }), ctx)
+    expect(res.status).toBe(404)
+    expect(mockPrisma.staffPerformanceDocument.updateMany).not.toHaveBeenCalled()
   })
 })
