@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ChevronLeft, ExternalLink, CheckCircle2, Eye, Archive, Edit2,
-  Loader2, Calendar, Users, AlertTriangle,
+  Loader2, Calendar, Users, AlertTriangle, ShieldCheck, ClipboardCheck,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
@@ -16,6 +16,20 @@ type Announcement = {
   status: string; publishedAt: string | null; createdAt: string
   author: { name: string; email: string }
 }
+
+type AckStatus = { readAt: string | null; acknowledgedAt: string | null }
+
+type AckReportRow = {
+  id: string; name: string; role: string; department: string
+  readAt: string | null; acknowledgedAt: string | null
+}
+
+type AckReport = {
+  totalTargeted: number; acknowledgedCount: number; outstandingCount: number
+  outstanding: AckReportRow[]; staff: AckReportRow[]
+}
+
+const CRITICAL_PRIORITIES = ['HIGH', 'URGENT']
 
 const STATUS_CHIP: Record<string,string> = {
   DRAFT:     'bg-gray-500/10 text-gray-400 border-gray-500/20',
@@ -39,12 +53,60 @@ export default function AnnouncementDetailPage() {
   const [loading, setLoading] = useState(true)
   const [saving,  setSaving]  = useState(false)
 
+  const [ackStatus, setAckStatus]     = useState<AckStatus | null>(null)
+  const [acking,    setAcking]        = useState(false)
+  const [report,    setReport]        = useState<AckReport | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+
   useEffect(() => {
     fetch(`/api/admin/announcements/${id}`)
       .then(r => r.json())
       .then(d => setAnn(d.announcement ?? null))
       .finally(() => setLoading(false))
   }, [id])
+
+  // Mark as read + fetch own ack status once the announcement is loaded and
+  // published. A viewer who isn't actually targeted by this announcement
+  // (e.g. an admin browsing outside their own audience) gets a harmless
+  // 403 from the ack route — silently ignored, no UI shown for it.
+  useEffect(() => {
+    if (!ann || ann.status !== 'PUBLISHED') return
+    fetch(`/api/admin/announcements/${id}/ack`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'read' }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setAckStatus(d) })
+      .catch(() => {})
+  }, [ann, id])
+
+  // Super Admin outstanding-acknowledgement report — only surfaced for
+  // Critical (HIGH/URGENT) announcements, per the mission's scope for this
+  // report; the underlying tracking exists for every priority.
+  useEffect(() => {
+    if (!ann || !isAdmin || profile?.role !== 'super_admin') return
+    if (!CRITICAL_PRIORITIES.includes(ann.priority)) return
+    setReportLoading(true)
+    fetch(`/api/admin/announcements/${id}/ack/report`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setReport(d) })
+      .finally(() => setReportLoading(false))
+  }, [ann, id, isAdmin, profile?.role])
+
+  async function acknowledge() {
+    setAcking(true)
+    try {
+      const res = await fetch(`/api/admin/announcements/${id}/ack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'acknowledge' }),
+      })
+      if (res.ok) setAckStatus(await res.json())
+    } finally {
+      setAcking(false)
+    }
+  }
 
   async function changeStatus(newStatus: string) {
     if (!ann) return
@@ -161,6 +223,77 @@ export default function AnnouncementDetailPage() {
           <ExternalLink className="w-4 h-4 text-[#C9A84C]" />
           View Documentation / Source
         </a>
+      )}
+
+      {/* Acknowledgement — Critical announcements only. Acknowledging means
+          "I have received and reviewed this" — it is never framed as, and
+          must never be read as, agreement with the content. */}
+      {ann.status === 'PUBLISHED' && CRITICAL_PRIORITIES.includes(ann.priority) && ackStatus && (
+        <div className={`rounded-2xl ring-1 p-5 flex items-center justify-between gap-4 ${
+          ackStatus.acknowledgedAt
+            ? 'bg-emerald-500/5 ring-emerald-500/20'
+            : 'bg-amber-500/5 ring-amber-500/20'
+        }`}>
+          <div className="flex items-start gap-3">
+            <ClipboardCheck className={`w-5 h-5 mt-0.5 flex-shrink-0 ${ackStatus.acknowledgedAt ? 'text-emerald-400' : 'text-amber-400'}`} />
+            <div>
+              <p className="text-white text-sm font-semibold">
+                {ackStatus.acknowledgedAt ? 'Acknowledged' : 'Acknowledgement required'}
+              </p>
+              <p className="text-white/50 text-xs mt-0.5">
+                {ackStatus.acknowledgedAt
+                  ? `You acknowledged receipt and review of this notice on ${fmt(ackStatus.acknowledgedAt)}.`
+                  : 'This is a critical staff update. Please confirm you have received and reviewed it.'}
+              </p>
+            </div>
+          </div>
+          {!ackStatus.acknowledgedAt && (
+            <button
+              onClick={acknowledge}
+              disabled={acking}
+              className="flex-shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#b8943d] disabled:opacity-50 transition-colors"
+            >
+              {acking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+              I acknowledge receipt &amp; review
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Super Admin — outstanding acknowledgement report (Critical only) */}
+      {isAdmin && profile?.role === 'super_admin' && CRITICAL_PRIORITIES.includes(ann.priority) && (
+        <div className="bg-[#112240] rounded-2xl ring-1 ring-white/5 p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[#C9A84C]" />
+            <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider">Acknowledgement Report</h2>
+          </div>
+
+          {reportLoading ? (
+            <div className="animate-pulse h-16 bg-white/5 rounded-xl" />
+          ) : !report ? (
+            <p className="text-white/30 text-xs">No data yet.</p>
+          ) : (
+            <>
+              <p className="text-white text-sm">
+                Acknowledged <span className="font-bold text-emerald-300">{report.acknowledgedCount}</span> of{' '}
+                <span className="font-bold">{report.totalTargeted}</span>
+                {report.outstandingCount > 0 && (
+                  <span className="text-amber-300"> — {report.outstandingCount} outstanding</span>
+                )}
+              </p>
+              {report.outstanding.length > 0 && (
+                <div className="space-y-1.5 pt-2 border-t border-white/5">
+                  {report.outstanding.map(s => (
+                    <div key={s.id} className="flex items-center justify-between text-xs">
+                      <span className="text-white/70">{s.name}</span>
+                      <span className="text-white/30">{s.readAt ? 'Read, not acknowledged' : 'Not yet opened'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
 
     </div>

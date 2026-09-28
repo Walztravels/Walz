@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { notifyAnnouncementPublished } from '@/lib/staff-updates/notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,24 +9,6 @@ type Params = { params: { id: string } }
 
 function isAdmin(role: string) {
   return ['super_admin', 'admin'].includes(role)
-}
-
-function isEligible(
-  staff: { role: string; department: string; id: string },
-  ann: { audience: string; audienceRoles: string[]; audienceStaffIds: string[] },
-) {
-  switch (ann.audience) {
-    case 'EVERYONE':           return true
-    case 'SALES':              return staff.department === 'sales'
-    case 'VISA_TEAM':          return staff.department === 'visa'
-    case 'TRAVEL_CONSULTANTS': return ['flights','tours','hotels'].includes(staff.department)
-    case 'FINANCE':            return staff.department === 'accounts'
-    case 'ADMIN_TEAM':         return ['super_admin','admin'].includes(staff.role)
-    case 'MANAGEMENT':         return ['super_admin','manager','general_manager'].includes(staff.role)
-    case 'SPECIFIC_ROLE':      return ann.audienceRoles.includes(staff.role)
-    case 'SPECIFIC_STAFF':     return ann.audienceStaffIds.includes(staff.id)
-    default:                   return true
-  }
 }
 
 export async function GET(_req: Request, { params }: Params) {
@@ -79,50 +62,33 @@ export async function PATCH(req: Request, { params }: Params) {
     },
   })
 
-  // If transitioning to PUBLISHED for the first time, create staff notifications
+  // If transitioning to PUBLISHED for the first time, fan out in-app
+  // notifications + transactional emails. Best-effort: a delivery failure
+  // must never fail this PATCH response — the announcement is already
+  // committed as PUBLISHED above regardless of notify outcome.
+  let notify: Awaited<ReturnType<typeof notifyAnnouncementPublished>> | null = null
   if (nowPublished && wasPublished) {
-    const annForEligibility = {
-      audience:        updated.audience,
-      audienceRoles:   updated.audienceRoles,
-      audienceStaffIds: updated.audienceStaffIds,
-    }
-
-    const allStaff = await prisma.staff.findMany({
-      where:  { isActive: true },
-      select: { id: true, role: true, department: true },
-    })
-
-    const today = new Date().toISOString().split('T')[0]
-    for (const staff of allStaff) {
-      if (!isEligible(staff, annForEligibility)) continue
-      const channel = `ann_${updated.id}`
-      const already = await prisma.briefDeliveryLog.findUnique({
-        where: { briefDate_staffId_channel: { briefDate: today, staffId: staff.id, channel } },
-      })
-      if (already) continue
-
-      try {
-        await prisma.staffNotification.create({
-          data: {
-            staffId:    staff.id,
-            category:   'SYSTEM',
-            title:      updated.title,
-            body:       updated.summary,
-            important:  updated.priority === 'URGENT',
-            sourceId:   updated.id,
-            sourceType: 'announcement',
-          },
-        })
-        await prisma.briefDeliveryLog.create({
-          data: { briefDate: today, staffId: staff.id, channel },
-        })
-      } catch {
-        // idempotent
-      }
+    try {
+      notify = await notifyAnnouncementPublished(
+        {
+          id:               updated.id,
+          title:            updated.title,
+          summary:          updated.summary,
+          category:         updated.category,
+          priority:         updated.priority,
+          effectiveDate:    updated.effectiveDate,
+          audience:         updated.audience,
+          audienceRoles:    updated.audienceRoles,
+          audienceStaffIds: updated.audienceStaffIds,
+        },
+        { staffId: session.id, staffName: session.name, staffRole: session.role },
+      )
+    } catch (err) {
+      console.warn(`[announcements] notify failed announcementId=${updated.id}:`, (err as Error).message)
     }
   }
 
-  return NextResponse.json({ announcement: updated })
+  return NextResponse.json({ announcement: updated, notify })
 }
 
 export async function DELETE(_req: Request, { params }: Params) {

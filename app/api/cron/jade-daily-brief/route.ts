@@ -9,6 +9,7 @@ import {
 } from '@/lib/commercial/jade-analytics'
 // Release 5F — Revenue leakage & executive insights for the Daily Brief
 import { getRevenueLeakage } from '@/lib/commercial/jade-analytics-5f'
+import { notifyAnnouncementPublished } from '@/lib/staff-updates/notify'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -22,24 +23,6 @@ const THEMES = [
 
 function todayString() {
   return new Date().toISOString().split('T')[0] // "2026-08-26"
-}
-
-function isEligible(
-  staff: { role: string; department: string; id: string },
-  ann: { audience: string; audienceRoles: string[]; audienceStaffIds: string[] },
-): boolean {
-  switch (ann.audience) {
-    case 'EVERYONE':           return true
-    case 'SALES':              return staff.department === 'sales'
-    case 'VISA_TEAM':          return staff.department === 'visa'
-    case 'TRAVEL_CONSULTANTS': return ['flights','tours','hotels'].includes(staff.department)
-    case 'FINANCE':            return staff.department === 'accounts'
-    case 'ADMIN_TEAM':         return ['super_admin','admin'].includes(staff.role)
-    case 'MANAGEMENT':         return ['super_admin','manager','general_manager'].includes(staff.role)
-    case 'SPECIFIC_ROLE':      return ann.audienceRoles.includes(staff.role)
-    case 'SPECIFIC_STAFF':     return ann.audienceStaffIds.includes(staff.id)
-    default:                   return true
-  }
 }
 
 export async function GET(req: Request) {
@@ -137,7 +120,7 @@ Reply ONLY with valid JSON (no markdown, no code fences):
     take:    5,
     select: {
       id: true, title: true, category: true, summary: true,
-      detail: true, whatToDo: true, relevantUrl: true,
+      detail: true, whatToDo: true, relevantUrl: true, effectiveDate: true,
       priority: true, audience: true, audienceRoles: true, audienceStaffIds: true,
     },
   })
@@ -380,33 +363,21 @@ Reply ONLY with valid JSON (no markdown, no code fences):
   }
 
   // ── Announcement notifications for newly published items ──────────────────────
-  // Announcements without a delivery log get a separate notification per eligible staff
+  // Delegates to the shared Staff Updates orchestrator (also used by the
+  // Publish Now route) so audience eligibility, in-app notification and
+  // email-delivery tracking can never drift between the two call sites.
+  // notifyAnnouncementPublished() is itself idempotent (StaffNotification's
+  // sourceId dedup + AnnouncementEmailDelivery's unique constraint), so
+  // calling it again here for an announcement the Publish Now route already
+  // notified for is a safe no-op, not a duplicate send.
   for (const ann of announcements) {
-    for (const staff of allStaff) {
-      if (!isEligible(staff, ann)) continue
-      const already = await prisma.briefDeliveryLog.findUnique({
-        where: { briefDate_staffId_channel: { briefDate: today, staffId: staff.id, channel: `ann_${ann.id}` } },
-      })
-      if (already) continue
-
-      try {
-        await prisma.staffNotification.create({
-          data: {
-            staffId:    staff.id,
-            category:   'SYSTEM',
-            title:      ann.title,
-            body:       ann.summary,
-            important:  ann.priority === 'URGENT',
-            sourceId:   ann.id,
-            sourceType: 'announcement',
-          },
-        })
-        await prisma.briefDeliveryLog.create({
-          data: { briefDate: today, staffId: staff.id, channel: `ann_${ann.id}` },
-        })
-      } catch {
-        // idempotent — duplicate constraint or create failure
-      }
+    try {
+      await notifyAnnouncementPublished(
+        { ...ann },
+        { staffId: null, staffName: 'Jade Daily Brief (cron)', staffRole: 'system' },
+      )
+    } catch (err) {
+      console.warn(`[jade-brief] announcement notify failed announcementId=${ann.id}:`, err)
     }
   }
 

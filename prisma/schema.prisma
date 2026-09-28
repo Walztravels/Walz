@@ -626,6 +626,10 @@ model Staff {
   teamEmailCandidates      TeamEmailNotificationCandidate[]
   teamEmailPreference      TeamEmailNotificationPreference?
 
+  // Staff Updates — multi-channel notification (additive).
+  announcementAcknowledgements AnnouncementAcknowledgement[]
+  announcementEmailDeliveries  AnnouncementEmailDelivery[]
+
   @@index([email])
   @@index([isActive])
   @@index([accessLevel])
@@ -5987,6 +5991,9 @@ model StaffAnnouncement {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
+  acknowledgements AnnouncementAcknowledgement[]
+  emailDeliveries  AnnouncementEmailDelivery[]
+
   @@index([status])
   @@index([publishedAt])
   @@index([authorId])
@@ -6039,6 +6046,56 @@ model BriefDeliveryLog {
 
   @@unique([briefDate, staffId, channel])
   @@index([briefDate])
+  @@index([status])
+}
+
+// Per-recipient read/acknowledgement state for a StaffAnnouncement — separate
+// from StaffNotification (which is a UI inbox row a staff member can archive
+// without that meaning they never read/acknowledged the underlying
+// announcement). One row per (announcement, staff), created lazily on first
+// read/acknowledge. NORMAL-priority announcements only ever get readAt;
+// HIGH/URGENT ("Critical") additionally expect acknowledgedAt via an
+// explicit staff action — never settable by anyone other than that staff
+// member themselves (enforced in the API layer, not just here).
+model AnnouncementAcknowledgement {
+  id             String            @id @default(cuid())
+  announcementId String
+  announcement   StaffAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  staffId        String
+  staff          Staff             @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  readAt         DateTime?
+  acknowledgedAt DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([announcementId, staffId])
+  @@index([announcementId])
+  @@index([staffId])
+}
+
+// Per-recipient email delivery tracking for a StaffAnnouncement, scoped by
+// (announcement, staff) — deliberately NOT reusing BriefDeliveryLog, whose
+// real unique key is calendar-day and is already overloaded by a synthetic
+// "ann_{id}" channel trick for notification dedupe elsewhere. The unique
+// constraint here is what makes a retried Publish action safe: a second
+// attempt to notify the same staff about the same announcement finds the
+// existing row and skips re-sending rather than creating a duplicate.
+model AnnouncementEmailDelivery {
+  id                String            @id @default(cuid())
+  announcementId    String
+  announcement      StaffAnnouncement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  staffId           String
+  staff             Staff             @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  email             String
+  status            String            @default("QUEUED") // QUEUED | SENT | FAILED
+  providerMessageId String?
+  failureReason     String?
+  sentAt            DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([announcementId, staffId])
+  @@index([announcementId])
   @@index([status])
 }
 
