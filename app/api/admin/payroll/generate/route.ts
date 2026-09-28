@@ -35,13 +35,36 @@ export async function POST(req: Request) {
   // unclaimed total via GET /api/admin/payroll/check-in-deductions before
   // generating, and is expected to have used it (or a deliberate override)
   // when filling attendanceDeduction.
+  let deductionMismatch: { providedAttendanceDeduction: number; realLedgerTotal: number; currency: string } | null = null
   try {
     const staffLink = await prisma.staff.findUnique({ where: { email: staff.email }, select: { id: true } })
     if (staffLink) {
       const period = `${year}-${String(month).padStart(2, '0')}`
+      const where = { staffId: staffLink.id, status: 'ACTIVE', effectivePayrollPeriod: period, appliedToPayslipId: null }
+
+      // Found by independent financial review: attendanceDeduction is a
+      // free-typed admin number never cross-checked against the real
+      // ledger total — an admin could ignore the prefill entirely with no
+      // warning. Compute what the real total actually is (in the staff's
+      // own payroll currency) BEFORE stamping, so a mismatch can be
+      // surfaced. This is a non-blocking warning, not an override — the
+      // stamping below still runs regardless, so the ledger can never be
+      // double-counted even when the admin's typed number was wrong.
+      const unclaimedRows = await (prisma as any).checkInDeduction.findMany({ where, select: { amount: true, currency: true } })
+      const realTotalInPayrollCurrency = (unclaimedRows as { amount: number; currency: string }[])
+        .filter(r => r.currency === staff.currency)
+        .reduce((sum, r) => sum + r.amount, 0)
+      if (unclaimedRows.length > 0 && realTotalInPayrollCurrency !== attendanceDeduction) {
+        deductionMismatch = {
+          providedAttendanceDeduction: attendanceDeduction,
+          realLedgerTotal: realTotalInPayrollCurrency,
+          currency: staff.currency,
+        }
+      }
+
       await (prisma as any).checkInDeduction.updateMany({
-        where: { staffId: staffLink.id, status: 'ACTIVE', effectivePayrollPeriod: period, appliedToPayslipId: null },
-        data:  { appliedToPayslipId: payslip.id, appliedAt: new Date() },
+        where,
+        data: { appliedToPayslipId: payslip.id, appliedAt: new Date() },
       })
     }
   } catch (e) {
@@ -51,5 +74,5 @@ export async function POST(req: Request) {
     console.warn('[payroll/generate] check-in deduction stamping failed:', e instanceof Error ? e.message : e)
   }
 
-  return NextResponse.json({ payslip })
+  return NextResponse.json({ payslip, deductionMismatch })
 }

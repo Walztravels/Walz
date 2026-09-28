@@ -94,8 +94,8 @@ export function reminderEmail(p: {
     </p>
     <p style="margin:0 0 20px;font-size:14px;color:#4b5563;line-height:1.7;">
       Your <strong style="color:#111827;">${p.slotLabel} ${p.timezone}</strong> check-in window
-      opens in 10 minutes. Be active on the admin portal or take a call —
-      the system detects both automatically.
+      opens in 10 minutes. You'll need to press <strong style="color:#111827;">Check In Now</strong>
+      during the window — being active on the admin panel or on a call does not count as a check-in.
     </p>
 
     <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
@@ -308,51 +308,10 @@ export function managementMissEmail(p: {
   return { subject, html }
 }
 
-// ── 6. Check-in confirmation ───────────────────────────────────────────────────
-
-export function confirmationEmail(p: {
-  name:           string
-  slotLabel:      string
-  method:         'admin_panel' | 'call' | 'manual'
-  nextSlotLabel:  string | null
-  isLastSlot:     boolean
-  timezone:       string
-}): { subject: string; html: string } {
-  const methodLabel =
-    p.method === 'call'  ? 'call presence' :
-    p.method === 'manual' ? 'manual check-in' :
-    'admin panel activity'
-
-  const nextLine = p.isLastSlot
-    ? `<p style="margin:8px 0 0;font-size:13px;color:#6b7280;">That was your last check-in for today. Closing time is 5:00 PM.</p>`
-    : p.nextSlotLabel
-      ? `<p style="margin:8px 0 0;font-size:13px;color:#6b7280;">Next check-in: <strong style="color:#111827;">${p.nextSlotLabel} ${p.timezone}</strong></p>`
-      : ''
-
-  const subject = `✅ Checked in — ${p.slotLabel}`
-  const html    = wrap('#22c55e', `
-    <p style="margin:0 0 18px;font-size:15px;color:#111827;font-weight:700;">
-      Check-in confirmed
-    </p>
-
-    <p style="margin:0 0 14px;font-size:14px;color:#4b5563;line-height:1.7;">
-      Hi <strong style="color:#111827;">${p.name}</strong>,
-    </p>
-    <p style="margin:0 0 20px;font-size:14px;color:#4b5563;line-height:1.7;">
-      You&apos;ve been checked in for the <strong style="color:#111827;">${p.slotLabel} ${p.timezone}</strong>
-      slot via ${methodLabel}.
-    </p>
-
-    <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
-      style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;">
-      <tr>
-        <td style="font-size:13px;color:#166534;font-weight:600;">
-          ✓ &nbsp;${p.slotLabel} — Checked in via ${methodLabel}
-        </td>
-      </tr>
-    </table>
-
-    ${nextLine}
-  `)
-  return { subject, html }
-}
+// Note: a `confirmationEmail()` template previously lived here (V1's
+// "checked in via admin panel activity / call presence / manual check-in"
+// model). Removed as dead code during the Check-In V2 review — it had zero
+// call sites, and its `method: 'admin_panel' | 'call'` options described
+// exactly the auto-detected-attendance concept this release eliminates.
+// Keeping it around inert would have been a landmine: wiring it up again
+// later without noticing would silently reintroduce the old wording.

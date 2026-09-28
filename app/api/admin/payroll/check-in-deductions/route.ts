@@ -18,9 +18,18 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 
+// Found by independent security review: this route originally checked only
+// "is there a valid session" — any tracked staff member's own login could
+// pull ANOTHER employee's real missed-check-in deduction totals for any
+// month by supplying an arbitrary staffMemberId. Gated the same way
+// app/api/admin/check-ins/live/route.ts already is — this is payroll-admin
+// data, not a self-service endpoint.
+const ADMIN_ROLES = new Set(['super_admin', 'operations_manager', 'general_manager', 'senior_manager'])
+
 export async function GET(req: Request) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!ADMIN_ROLES.has(session.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { searchParams } = new URL(req.url)
   const staffMemberId = searchParams.get('staffMemberId')

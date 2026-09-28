@@ -79,6 +79,17 @@ export async function PATCH(req: Request, { params }: Params) {
       if (!reason) return NextResponse.json({ error: 'A reason for waiver is required' }, { status: 400 })
 
       const deduction = await (prisma as any).checkInDeduction.findUnique({ where: { checkInRecordId: id } })
+      // Found by independent financial review: a deduction already folded
+      // into a generated payslip (appliedToPayslipId set) must not be
+      // silently waived — nothing would reverse that payslip's
+      // attendanceDeduction/netPay, and the payslip may already be paid
+      // out. Block instead of guessing at an automatic correction; the
+      // Super Admin must correct the issued payslip by hand first.
+      if (deduction?.appliedToPayslipId) {
+        return NextResponse.json({
+          error: `This deduction was already applied to payslip ${deduction.appliedToPayslipId}. Correct that payslip manually before waiving — waiving here would not adjust its net pay.`,
+        }, { status: 409 })
+      }
       if (deduction) {
         await (prisma as any).checkInDeduction.update({
           where: { id: deduction.id },
@@ -110,6 +121,12 @@ export async function PATCH(req: Request, { params }: Params) {
       if (approved) {
         const reason = (body.reason ?? '').trim() || 'Dispute approved'
         const deduction = await (prisma as any).checkInDeduction.findUnique({ where: { checkInRecordId: id } })
+        // Same guard as the direct `waive` action above — see that comment.
+        if (deduction?.appliedToPayslipId) {
+          return NextResponse.json({
+            error: `This deduction was already applied to payslip ${deduction.appliedToPayslipId}. Correct that payslip manually before approving this dispute — approving here would not adjust its net pay.`,
+          }, { status: 409 })
+        }
         if (deduction) {
           await (prisma as any).checkInDeduction.update({
             where: { id: deduction.id },

@@ -77,6 +77,29 @@ describe('PATCH /api/admin/check-ins/[id] — waive', () => {
     expect(body.record.status).not.toBe('CHECKED_IN')
   })
 
+  it('found by financial review: blocks waiving a deduction already applied to a generated payslip (409), never silently touches it', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    mockPrisma.checkInDeduction.findUnique.mockResolvedValue({
+      id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: 'payslip1',
+    })
+    const res  = await PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1'))
+    const body = await res.json()
+    expect(res.status).toBe(409)
+    expect(body.error).toContain('payslip1')
+    expect(mockPrisma.checkInDeduction.update).not.toHaveBeenCalled()
+    expect(mockPrisma.checkInRecord.update).not.toHaveBeenCalled()
+  })
+
+  it('the same guard applies to approving a dispute (resolve action) — blocked once applied to a payslip', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    mockPrisma.checkInDeduction.findUnique.mockResolvedValue({
+      id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: 'payslip1',
+    })
+    const res = await PATCH(patchReq({ action: 'resolve', approved: true, reason: 'Dispute upheld' }), params('rec1'))
+    expect(res.status).toBe(409)
+    expect(mockPrisma.checkInDeduction.update).not.toHaveBeenCalled()
+  })
+
   it('is a no-op on the ledger if no deduction ever existed (e.g. policy was unconfigured) but still marks the legacy waived flag', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
     mockPrisma.checkInDeduction.findUnique.mockResolvedValue(null)

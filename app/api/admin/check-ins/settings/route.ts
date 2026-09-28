@@ -50,6 +50,23 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: 'Only a Super Admin can set the deduction effective date' }, { status: 403 })
     }
 
+    // Found by independent financial review: nothing previously stopped a
+    // Super Admin from setting this date in the past. Today's own cron
+    // scope makes that currently harmless (it never re-scans prior days),
+    // but that's an incidental property of the cron, not an explicit
+    // guarantee — reject a past date outright rather than rely on it,
+    // exactly per the brief's "no retroactive backfill" rule (§19).
+    if ('effectiveDeductionDate' in body && body.effectiveDeductionDate) {
+      const requested = new Date(body.effectiveDeductionDate)
+      const startOfToday = new Date(); startOfToday.setUTCHours(0, 0, 0, 0)
+      if (Number.isNaN(requested.getTime())) {
+        return NextResponse.json({ error: 'effectiveDeductionDate is not a valid date' }, { status: 400 })
+      }
+      if (requested.getTime() < startOfToday.getTime()) {
+        return NextResponse.json({ error: 'The deduction effective date cannot be set in the past — this would retroactively charge already-recorded missed check-ins.' }, { status: 400 })
+      }
+    }
+
     const data: Record<string, unknown> = { ...body }
     if ('effectiveDeductionDate' in body) {
       data.effectiveDeductionDate = body.effectiveDeductionDate ? new Date(body.effectiveDeductionDate) : null

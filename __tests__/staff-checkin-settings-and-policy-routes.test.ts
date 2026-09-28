@@ -54,6 +54,40 @@ describe('PUT /api/admin/check-ins/settings', () => {
     expect(res.status).toBe(200)
     expect(mockPrisma.checkInSettings.upsert).toHaveBeenCalled()
   })
+
+  it('found by financial review: rejects a past deduction effective date, even for a super admin — no retroactive backfill (brief §19)', async () => {
+    const { PUT } = await import('@/app/api/admin/check-ins/settings/route')
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10)
+    const res  = await PUT(jsonReq({ effectiveDeductionDate: twoDaysAgo }))
+    const body = await res.json()
+    expect(res.status).toBe(400)
+    expect(body.error).toMatch(/past/i)
+    expect(mockPrisma.checkInSettings.upsert).not.toHaveBeenCalled()
+  })
+
+  it('accepts today as a valid (non-past) effective date', async () => {
+    const { PUT } = await import('@/app/api/admin/check-ins/settings/route')
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    const today = new Date().toISOString().slice(0, 10)
+    const res = await PUT(jsonReq({ effectiveDeductionDate: today }))
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects an unparseable effective date', async () => {
+    const { PUT } = await import('@/app/api/admin/check-ins/settings/route')
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    const res = await PUT(jsonReq({ effectiveDeductionDate: 'not-a-date' }))
+    expect(res.status).toBe(400)
+    expect(mockPrisma.checkInSettings.upsert).not.toHaveBeenCalled()
+  })
+
+  it('clearing the effective date back to null is always allowed (turns deductions back off, never a backfill risk)', async () => {
+    const { PUT } = await import('@/app/api/admin/check-ins/settings/route')
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    const res = await PUT(jsonReq({ effectiveDeductionDate: null }))
+    expect(res.status).toBe(200)
+  })
 })
 
 describe('/api/admin/check-ins/deduction-policy', () => {
