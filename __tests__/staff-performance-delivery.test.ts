@@ -7,7 +7,7 @@
  */
 
 const mockPrisma = {
-  staffPerformanceDocument: { update: jest.fn() },
+  staffPerformanceDocument: { update: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
   staff: { findUnique: jest.fn() },
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
@@ -33,16 +33,59 @@ const STAFF = { name: 'Jane Doe', email: 'jane@walztravels.com' }
 beforeEach(() => {
   jest.clearAllMocks()
   mockPrisma.staffPerformanceDocument.update.mockResolvedValue({})
+  mockPrisma.staffPerformanceDocument.updateMany.mockResolvedValue({ count: 1 })
+  mockPrisma.staffPerformanceDocument.findUnique.mockResolvedValue(null)
   mockPrisma.staff.findUnique.mockResolvedValue(STAFF)
 })
 
-it('always sets QUEUED first and logs EMAIL_QUEUED before resolving the recipient or attempting a send', async () => {
+it('always wins the QUEUED compare-and-swap first and logs EMAIL_QUEUED before resolving the recipient or attempting a send', async () => {
   ;(sendPerformanceNoticeEmail as jest.Mock).mockResolvedValue({ ok: true, messageId: 'm1' })
   await attemptDeliverPerformanceNotice(BASE_OPTS)
-  expect(mockPrisma.staffPerformanceDocument.update.mock.calls[0][0]).toEqual(
-    expect.objectContaining({ where: { id: 'doc1' }, data: { emailDeliveryStatus: 'QUEUED' } }),
-  )
+  expect(mockPrisma.staffPerformanceDocument.updateMany.mock.calls[0][0]).toEqual({
+    where: { id: 'doc1', emailDeliveryStatus: { not: 'QUEUED' } },
+    data: { emailDeliveryStatus: 'QUEUED' },
+  })
   expect(logPerformanceHistory).toHaveBeenCalledWith(expect.objectContaining({ action: 'EMAIL_QUEUED' }))
+})
+
+describe('QUEUED transition race safety (found by independent review)', () => {
+  it('when the CAS loses (count: 0), makes NO further writes and NEVER calls the email provider', async () => {
+    mockPrisma.staffPerformanceDocument.updateMany.mockResolvedValue({ count: 0 })
+    mockPrisma.staffPerformanceDocument.findUnique.mockResolvedValue({
+      emailDeliveryStatus: 'QUEUED', emailDeliveryError: null, deliveredAt: null, emailMessageId: null,
+    })
+    const result = await attemptDeliverPerformanceNotice(BASE_OPTS)
+    expect(result.skippedConcurrent).toBe(true)
+    expect(sendPerformanceNoticeEmail).not.toHaveBeenCalled()
+    expect(mockPrisma.staff.findUnique).not.toHaveBeenCalled()
+    // Only the failed CAS write happened — no SENT/FAILED write follows it.
+    expect(mockPrisma.staffPerformanceDocument.update).not.toHaveBeenCalled()
+  })
+
+  it('two overlapping calls against the same FAILED document: only ONE actually calls the email provider', async () => {
+    // Simulate real Postgres CAS semantics: the first call to win the
+    // updateMany gets count:1, every subsequent call (racing or not)
+    // gets count:0 because the row is no longer emailDeliveryStatus != QUEUED.
+    let won = false
+    mockPrisma.staffPerformanceDocument.updateMany.mockImplementation(async () => {
+      if (won) return { count: 0 }
+      won = true
+      return { count: 1 }
+    })
+    mockPrisma.staffPerformanceDocument.findUnique.mockResolvedValue({
+      emailDeliveryStatus: 'QUEUED', emailDeliveryError: null, deliveredAt: null, emailMessageId: null,
+    })
+    ;(sendPerformanceNoticeEmail as jest.Mock).mockResolvedValue({ ok: true, messageId: 'm1' })
+
+    const [a, b] = await Promise.all([
+      attemptDeliverPerformanceNotice(BASE_OPTS),
+      attemptDeliverPerformanceNotice(BASE_OPTS),
+    ])
+
+    expect(sendPerformanceNoticeEmail).toHaveBeenCalledTimes(1)
+    const outcomes = [a.skippedConcurrent, b.skippedConcurrent].sort()
+    expect(outcomes).toEqual([true, undefined])
+  })
 })
 
 it('resolves the recipient ONLY from Staff — there is no address parameter to this function at all', async () => {
@@ -59,7 +102,7 @@ it('on success: sets SENT, deliveredAt, emailMessageId, clears any prior error, 
     emailDeliveryStatus: 'SENT', emailDeliveryError: null,
     deliveredAt: expect.any(Date), emailMessageId: 'msg-123',
   })
-  const finalUpdate = mockPrisma.staffPerformanceDocument.update.mock.calls[1][0]
+  const finalUpdate = mockPrisma.staffPerformanceDocument.update.mock.calls[0][0]
   expect(finalUpdate.data).toEqual({
     emailDeliveryStatus: 'SENT', deliveredAt: expect.any(Date), emailMessageId: 'msg-123', emailDeliveryError: null,
   })
@@ -72,7 +115,7 @@ it('on provider failure: sets FAILED with a sanitized error, never sets delivere
   expect(result.emailDeliveryStatus).toBe('FAILED')
   expect(result.emailDeliveryError).toBe('Domain not verified')
   expect(result.deliveredAt).toBeNull()
-  const finalUpdate = mockPrisma.staffPerformanceDocument.update.mock.calls[1][0]
+  const finalUpdate = mockPrisma.staffPerformanceDocument.update.mock.calls[0][0]
   expect(finalUpdate.data).toEqual({ emailDeliveryStatus: 'FAILED', emailDeliveryError: 'Domain not verified' })
   expect(logPerformanceHistory).toHaveBeenCalledWith(expect.objectContaining({ action: 'EMAIL_FAILED' }))
 })

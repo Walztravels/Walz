@@ -34,6 +34,40 @@ describe('blocks an active disciplinary recommendation/decision', () => {
   })
 })
 
+// Found by independent review of the first version of this guard —
+// concrete bypasses (false negatives) and false positives it missed.
+// Each case here was reproduced by the reviewer and is now fixed.
+describe('hardening: bypasses found by independent review, now blocked', () => {
+  it('bare imperative "Fire" (not just "fired"/"firing")', () => {
+    expect(checkForDisciplinaryRecommendation('Fire this employee immediately.').ok).toBe(false)
+  })
+  it('the noun "suspension" (not just the verb "suspend")', () => {
+    expect(checkForDisciplinaryRecommendation('I recommend suspension of this employee.').ok).toBe(false)
+  })
+  it('an explicit recommendation attached to a hedge word elsewhere in the same sentence cannot smuggle past the neutral-framing check', () => {
+    expect(checkForDisciplinaryRecommendation(
+      'Given the evidence, this may lead to the immediate termination of this employee, which I formally recommend.',
+    ).ok).toBe(false)
+  })
+  it('"we advise" and "my recommendation is" are also recognized as explicit recommendation markers', () => {
+    expect(checkForDisciplinaryRecommendation('We advise termination of this employee.').ok).toBe(false)
+    expect(checkForDisciplinaryRecommendation('My recommendation is dismissal.').ok).toBe(false)
+  })
+})
+
+describe('hardening: false positives found by independent review, now allowed', () => {
+  it('an explicit denial that no disciplinary action is being taken', () => {
+    expect(checkForDisciplinaryRecommendation(
+      'This is a performance matter only; it does not constitute disciplinary action such as suspension or termination.',
+    ).ok).toBe(true)
+  })
+  it('a purely factual, negated historical reference', () => {
+    expect(checkForDisciplinaryRecommendation(
+      'Note for context: the employee received a final written warning last year; no dismissal followed.',
+    ).ok).toBe(true)
+  })
+})
+
 describe('allows neutral/template language about POSSIBLE future consequences', () => {
   it('"failure to improve may result in further management action" — no keyword at all, never flagged', () => {
     expect(checkForDisciplinaryRecommendation('Failure to improve may result in further management action.').ok).toBe(true)

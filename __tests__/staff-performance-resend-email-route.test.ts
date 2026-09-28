@@ -69,7 +69,7 @@ it('retries a FAILED delivery — calls the shared delivery module with the SAME
     expect.objectContaining({ documentId: 'doc1', staffId: 's2', isRetry: true }),
   )
   const json = await res.json()
-  expect(json).toEqual({ delivery: { status: 'SENT', error: null }, noop: false })
+  expect(json).toEqual({ delivery: { status: 'SENT', error: null }, noop: false, concurrentRetryInProgress: false })
 })
 
 it('idempotent no-op: retrying an already-SENT document never calls the email provider again', async () => {
@@ -118,7 +118,16 @@ it('a FAILED retry result is returned as-is — the document remains ISSUED and 
   const res = await POST(req(), ctx)
   expect(res.status).toBe(200) // the RETRY request itself succeeded; delivery still failed
   const json = await res.json()
-  expect(json).toEqual({ delivery: { status: 'FAILED', error: 'still down' }, noop: false })
+  expect(json).toEqual({ delivery: { status: 'FAILED', error: 'still down' }, noop: false, concurrentRetryInProgress: false })
+})
+
+it('surfaces concurrentRetryInProgress when the delivery module lost a concurrent CAS race (found by independent review)', async () => {
+  attemptDeliverPerformanceNotice.mockResolvedValue({
+    emailDeliveryStatus: 'QUEUED', emailDeliveryError: null, deliveredAt: null, emailMessageId: null, skippedConcurrent: true,
+  })
+  const res = await POST(req(), ctx)
+  const json = await res.json()
+  expect(json.concurrentRetryInProgress).toBe(true)
 })
 
 it('also works from ACKNOWLEDGED status (employee already acknowledged, email still needs retrying)', async () => {

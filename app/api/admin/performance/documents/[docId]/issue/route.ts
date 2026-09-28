@@ -133,5 +133,6 @@ export async function POST(req: NextRequest, { params }: { params: { docId: stri
   return NextResponse.json({
     document: finalDocument,
     delivery: { status: delivery.emailDeliveryStatus, error: delivery.emailDeliveryError },
+    concurrentRetryInProgress: Boolean(delivery.skippedConcurrent),
   })
 }

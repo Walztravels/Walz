@@ -110,37 +110,79 @@ export function verifyProtectedFactsPresent(text: string, facts: ProtectedFacts)
 }
 
 /**
- * Deterministic, code-level HR-output guard (mission remediation P2). This
- * is IN ADDITION TO the system prompt's own "never recommend a
- * disciplinary outcome" instruction above — a prompt instruction is a
- * request to the model, not an enforced guarantee, so this re-checks the
- * actual output before it is ever returned to the client.
+ * Deterministic, code-level HR-output guard (mission remediation P2, then
+ * hardened after independent review found concrete bypasses/false
+ * positives in the first version — see the four checks below). This is IN
+ * ADDITION TO the system prompt's own "never recommend a disciplinary
+ * outcome" instruction above — a prompt instruction is a request to the
+ * model, not an enforced guarantee, so this re-checks the actual output
+ * before it is ever returned to the client.
  *
  * A naive substring filter on words like "terminate"/"suspend" would also
  * block entirely standard, legitimate HR boilerplate such as "failure to
  * improve may result in further management action up to and including
  * termination of employment" — exactly the kind of neutral, conditional
- * language a real warning letter is expected to contain. So this checks,
- * per SENTENCE, for the combination of (a) a disciplinary-outcome keyword
- * AND (b) the ABSENCE of neutral/conditional framing in that same
- * sentence. A sentence that actively recommends/decides an outcome
- * ("I recommend terminating this employee", "this employee should be
- * fired", "suspend this employee immediately") has neither hedge nor
- * qualifier and gets flagged. A sentence that merely explains a possible
- * future consequence ("may result in further management action",
- * "could lead to termination of employment") is left alone.
+ * language a real warning letter is expected to contain. So a sentence is
+ * flagged only when it contains a disciplinary-outcome keyword AND is not
+ * otherwise excused by one of two checks, IN THIS ORDER:
+ *
+ *   1. EXPLICIT_RECOMMENDATION always overrides everything else — "I
+ *      recommend termination" is a decision regardless of any hedge word
+ *      also present elsewhere in the same sentence (the first version's
+ *      per-sentence NEUTRAL_FRAMING check could be defeated by attaching
+ *      an explicit recommendation to a hedge: "...this may lead to
+ *      termination, which I formally recommend" used to slip through).
+ *   2. NEGATION excuses a sentence that explicitly denies or factually
+ *      references an outcome without recommending it ("does not
+ *      constitute disciplinary action such as suspension", "no dismissal
+ *      followed") — the first version blocked these as false positives.
+ *   3. Otherwise, NEUTRAL_FRAMING excuses genuinely hedged/conditional
+ *      language ("may result in ... up to and including termination").
+ *   4. Anything left (a bare keyword with no recommendation override, no
+ *      negation, no framing) is flagged.
+ *
+ * Known, accepted residual limitation: this is keyword-based, not
+ * semantic. Plain-English synonyms outside DISCIPLINARY_KEYWORDS (e.g.
+ * "employment should be ended", "let this employee go") are not caught —
+ * catching arbitrary phrasing would require real language understanding,
+ * not a regex. The system prompt instruction remains the primary defense
+ * against novel phrasing; this guard is a deterministic backstop for the
+ * specific outcomes the mission brief names (termination, dismissal,
+ * firing, suspension, demotion, disciplinary escalation).
  */
 const DISCIPLINARY_KEYWORDS =
-  /\b(terminat(?:e|ed|es|ing|ion)|dismiss(?:ed|es|ing|al)?|fir(?:ed|ing)|suspend(?:ed|ing|s)?|demot(?:e|ed|es|ing|ion)|disciplinary escalation|punitive)\b/i
+  /\b(terminat(?:e|ed|es|ing|ion)|dismiss(?:ed|es|ing|al)?|fir(?:e|ed|es|ing)|suspen(?:d(?:ed|ing|s)?|sion)|demot(?:e|ed|es|ing|ion)|disciplinary escalation|punitive)\b/i
 
 const NEUTRAL_FRAMING =
   /\b(may (?:result in|lead to|involve|include)|could (?:result in|lead to)|management (?:may|could|might) consider|further management action|up to and including|if (?:performance|improvement) (?:does not|is not))\b/i
+
+// "I recommend...", "we advise...", "my recommendation is...", etc. — an
+// explicit recommendation marker is never neutral, no matter what hedge
+// words also appear in the same sentence. Allows up to 3 words between
+// the pronoun and the verb ("I would strongly recommend").
+const EXPLICIT_RECOMMENDATION =
+  /\b(?:I|we)\b(?:\s+\S+){0,3}\s+(?:recommend|propose|advise|suggest)\b|\brecommend(?:ation)?\s+(?:is|that)\b|\bmy recommendation is\b/i
+
+// An explicit denial or purely factual/historical reference to an outcome
+// — "does not constitute ... suspension", "no dismissal followed" — is
+// not a recommendation. Checked only when EXPLICIT_RECOMMENDATION does
+// NOT also match, so a hedge-plus-negation cannot be used to smuggle an
+// actual recommendation past the guard.
+const NEGATION = /\b(?:not|never|no|does not|did not|without|no longer)\b/i
 
 function splitSentences(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+/)
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+function isDisciplinaryRecommendation(sentence: string): boolean {
+  if (!DISCIPLINARY_KEYWORDS.test(sentence)) return false
+  if (EXPLICIT_RECOMMENDATION.test(sentence)) return true
+  if (NEGATION.test(sentence)) return false
+  if (NEUTRAL_FRAMING.test(sentence)) return false
+  return true
 }
 
 export interface DisciplinaryGuardResult {
@@ -152,9 +194,7 @@ export interface DisciplinaryGuardResult {
 }
 
 export function checkForDisciplinaryRecommendation(text: string): DisciplinaryGuardResult {
-  const flaggedCount = splitSentences(text).filter(
-    (sentence) => DISCIPLINARY_KEYWORDS.test(sentence) && !NEUTRAL_FRAMING.test(sentence),
-  ).length
+  const flaggedCount = splitSentences(text).filter(isDisciplinaryRecommendation).length
   return { ok: flaggedCount === 0, flaggedCount }
 }
 

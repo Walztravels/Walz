@@ -70,5 +70,10 @@ export async function POST(_req: NextRequest, { params }: { params: { docId: str
   return NextResponse.json({
     delivery: { status: delivery.emailDeliveryStatus, error: delivery.emailDeliveryError },
     noop: false,
+    // True if this exact request lost a concurrent race to another
+    // in-flight retry (see lib/performance/delivery.ts) — it made no
+    // provider call itself; the delivery status shown is whatever the
+    // winning concurrent call had reached by the time this one re-read it.
+    concurrentRetryInProgress: Boolean(delivery.skippedConcurrent),
   })
 }
