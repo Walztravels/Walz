@@ -6,7 +6,7 @@
  */
 const mockPrisma = {
   checkInRecord: { findUnique: jest.fn(), update: jest.fn() },
-  checkInDeduction: { findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
+  checkInDeduction: { findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn(), create: jest.fn() },
   checkInDeductionPolicy: { findUnique: jest.fn() },
   staff: { findUnique: jest.fn() },
 }
@@ -45,7 +45,7 @@ describe('PATCH /api/admin/check-ins/[id] — waive', () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SALES_REP)
     const res = await PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1'))
     expect(res.status).toBe(403)
-    expect(mockPrisma.checkInDeduction.update).not.toHaveBeenCalled()
+    expect(mockPrisma.checkInDeduction.updateMany).not.toHaveBeenCalled()
   })
 
   it('rejects a waive with no reason', async () => {
@@ -57,16 +57,17 @@ describe('PATCH /api/admin/check-ins/[id] — waive', () => {
 
   it('test 11 — a valid waive sets the deduction to WAIVED but the record STAYS MISSED', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
-    mockPrisma.checkInDeduction.findUnique.mockResolvedValue({ id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN' })
-    mockPrisma.checkInDeduction.update.mockResolvedValue({ id: 'ded1', status: 'WAIVED' })
+    mockPrisma.checkInDeduction.findUnique.mockResolvedValue({ id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: null })
+    mockPrisma.checkInDeduction.updateMany.mockResolvedValue({ count: 1 })
 
     const res  = await PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1'))
     const body = await res.json()
 
     expect(res.status).toBe(200)
-    // The deduction ledger row is what actually gets waived
-    expect(mockPrisma.checkInDeduction.update).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'ded1' },
+    // The deduction ledger row is what actually gets waived — atomically
+    // conditioned on appliedToPayslipId:null (see attemptWaiveDeduction).
+    expect(mockPrisma.checkInDeduction.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'ded1', appliedToPayslipId: null },
       data: expect.objectContaining({ status: 'WAIVED', waivedBy: 'admin1', waiverReason: 'Approved leave' }),
     }))
     // The original missed attendance record is NEVER deleted or rewritten to CHECKED_IN
@@ -82,6 +83,10 @@ describe('PATCH /api/admin/check-ins/[id] — waive', () => {
     mockPrisma.checkInDeduction.findUnique.mockResolvedValue({
       id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: 'payslip1',
     })
+    // The CAS where-clause (appliedToPayslipId: null) naturally matches
+    // zero rows since the real value is already 'payslip1'.
+    mockPrisma.checkInDeduction.updateMany.mockResolvedValue({ count: 0 })
+
     const res  = await PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1'))
     const body = await res.json()
     expect(res.status).toBe(409)
@@ -95,9 +100,50 @@ describe('PATCH /api/admin/check-ins/[id] — waive', () => {
     mockPrisma.checkInDeduction.findUnique.mockResolvedValue({
       id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: 'payslip1',
     })
+    mockPrisma.checkInDeduction.updateMany.mockResolvedValue({ count: 0 })
     const res = await PATCH(patchReq({ action: 'resolve', approved: true, reason: 'Dispute upheld' }), params('rec1'))
+    const body = await res.json()
     expect(res.status).toBe(409)
+    expect(body.error).toContain('approving this dispute')
     expect(mockPrisma.checkInDeduction.update).not.toHaveBeenCalled()
+  })
+
+  it('found by second review: the guard is RACE-SAFE, not just read-then-branch — a deduction that looked unapplied at read time but was stamped by a concurrent payroll/generate call in between is still blocked, never a silent 200', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    // The initial read sees appliedToPayslipId: null (looked fine) — but a
+    // concurrent payroll/generate call wins the race and stamps the row
+    // before this request's own write lands. The atomic updateMany's
+    // where-clause re-evaluates against the CURRENT row, not the stale
+    // read, and correctly matches zero rows.
+    mockPrisma.checkInDeduction.findUnique
+      .mockResolvedValueOnce({ id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: null })
+      .mockResolvedValueOnce({ appliedToPayslipId: 'payslip-won-the-race' }) // the "fresh" re-read after losing the CAS
+    mockPrisma.checkInDeduction.updateMany.mockResolvedValue({ count: 0 })
+
+    const res  = await PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1'))
+    const body = await res.json()
+
+    expect(res.status).toBe(409)
+    expect(body.error).toContain('payslip-won-the-race')
+    expect(mockPrisma.checkInDeduction.update).not.toHaveBeenCalled()
+    expect(mockPrisma.checkInRecord.update).not.toHaveBeenCalled()
+  })
+
+  it('two concurrent waive requests for the same never-applied deduction both succeed and converge on WAIVED — the CAS guards appliedToPayslipId, not prior WAIVED status, so this is a harmless audit-attribution race, not a financial one (matches independent review\'s own severity call)', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SUPER_ADMIN)
+    mockPrisma.checkInDeduction.findUnique.mockResolvedValue({ id: 'ded1', status: 'ACTIVE', amount: 50, currency: 'NGN', appliedToPayslipId: null })
+    // Realistic: neither concurrent waive touches appliedToPayslipId, so the
+    // CAS where-clause (appliedToPayslipId: null) matches for BOTH calls —
+    // there is no payslip-application race here, only "who wins
+    // waivedBy/waiverReason", which is cosmetic, never a double-charge.
+    mockPrisma.checkInDeduction.updateMany.mockResolvedValue({ count: 1 })
+
+    const [a, b] = await Promise.all([
+      PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1')),
+      PATCH(patchReq({ action: 'waive', reason: 'Approved leave' }), params('rec1')),
+    ])
+    expect(mockPrisma.checkInDeduction.updateMany).toHaveBeenCalledTimes(2)
+    expect([a.status, b.status]).toEqual([200, 200])
   })
 
   it('is a no-op on the ledger if no deduction ever existed (e.g. policy was unconfigured) but still marks the legacy waived flag', async () => {
@@ -105,7 +151,7 @@ describe('PATCH /api/admin/check-ins/[id] — waive', () => {
     mockPrisma.checkInDeduction.findUnique.mockResolvedValue(null)
     const res = await PATCH(patchReq({ action: 'waive', reason: 'Technical issue' }), params('rec1'))
     expect(res.status).toBe(200)
-    expect(mockPrisma.checkInDeduction.update).not.toHaveBeenCalled()
+    expect(mockPrisma.checkInDeduction.updateMany).not.toHaveBeenCalled()
     expect(mockPrisma.checkInRecord.update).toHaveBeenCalled()
   })
 

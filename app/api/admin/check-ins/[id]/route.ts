@@ -22,6 +22,44 @@ function isSuperAdmin(session: { role: string; staffRole?: string }): boolean {
   return session.role === 'super_admin' || session.staffRole === 'super_admin'
 }
 
+/**
+ * Atomically waives the deduction for a check-in record, IF one exists and
+ * is not already applied to a payslip. Found by independent review: a plain
+ * read-then-branch-then-write (findUnique -> check -> update) leaves a
+ * TOCTOU window — a concurrent payroll/generate call could stamp
+ * appliedToPayslipId between the read and the write, letting a waive
+ * through with a 200 instead of the intended 409. Closed here by making
+ * the write itself conditional on the same appliedToPayslipId:null state,
+ * via updateMany + count check, so the guard and the write are atomic
+ * against one DB-level condition rather than two separate round-trips.
+ */
+async function attemptWaiveDeduction(
+  checkInRecordId: string,
+  reason: string,
+  actorStaffId: string | null,
+  actionVerb: string = 'waiving',
+): Promise<{ ok: true; waived: boolean } | { ok: false; error: string }> {
+  const deduction = await (prisma as any).checkInDeduction.findUnique({ where: { checkInRecordId } })
+  if (!deduction) return { ok: true, waived: false } // nothing to waive (e.g. policy was unconfigured) — not an error
+
+  const cas = await (prisma as any).checkInDeduction.updateMany({
+    where: { id: deduction.id, appliedToPayslipId: null },
+    data:  { status: 'WAIVED', waivedAt: new Date(), waivedBy: actorStaffId, waiverReason: reason },
+  })
+  if (cas.count === 0) {
+    // Either it was already applied when we first read it, or it was
+    // applied by a concurrent payroll/generate call in the instant between
+    // our read and this write — both cases get the identical, correct
+    // outcome: block, never a silent 200.
+    const fresh = await (prisma as any).checkInDeduction.findUnique({ where: { id: deduction.id }, select: { appliedToPayslipId: true } })
+    return {
+      ok: false,
+      error: `This deduction was already applied to payslip ${fresh?.appliedToPayslipId ?? '(unknown)'}. Correct that payslip manually before ${actionVerb} — ${actionVerb} here would not adjust its net pay.`,
+    }
+  }
+  return { ok: true, waived: true }
+}
+
 export async function PATCH(req: Request, { params }: Params) {
   try {
     const session = await getAdminSession()
@@ -78,24 +116,17 @@ export async function PATCH(req: Request, { params }: Params) {
       const reason = (body.reason ?? '').trim()
       if (!reason) return NextResponse.json({ error: 'A reason for waiver is required' }, { status: 400 })
 
-      const deduction = await (prisma as any).checkInDeduction.findUnique({ where: { checkInRecordId: id } })
       // Found by independent financial review: a deduction already folded
       // into a generated payslip (appliedToPayslipId set) must not be
       // silently waived — nothing would reverse that payslip's
       // attendanceDeduction/netPay, and the payslip may already be paid
       // out. Block instead of guessing at an automatic correction; the
-      // Super Admin must correct the issued payslip by hand first.
-      if (deduction?.appliedToPayslipId) {
-        return NextResponse.json({
-          error: `This deduction was already applied to payslip ${deduction.appliedToPayslipId}. Correct that payslip manually before waiving — waiving here would not adjust its net pay.`,
-        }, { status: 409 })
-      }
-      if (deduction) {
-        await (prisma as any).checkInDeduction.update({
-          where: { id: deduction.id },
-          data:  { status: 'WAIVED', waivedAt: new Date(), waivedBy: session.staffId ?? null, waiverReason: reason },
-        })
-      }
+      // Super Admin must correct the issued payslip by hand first. Made
+      // atomic (see attemptWaiveDeduction) after a second review found the
+      // original read-then-write had a race window against a concurrent
+      // payroll/generate stamp.
+      const attempt = await attemptWaiveDeduction(id, reason, session.staffId ?? null)
+      if (!attempt.ok) return NextResponse.json({ error: attempt.error }, { status: 409 })
       // Legacy display mirror only — status stays MISSED (never deleted/rewritten).
       const updated = await prisma.checkInRecord.update({
         where: { id },
@@ -120,19 +151,9 @@ export async function PATCH(req: Request, { params }: Params) {
       const approved = body.approved ?? false
       if (approved) {
         const reason = (body.reason ?? '').trim() || 'Dispute approved'
-        const deduction = await (prisma as any).checkInDeduction.findUnique({ where: { checkInRecordId: id } })
-        // Same guard as the direct `waive` action above — see that comment.
-        if (deduction?.appliedToPayslipId) {
-          return NextResponse.json({
-            error: `This deduction was already applied to payslip ${deduction.appliedToPayslipId}. Correct that payslip manually before approving this dispute — approving here would not adjust its net pay.`,
-          }, { status: 409 })
-        }
-        if (deduction) {
-          await (prisma as any).checkInDeduction.update({
-            where: { id: deduction.id },
-            data:  { status: 'WAIVED', waivedAt: new Date(), waivedBy: session.staffId ?? null, waiverReason: reason },
-          })
-        }
+        // Same atomic guard as the direct `waive` action above.
+        const attempt = await attemptWaiveDeduction(id, reason, session.staffId ?? null, 'approving this dispute')
+        if (!attempt.ok) return NextResponse.json({ error: attempt.error }, { status: 409 })
       }
       const updated = await prisma.checkInRecord.update({
         where: { id },
