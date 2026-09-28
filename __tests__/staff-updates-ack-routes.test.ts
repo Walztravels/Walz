@@ -132,6 +132,48 @@ describe('POST /ack', () => {
     const body = await res.json()
     expect(Object.keys(body).sort()).toEqual(['acknowledgedAt', 'readAt'])
   })
+
+  it('HIGH priority — acknowledgement is available (200, upsert called)', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(STAFF_SESSION)
+    mockPrisma.staffAnnouncement.findUnique.mockResolvedValue({ ...PUBLISHED_ANN, priority: 'HIGH' })
+    const res = await ackPost(postReq({ action: 'acknowledge' }), { params: { id: 'ann-1' } })
+    expect(res.status).toBe(200)
+    expect(mockPrisma.announcementAcknowledgement.upsert).toHaveBeenCalled()
+  })
+
+  it('URGENT ("Critical") priority — acknowledgement is available (200, upsert called)', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(STAFF_SESSION)
+    mockPrisma.staffAnnouncement.findUnique.mockResolvedValue({ ...PUBLISHED_ANN, priority: 'URGENT' })
+    const res = await ackPost(postReq({ action: 'acknowledge' }), { params: { id: 'ann-1' } })
+    expect(res.status).toBe(200)
+    expect(mockPrisma.announcementAcknowledgement.upsert).toHaveBeenCalled()
+  })
+
+  it('NORMAL priority — acknowledgement is rejected (400): read tracking only, no acknowledgement requirement', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(STAFF_SESSION)
+    mockPrisma.staffAnnouncement.findUnique.mockResolvedValue({ ...PUBLISHED_ANN, priority: 'NORMAL' })
+    const res = await ackPost(postReq({ action: 'acknowledge' }), { params: { id: 'ann-1' } })
+    expect(res.status).toBe(400)
+    expect(mockPrisma.announcementAcknowledgement.upsert).not.toHaveBeenCalled()
+  })
+
+  it('NORMAL priority — "read" still works fine (read tracking applies to every priority)', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(STAFF_SESSION)
+    mockPrisma.staffAnnouncement.findUnique.mockResolvedValue({ ...PUBLISHED_ANN, priority: 'NORMAL' })
+    const res = await ackPost(postReq({ action: 'read' }), { params: { id: 'ann-1' } })
+    expect(res.status).toBe(200)
+    expect(mockPrisma.announcementAcknowledgement.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: { readAt: expect.any(Date) },
+    }))
+  })
+
+  it('staff cannot acknowledge for another staff member — the OTHER_SESSION identity never appears in any write', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(STAFF_SESSION) // acting as s1
+    await ackPost(postReq({ action: 'acknowledge' }), { params: { id: 'ann-1' } })
+    const allCalls = JSON.stringify(mockPrisma.announcementAcknowledgement.upsert.mock.calls)
+    expect(allCalls).not.toContain(OTHER_SESSION.id)
+    expect(allCalls).toContain('"s1"')
+  })
 })
 
 describe('GET /ack/report', () => {
@@ -157,7 +199,7 @@ describe('GET /ack/report', () => {
     expect((await reportGet(getReq(), { params: { id: 'ann-1' } })).status).toBe(403)
   })
 
-  it('super_admin gets acknowledged/outstanding counts computed against the authoritative recipient set', async () => {
+  it('super_admin gets acknowledged/outstanding counts computed against the authoritative recipient set (URGENT)', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(ADMIN_SESSION)
     const res = await reportGet(getReq(), { params: { id: 'ann-1' } })
     const body = await res.json()
@@ -165,6 +207,26 @@ describe('GET /ack/report', () => {
     expect(body.acknowledgedCount).toBe(1)
     expect(body.outstandingCount).toBe(1)
     expect(body.outstanding).toEqual([expect.objectContaining({ id: 's2' })])
+  })
+
+  it('the report also works for HIGH priority — outstanding HIGH recipients are included, not just Critical/URGENT', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(ADMIN_SESSION)
+    mockPrisma.staffAnnouncement.findUnique.mockResolvedValue({ ...PUBLISHED_ANN, priority: 'HIGH' })
+    const res = await reportGet(getReq(), { params: { id: 'ann-1' } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.priority).toBe('HIGH')
+    expect(body.totalTargeted).toBe(2)
+    expect(body.outstandingCount).toBe(1)
+    expect(body.outstanding).toEqual([expect.objectContaining({ id: 's2' })])
+  })
+
+  it('400s for a NORMAL priority announcement — the outstanding report only applies to HIGH/URGENT', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(ADMIN_SESSION)
+    mockPrisma.staffAnnouncement.findUnique.mockResolvedValue({ ...PUBLISHED_ANN, priority: 'NORMAL' })
+    const res = await reportGet(getReq(), { params: { id: 'ann-1' } })
+    expect(res.status).toBe(400)
+    expect(resolveAnnouncementRecipients).not.toHaveBeenCalled()
   })
 
   it('404s for a non-existent announcement', async () => {

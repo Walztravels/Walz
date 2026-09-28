@@ -8,6 +8,7 @@ import {
   Loader2, Calendar, Users, AlertTriangle, ShieldCheck, ClipboardCheck,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import { requiresAcknowledgement } from '@/lib/staff-updates/priority'
 
 type Announcement = {
   id: string; title: string; category: string; summary: string
@@ -28,8 +29,6 @@ type AckReport = {
   totalTargeted: number; acknowledgedCount: number; outstandingCount: number
   outstanding: AckReportRow[]; staff: AckReportRow[]
 }
-
-const CRITICAL_PRIORITIES = ['HIGH', 'URGENT']
 
 const STATUS_CHIP: Record<string,string> = {
   DRAFT:     'bg-gray-500/10 text-gray-400 border-gray-500/20',
@@ -86,7 +85,7 @@ export default function AnnouncementDetailPage() {
   // report; the underlying tracking exists for every priority.
   useEffect(() => {
     if (!ann || !isAdmin || profile?.role !== 'super_admin') return
-    if (!CRITICAL_PRIORITIES.includes(ann.priority)) return
+    if (!requiresAcknowledgement(ann.priority)) return
     setReportLoading(true)
     fetch(`/api/admin/announcements/${id}/ack/report`)
       .then(r => (r.ok ? r.json() : null))
@@ -228,7 +227,7 @@ export default function AnnouncementDetailPage() {
       {/* Acknowledgement — Critical announcements only. Acknowledging means
           "I have received and reviewed this" — it is never framed as, and
           must never be read as, agreement with the content. */}
-      {ann.status === 'PUBLISHED' && CRITICAL_PRIORITIES.includes(ann.priority) && ackStatus && (
+      {ann.status === 'PUBLISHED' && requiresAcknowledgement(ann.priority) && ackStatus && (
         <div className={`rounded-2xl ring-1 p-5 flex items-center justify-between gap-4 ${
           ackStatus.acknowledgedAt
             ? 'bg-emerald-500/5 ring-emerald-500/20'
@@ -261,7 +260,7 @@ export default function AnnouncementDetailPage() {
       )}
 
       {/* Super Admin — outstanding acknowledgement report (Critical only) */}
-      {isAdmin && profile?.role === 'super_admin' && CRITICAL_PRIORITIES.includes(ann.priority) && (
+      {isAdmin && profile?.role === 'super_admin' && requiresAcknowledgement(ann.priority) && (
         <div className="bg-[#112240] rounded-2xl ring-1 ring-white/5 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-[#C9A84C]" />

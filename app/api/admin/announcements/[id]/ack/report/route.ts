@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { resolveAnnouncementRecipients } from '@/lib/staff-updates/audience'
+import { requiresAcknowledgement } from '@/lib/staff-updates/priority'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +33,17 @@ export async function GET(_req: Request, { params }: Params) {
     },
   })
   if (!ann) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // The outstanding-acknowledgement report only means something for
+  // HIGH/URGENT ("Critical") announcements — NORMAL priority is read-tracked
+  // only and was never required to be acknowledged, so there is nothing
+  // meaningful to report "outstanding" against.
+  if (!requiresAcknowledgement(ann.priority)) {
+    return NextResponse.json(
+      { error: 'Acknowledgement reporting only applies to HIGH/URGENT priority announcements' },
+      { status: 400 },
+    )
+  }
 
   const recipients = await resolveAnnouncementRecipients(ann)
 

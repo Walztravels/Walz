@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { isAnnouncementEligible } from '@/lib/staff-updates/audience'
+import { requiresAcknowledgement } from '@/lib/staff-updates/priority'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,7 +47,7 @@ export async function POST(req: Request, { params }: Params) {
   const ann = await prisma.staffAnnouncement.findUnique({
     where:  { id: params.id },
     select: {
-      id: true, status: true,
+      id: true, status: true, priority: true,
       audience: true, audienceRoles: true, audienceStaffIds: true,
     },
   })
@@ -56,6 +57,17 @@ export async function POST(req: Request, { params }: Params) {
   // nothing legitimate to acknowledge in a DRAFT/APPROVED/ARCHIVED one.
   if (ann.status !== 'PUBLISHED') {
     return NextResponse.json({ error: 'Announcement is not published' }, { status: 409 })
+  }
+
+  // NORMAL priority is read-tracked only — formal acknowledgement is a
+  // HIGH/URGENT ("Critical") requirement per spec. "read" is always fine;
+  // "acknowledge" on a NORMAL announcement is rejected rather than silently
+  // accepted, so this enforcement can't quietly drift from what the UI shows.
+  if (action === 'acknowledge' && !requiresAcknowledgement(ann.priority)) {
+    return NextResponse.json(
+      { error: 'Acknowledgement is not required for NORMAL priority announcements — use action "read"' },
+      { status: 400 },
+    )
   }
 
   // Staff may only acknowledge announcements that actually target them —
