@@ -1,21 +1,12 @@
+// GET /api/admin/check-ins/my — the authenticated staff member's own
+// check-in view (StaffCheckInWidget). Attendance is decided purely from
+// CheckInRecord.status, which itself is only ever set by an explicit manual
+// check-in (this route) or the missed-check-in cron — never by admin-panel,
+// Inbox, Team Hub, or any other activity signal.
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-
-function tzOffsetHours(tz: string): number {
-  const now   = new Date()
-  const local = new Date(now.toLocaleString('en-US', { timeZone: tz }))
-  const utc   = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }))
-  return Math.round((local.getTime() - utc.getTime()) / 3_600_000)
-}
-
-function localNow(offsetHours: number): Date {
-  return new Date(new Date().getTime() + offsetHours * 60 * 60 * 1000)
-}
-
-function localToUtc(d: Date, offsetHours: number): Date {
-  return new Date(d.getTime() - offsetHours * 60 * 60 * 1000)
-}
+import { buildTodaysWindows, tzOffsetHours, isWindowOpenForCheckIn, type ScheduleSettings } from '@/lib/check-ins/windows'
 
 // Roles that are never subject to check-in tracking regardless of toggle
 const EXEMPT_ROLES = new Set(['super_admin', 'general_manager', 'senior_manager', 'Admin', 'admin'])
@@ -25,144 +16,104 @@ export async function GET() {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Super admin, general/senior manager, and env-var admin are never tracked
     if (!session.staffId || EXEMPT_ROLES.has(session.role) || EXEMPT_ROLES.has(session.staffRole)) {
       return NextResponse.json({ tracked: false })
     }
 
     const staffId = session.staffId
-
-    // Load staff's tracking flag and settings in parallel
     const [staffRow, settings] = await Promise.all([
       prisma.staff.findUnique({
         where:  { id: staffId },
-        select: { checkInTracked: true, name: true, timezone: true },
+        select: { checkInTracked: true, name: true, timezone: true, breakStartHour: true, breakEndHour: true },
       }),
       prisma.checkInSettings.findUnique({ where: { id: 'singleton' } }).catch(() => null),
     ])
 
-    if (!staffRow?.checkInTracked) {
+    if (!staffRow?.checkInTracked || !settings?.enabled) {
       return NextResponse.json({ tracked: false })
     }
 
-    const tz         = staffRow.timezone ?? 'Africa/Lagos'
-    const tzOffset   = tzOffsetHours(tz)
-    const workStart  = settings?.workStartHour ?? 8
-    const workEnd    = settings?.workEndHour   ?? 18
+    const tz    = staffRow.timezone ?? 'Africa/Lagos'
+    const grace = settings.graceMinutes ?? 0
+    const now   = new Date()
 
-    // Current local time for this staff member
-    const nowLocal   = localNow(tzOffset)
-    const hourLocal  = nowLocal.getUTCHours()
-    const todayLocal = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()))
-
-    // Day boundaries in UTC
-    const dayStartUtc = localToUtc(todayLocal, tzOffset)
-    const dayEndUtc   = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000)
-
-    // Build all work-hour slot windowStarts for today (in UTC)
-    const allSlots: Date[] = []
-    for (let h = workStart; h < workEnd; h++) {
-      const localSlot = new Date(Date.UTC(todayLocal.getUTCFullYear(), todayLocal.getUTCMonth(), todayLocal.getUTCDate(), h, 0, 0, 0))
-      allSlots.push(localToUtc(localSlot, tzOffset))
+    const scheduleSettings: ScheduleSettings = {
+      workStartHour: settings.workStartHour, workEndHour: settings.workEndHour,
+      satEnabled:    settings.satEnabled,    satStartHour: settings.satStartHour, satEndHour: settings.satEndHour,
+      sunEnabled:    settings.sunEnabled,
     }
 
-    // Fetch today's records and week summary in parallel
-    const weekStartLocal = new Date(todayLocal)
-    weekStartLocal.setUTCDate(todayLocal.getUTCDate() - todayLocal.getUTCDay()) // Sunday
-    const weekStartUtc = localToUtc(weekStartLocal, tzOffset)
+    const todaysWindows = buildTodaysWindows({
+      now, timezone: tz,
+      breakStartHour: staffRow.breakStartHour ?? 13, breakEndHour: staffRow.breakEndHour ?? 14,
+      settings: scheduleSettings,
+    })
 
-    const [todayRecords, weekRecords, todayCallLogs] = await Promise.all([
+    // Week boundary (Sunday) in this staff member's own local timezone.
+    const offset = tzOffsetHours(tz)
+    const nowLocal   = new Date(now.getTime() + offset * 3_600_000)
+    const todayLocal = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()))
+    const weekStartLocal = new Date(todayLocal)
+    weekStartLocal.setUTCDate(todayLocal.getUTCDate() - todayLocal.getUTCDay())
+    const weekStartUtc = new Date(weekStartLocal.getTime() - offset * 3_600_000)
+
+    const [todayRecords, weekRecords, weekDeductions] = await Promise.all([
       prisma.checkInRecord.findMany({
-        where:   { staffId, windowStart: { gte: dayStartUtc, lt: dayEndUtc } },
+        where:   { staffId, windowStart: { in: todaysWindows.map(w => w.windowStart) } },
         orderBy: { windowStart: 'asc' },
       }),
       prisma.checkInRecord.findMany({
-        where:   { staffId, windowStart: { gte: weekStartUtc } },
-        select:  { flagged: true, waived: true, deductionAmt: true },
+        where:  { staffId, windowStart: { gte: weekStartUtc, lte: now } },
+        select: { status: true, waived: true },
       }),
-      // Call presence — CallLog uses email, not staffId
-      prisma.callLog.findMany({
-        where:  { assignedTo: session.email, createdAt: { gte: dayStartUtc, lt: dayEndUtc } },
-        select: { createdAt: true },
-      }).catch(() => [] as { createdAt: Date }[]),
+      (prisma as any).checkInDeduction.findMany({
+        where:  { staffId, status: 'ACTIVE', createdAt: { gte: weekStartUtc } },
+        select: { amount: true, currency: true },
+      }).catch(() => [] as { amount: number; currency: string }[]),
     ])
 
-    // Map today's records by windowStart ms
     const recordBySlot = new Map(todayRecords.map(r => [r.windowStart.getTime(), r]))
 
-    // Build todaySlots (only past/current slots up to now)
-    const nowUtcMs      = new Date().getTime()
-    const pastSlots     = allSlots.filter(s => s.getTime() <= nowUtcMs)
-    const todaySlotsOut = pastSlots.map(slotUtc => {
-      const rec       = recordBySlot.get(slotUtc.getTime())
-      const slotEnd   = new Date(slotUtc.getTime() + 60 * 60 * 1000)
-      const lagosSlot = new Date(slotUtc.getTime() + tzOffset * 60 * 60 * 1000)
-      const hasCall      = todayCallLogs.some(l => l.createdAt >= slotUtc && l.createdAt < slotEnd)
-      const activitySource: 'call' | 'admin' | 'manual' | null =
-        rec?.manualCheckin ? 'manual' :
-        hasCall            ? 'call'   :
-        rec?.autoDetected  ? 'admin'  :
-        null
+    const todaySlotsOut = todaysWindows.map(w => {
+      const rec = recordBySlot.get(w.windowStart.getTime())
       return {
-        id:             rec?.id ?? null,
-        windowStart:    slotUtc.toISOString(),
-        lagosHour:      lagosSlot.getUTCHours(),
-        present:        (rec?.present ?? false) || hasCall,
-        autoDetected:   rec?.autoDetected  ?? false,
-        manualCheckin:  rec?.manualCheckin ?? false,
-        flagged:        rec?.flagged       ?? false,
-        waived:         rec?.waived        ?? false,
-        dispute:        rec?.dispute       ?? null,
-        disputeStatus:  rec?.disputeStatus ?? null,
-        activitySource,
+        id:              rec?.id ?? null,
+        windowStart:     w.windowStart.toISOString(),
+        lagosHour:       w.localHour, // field name kept for client back-compat; value is the staff's OWN local hour
+        status:          rec?.status ?? 'PENDING',
+        manualCheckin:   rec?.manualCheckin ?? false,
+        actualCheckInAt: rec?.actualCheckInAt ? rec.actualCheckInAt.toISOString() : null,
+        dispute:         rec?.dispute ?? null,
+        disputeStatus:   rec?.disputeStatus ?? null,
+        waived:          rec?.waived ?? false,
       }
     })
 
-    // Week summary
-    const weekMissed     = weekRecords.filter(r => r.flagged && !r.waived).length
-    const weekWaived     = weekRecords.filter(r => r.waived).length
-    const weekDeductions = weekRecords.reduce((s, r) => s + r.deductionAmt, 0)
+    const weekMissed     = weekRecords.filter(r => r.status === 'MISSED' && !r.waived).length
+    const weekCompleted  = weekRecords.filter(r => r.status === 'CHECKED_IN').length
+    const weekRequired   = weekRecords.length
+    const deductionsByCurrency: Record<string, number> = {}
+    for (const d of weekDeductions as { amount: number; currency: string }[]) {
+      deductionsByCurrency[d.currency] = (deductionsByCurrency[d.currency] ?? 0) + d.amount
+    }
 
-    // Current slot
-    const isWorkHours = hourLocal >= workStart && hourLocal < workEnd
-    let currentSlot   = null
-
-    if (isWorkHours) {
-      const currentLocalSlotDate = new Date(Date.UTC(
-        todayLocal.getUTCFullYear(), todayLocal.getUTCMonth(), todayLocal.getUTCDate(),
-        hourLocal, 0, 0, 0,
-      ))
-      const currentSlotUtc = localToUtc(currentLocalSlotDate, tzOffset)
-      const windowEndUtc   = new Date(currentSlotUtc.getTime() + 60 * 60 * 1000)
-
-      const rec = recordBySlot.get(currentSlotUtc.getTime())
-
-      // Check for activity AND call presence in current window
-      const [activityCount, callCount] = await Promise.all([
-        prisma.activityLog.count({
-          where: { staffId, createdAt: { gte: currentSlotUtc, lt: windowEndUtc } },
-        }).catch(() => 0),
-        prisma.callLog.count({
-          where: { assignedTo: session.email, createdAt: { gte: currentSlotUtc, lt: windowEndUtc } },
-        }).catch(() => 0),
-      ])
-
-      const hasActivityThisSlot = activityCount > 0 || callCount > 0
-      const minutesElapsed      = nowLocal.getUTCMinutes()
-      const minutesRemaining    = 60 - minutesElapsed
-
+    // Current window — is it open right now, and if so, for how much longer?
+    const currentWindow = todaysWindows[todaysWindows.length - 1] ?? null
+    let currentSlot = null
+    if (currentWindow) {
+      const rec = recordBySlot.get(currentWindow.windowStart.getTime())
+      const isOpen = isWindowOpenForCheckIn(currentWindow, now, grace)
+      const minutesRemaining = Math.max(0, Math.round((currentWindow.windowEnd.getTime() + grace * 60_000 - now.getTime()) / 60_000))
       currentSlot = {
-        id:                    rec?.id ?? null,
-        windowStart:           currentSlotUtc.toISOString(),
-        windowEnd:             windowEndUtc.toISOString(),
-        lagosHour:             hourLocal,
-        present:               (rec?.present ?? false) || callCount > 0,
-        manualCheckin:         rec?.manualCheckin ?? false,
-        autoDetected:          rec?.autoDetected  ?? false,
-        flagged:               rec?.flagged       ?? false,
-        waived:                rec?.waived        ?? false,
+        id:              rec?.id ?? null,
+        windowStart:     currentWindow.windowStart.toISOString(),
+        windowEnd:       currentWindow.windowEnd.toISOString(),
+        lagosHour:       currentWindow.localHour,
+        status:          rec?.status ?? 'PENDING',
+        manualCheckin:   rec?.manualCheckin ?? false,
+        actualCheckInAt: rec?.actualCheckInAt ? rec.actualCheckInAt.toISOString() : null,
+        open:            isOpen && !(rec?.manualCheckin),
         minutesRemaining,
-        hasActivityThisSlot,
       }
     }
 
@@ -170,12 +121,11 @@ export async function GET() {
 
     return NextResponse.json({
       tracked: true,
-      name:          staffRow.name,
-      workStart,
-      workEnd,
+      name:  staffRow.name,
+      workStart: settings.workStartHour, workEnd: settings.workEndHour,
       currentSlot,
-      todaySlots:    todaySlotsOut,
-      weekSummary:   { missed: weekMissed, waived: weekWaived, totalDeductions: weekDeductions },
+      todaySlots:  todaySlotsOut,
+      weekSummary: { required: weekRequired, completed: weekCompleted, missed: weekMissed, deductionsByCurrency },
       currencySymbol,
     })
   } catch (err) {

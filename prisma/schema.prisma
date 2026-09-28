@@ -617,6 +617,7 @@ model Staff {
 
   activityLogs     ActivityLog[]
   checkIns         CheckInRecord[]
+  checkInDeductions CheckInDeduction[]
   manager          Staff?              @relation("StaffManager", fields: [managerId], references: [id])
   reports          Staff[]             @relation("StaffManager")
   announcements    StaffAnnouncement[]
@@ -657,21 +658,38 @@ model CheckInRecord {
   staff         Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
   windowStart   DateTime
   present       Boolean   @default(false)
-  autoDetected  Boolean   @default(false)
+  autoDetected  Boolean   @default(false) // LEGACY — no longer written to as of Check-In V2. Admin/call activity
+                                           // no longer satisfies a check-in; kept only so old rows keep their history.
   manualCheckin Boolean   @default(false)
   flagged       Boolean   @default(false)
-  waived        Boolean   @default(false)
-  deductionAmt  Float     @default(0)
+  waived        Boolean   @default(false) // LEGACY display mirror — the authoritative waive state lives on
+                                           // CheckInDeduction.status now (see V2 below); this stays in sync for
+                                           // any old UI/email code still reading it directly.
+  deductionAmt  Float     @default(0)     // LEGACY display mirror of the real CheckInDeduction.amount — the
+                                           // financial source of truth is CheckInDeduction, not this field.
   waivedById    String?
   waivedAt      DateTime?
   dispute       String?   @db.Text
   disputeStatus String?
   createdAt     DateTime  @default(now())
 
+  // ── Check-In V2 (additive) ───────────────────────────────────────────────
+  // Authoritative attendance status. Admin-panel/Inbox/Team-Hub/browser
+  // activity is NEVER a valid input to this field — only an explicit manual
+  // check-in (CHECKED_IN) or a closed window with no manual check-in
+  // (MISSED) can set it. See lib/check-ins/policy.ts.
+  status            String    @default("PENDING") // PENDING | CHECKED_IN | MISSED
+  actualCheckInAt   DateTime?                      // server-observed timestamp of the manual check-in, if any
+  source            String?                        // 'MANUAL' (staff pressed Check In) | 'SYSTEM' (cron-confirmed miss)
+  timezoneAtCheckIn String?                         // staff's IANA timezone at the moment this record was resolved
+
+  deduction     CheckInDeduction?
+
   @@unique([staffId, windowStart])
   @@index([staffId])
   @@index([windowStart])
   @@index([flagged])
+  @@index([status])
 }
 
 model CheckInSettings {
@@ -683,9 +701,68 @@ model CheckInSettings {
   satStartHour     Int      @default(9)    // Saturday start
   satEndHour       Int      @default(14)   // Saturday end  (2 PM)
   sunEnabled       Boolean  @default(false)
-  deductionPerMiss Float    @default(0)
+  deductionPerMiss Float    @default(0)    // LEGACY global NGN fallback — superseded by CheckInDeductionPolicy
+                                            // (per-country, Super-Admin-configured). Kept for back-compat only.
   trackedRoles     String   @default("coordinator,sales_rep,sales_agent,flight_staff,tours_staff,hotel_staff,visa_officer,customer_support,accountant")
   updatedAt        DateTime @updatedAt
+
+  // ── Check-In V2 (additive) ───────────────────────────────────────────────
+  graceMinutes           Int       @default(0)   // minutes after a window closes before it can be marked MISSED
+  effectiveDeductionDate DateTime?               // NULL = financial deductions are inert (detection/notification
+                                                  // still run) until a Super Admin explicitly sets this date. Never
+                                                  // auto-backfilled — see lib/check-ins/policy.ts.
+}
+
+// Per-country missed-check-in deduction amount. Super-Admin-only config.
+// A NULL `amount` means "not yet configured" — deductions for that country
+// stay inert (no CheckInDeduction is ever created) until a Super Admin sets
+// a real amount. Never guess this number for a country that has none.
+model CheckInDeductionPolicy {
+  id        String    @id @default(cuid())
+  country   String    @unique // 'NG' | 'GH' — resolved from Staff.timezone (Africa/Accra = GH, else NG)
+  currency  String              // 'NGN' | 'GHS'
+  amount    Float?              // NULL = not configured (see above)
+  enabled   Boolean   @default(true)
+  updatedAt DateTime  @updatedAt
+  updatedBy String?             // staffId of the Super Admin who last changed this row
+
+  @@map("check_in_deduction_policies")
+}
+
+// The single authoritative financial ledger for missed-check-in deductions.
+// Exactly one row per (staffId, checkInRecordId) — enforced by the unique
+// constraint on checkInRecordId, so cron retries / duplicate calls can never
+// create a second deduction for the same occurrence.
+model CheckInDeduction {
+  id                  String    @id @default(cuid())
+  staffId             String
+  staff               Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  checkInRecordId     String    @unique
+  checkInRecord       CheckInRecord @relation(fields: [checkInRecordId], references: [id], onDelete: Cascade)
+
+  reason              String    @default("MISSED_CHECK_IN")
+  amount              Float
+  currency            String
+  status              String    @default("ACTIVE") // ACTIVE | WAIVED
+  effectivePayrollPeriod String                     // "YYYY-MM", resolved server-side from the occurrence date
+
+  createdBy           String    @default("system")  // 'system' (cron) — deductions are never staff/admin-typed
+  createdAt           DateTime  @default(now())
+
+  waivedAt            DateTime?
+  waivedBy            String?                        // Super Admin staffId
+  waiverReason         String?
+
+  // Set once this deduction has actually been folded into a real Payslip,
+  // so it can never be counted a second time in a later payroll run.
+  appliedToPayslipId  String?
+  appliedAt           DateTime?
+
+  @@index([staffId])
+  @@index([status])
+  @@index([effectivePayrollPeriod])
+  @@index([appliedToPayslipId])
+  @@map("check_in_deductions")
 }
 
 model NotificationLog {

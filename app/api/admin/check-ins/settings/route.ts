@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 
+const SETTINGS_ADMIN_ROLES = new Set(['super_admin', 'operations_manager'])
+
 export async function GET() {
   try {
     const session = await getAdminSession()
@@ -24,25 +26,39 @@ export async function PUT(req: Request) {
   try {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    if (session.role !== 'super_admin' && session.role !== 'operations_manager') {
+    if (!SETTINGS_ADMIN_ROLES.has(session.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await req.json() as {
-      enabled?:          boolean
-      workStartHour?:    number
-      workEndHour?:      number
-      satEnabled?:       boolean
-      satStartHour?:     number
-      satEndHour?:       number
-      sunEnabled?:       boolean
-      deductionPerMiss?: number
+      enabled?:                boolean
+      workStartHour?:          number
+      workEndHour?:            number
+      satEnabled?:             boolean
+      satStartHour?:           number
+      satEndHour?:             number
+      sunEnabled?:             boolean
+      deductionPerMiss?:       number
+      graceMinutes?:           number
+      effectiveDeductionDate?: string | null
+    }
+
+    // Activating (or moving) the financial effective date is a Super-Admin-
+    // only action — it is the single switch that turns missed-check-in
+    // deductions from inert to real money for every tracked staff member.
+    if ('effectiveDeductionDate' in body && session.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Only a Super Admin can set the deduction effective date' }, { status: 403 })
+    }
+
+    const data: Record<string, unknown> = { ...body }
+    if ('effectiveDeductionDate' in body) {
+      data.effectiveDeductionDate = body.effectiveDeductionDate ? new Date(body.effectiveDeductionDate) : null
     }
 
     const settings = await prisma.checkInSettings.upsert({
       where:  { id: 'singleton' },
-      create: { id: 'singleton', ...body },
-      update: body,
+      create: { id: 'singleton', ...data },
+      update: data,
     })
 
     return NextResponse.json({ settings })

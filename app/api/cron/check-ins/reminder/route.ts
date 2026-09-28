@@ -15,6 +15,7 @@ import {
   postBreakReminderEmail,
   FROM_EMAIL,
 } from '@/lib/check-ins/emails'
+import { createStaffNotification } from '@/lib/notifications/staff'
 import { randomUUID } from 'crypto'
 
 const CRON_SECRET  = process.env.CRON_SECRET
@@ -119,6 +120,21 @@ export async function GET(req: Request) {
     }).catch(() => null)
 
     if (alreadySent) { skipped++; continue }
+
+    // In-app notification — always sent regardless of email outcome, staff-
+    // scoped (never exposes another staff member's schedule), deduped by
+    // sourceId. This is the brief §3/§14 "window opens soon" notice.
+    const nextSlotLabelForNotif = fmt12(nextLocal)
+    await createStaffNotification({
+      staffId:    staff.id,
+      category:   'SYSTEM',
+      title:      `${nextSlotLabelForNotif} check-in required`,
+      body:       notifType === 'post_break'
+        ? `Your check-in window opens in 10 minutes, right after your break ends.`
+        : `Your ${nextSlotLabelForNotif} check-in window opens in 10 minutes.`,
+      sourceId:   `checkin:reminder:${staff.id}:${nextSlotUtc.toISOString()}`,
+      sourceType: 'check_in',
+    })
 
     const tzLabel = staff.timezone === 'Africa/Accra' ? 'Ghana time' : 'Lagos time'
 

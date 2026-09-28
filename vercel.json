@@ -83,6 +83,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/check-ins/reminder",
+      "schedule": "50 * * * *"
+    },
+    {
       "path": "/api/admin/payroll/auto-run",
       "schedule": "0 2 28 * *"
     },

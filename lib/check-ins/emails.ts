@@ -198,9 +198,6 @@ export function missEmail(p: {
   isPostBreak:   boolean
   portalUrl:     string
 }): { subject: string; html: string } {
-  const context = p.isPostBreak
-    ? `after your break ended`
-    : `during the ${p.slotLabel} window`
   const deductStr = p.deductionAmt > 0
     ? `${p.currencySymbol}${p.deductionAmt.toLocaleString()}`
     : 'none'
@@ -215,7 +212,7 @@ export function missEmail(p: {
       Hi <strong style="color:#111827;">${p.name}</strong>,
     </p>
     <p style="margin:0 0 20px;font-size:14px;color:#4b5563;line-height:1.7;">
-      No admin panel or call activity was detected ${context}.
+      No manual check-in was recorded during the required check-in window (${p.slotLabel}${p.isPostBreak ? ', after your break ended' : ''}).
       ${slotChip(p.slotLabel + ' slot', '#ef4444')}
     </p>
 

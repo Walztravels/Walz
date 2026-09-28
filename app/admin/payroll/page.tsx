@@ -236,6 +236,24 @@ function GenerateModal({ staff, onClose, onSaved }: { staff: StaffMember; onClos
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
+  const [checkInSuggestion, setCheckInSuggestion] = useState<{ amount: number; count: number } | null>(null)
+
+  // Check-In V2 bridge: prefill the real, unclaimed missed-check-in
+  // deduction total for this staff member/period from the check-in ledger,
+  // instead of requiring the admin to remember or estimate it. This never
+  // silently overwrites what the admin later types — it only sets the
+  // starting value once, on open.
+  useEffect(() => {
+    fetch(`/api/admin/payroll/check-in-deductions?staffMemberId=${staff.id}&month=${form.month}&year=${form.year}`)
+      .then(r => r.json())
+      .then((d: { amount?: number; count?: number; unmatched?: boolean }) => {
+        if (d.unmatched || !d.amount) return
+        setCheckInSuggestion({ amount: d.amount, count: d.count ?? 0 })
+        setForm(p => ({ ...p, attendanceDeduction: d.amount!, missedCheckIns: d.count ?? 0 }))
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
@@ -305,6 +323,11 @@ function GenerateModal({ staff, onClose, onSaved }: { staff: StaffMember; onClos
                 className="w-full border border-gray-200 text-[#0B1F3A] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]" />
             </div>
           </div>
+          {checkInSuggestion && (
+            <p className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+              Prefilled from the real Check-in deduction ledger: {checkInSuggestion.count} missed check-in{checkInSuggestion.count === 1 ? '' : 's'} this period, {fmtCurrency(checkInSuggestion.amount, staff.currency)}. Edit above to override.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Other Deduction</label>
