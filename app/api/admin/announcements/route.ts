@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { notifyAnnouncementPublished } from '@/lib/staff-updates/notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,5 +78,32 @@ export async function POST(req: Request) {
     },
   })
 
-  return NextResponse.json({ announcement: ann })
+  // "Publish Now" on the New Announcement form creates the row already
+  // PUBLISHED — there is no later PATCH transition to catch in that case,
+  // so this is the ONLY place that path can fan out notifications from.
+  // Best-effort, same as the PATCH route: a notify failure must never fail
+  // the create response itself.
+  let notify: Awaited<ReturnType<typeof notifyAnnouncementPublished>> | null = null
+  if (ann.status === 'PUBLISHED') {
+    try {
+      notify = await notifyAnnouncementPublished(
+        {
+          id:               ann.id,
+          title:            ann.title,
+          summary:          ann.summary,
+          category:         ann.category,
+          priority:         ann.priority,
+          effectiveDate:    ann.effectiveDate,
+          audience:         ann.audience,
+          audienceRoles:    ann.audienceRoles,
+          audienceStaffIds: ann.audienceStaffIds,
+        },
+        { staffId: session.id, staffName: session.name, staffRole: session.role },
+      )
+    } catch (err) {
+      console.warn(`[announcements] notify failed announcementId=${ann.id}:`, (err as Error).message)
+    }
+  }
+
+  return NextResponse.json({ announcement: ann, notify })
 }
