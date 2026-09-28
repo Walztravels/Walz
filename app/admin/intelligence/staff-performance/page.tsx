@@ -3,6 +3,8 @@
 import { fetchRecords } from '@/lib/intelligence/fetch-records'
 import StaffSelector, { type StaffRef } from '@/components/admin/intelligence/StaffSelector'
 import { useState, useEffect, useCallback } from 'react'
+import PerformanceManagementTab from './PerformanceManagementTab'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 interface StaffMetric {
   id: string
@@ -25,6 +27,9 @@ interface StaffMetric {
 const INPUT = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white'
 
 export default function StaffPerformancePage() {
+  const { role: callerRole } = useStaffPermissions()
+  const isSuperAdmin = callerRole === 'super_admin'
+  const [activeTab, setActiveTab] = useState<'workload' | 'performance_management'>('workload')
   const [metrics, setMetrics] = useState<StaffMetric[]>([])
   const [loading, setLoading] = useState(true)
   const [burnoutOnly, setBurnoutOnly] = useState(false)
@@ -83,18 +88,43 @@ export default function StaffPerformancePage() {
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Staff Performance Intelligence</h1>
           <p className="text-sm text-gray-500 mt-1">Operational metrics from real records — workload is an observable count, never a health assessment</p>
         </div>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <span className="text-sm font-medium text-gray-600">High workload only</span>
-          <button
-            type="button"
-            onClick={() => setBurnoutOnly(v => !v)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${burnoutOnly ? 'bg-red-500' : 'bg-gray-200'}`}
-          >
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${burnoutOnly ? 'translate-x-6' : 'translate-x-1'}`} />
-          </button>
-        </label>
+        {activeTab === 'workload' && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <span className="text-sm font-medium text-gray-600">High workload only</span>
+            <button
+              type="button"
+              onClick={() => setBurnoutOnly(v => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${burnoutOnly ? 'bg-red-500' : 'bg-gray-200'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${burnoutOnly ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </label>
+        )}
       </div>
 
+      <div className="flex gap-1 mb-6 border-b border-gray-100">
+        <button
+          type="button"
+          onClick={() => setActiveTab('workload')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${activeTab === 'workload' ? 'border-[#C9A84C] text-[#0B1F3A]' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+        >
+          Workload &amp; Burnout
+        </button>
+        {isSuperAdmin && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('performance_management')}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${activeTab === 'performance_management' ? 'border-[#C9A84C] text-[#0B1F3A]' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
+          >
+            Performance Management
+          </button>
+        )}
+      </div>
+
+      {activeTab === 'performance_management' && isSuperAdmin ? (
+        <PerformanceManagementTab />
+      ) : (
+      <>
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-sm font-semibold text-[#0B1F3A] mb-4">Compute Period Metrics</h2>
         <form onSubmit={computePeriod} className="space-y-4">
@@ -196,6 +226,8 @@ export default function StaffPerformancePage() {
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   )
 }

@@ -602,6 +602,19 @@ model Staff {
   signatureTagline  String?                          // Optional override for the sub-name line in email signature. Falls back to roleTitle if unset.
   lastActiveAt      DateTime?                        // Updated (throttled, 2-min gap) on every authenticated admin request — used to determine offline status for inbound-message alerts.
 
+  // Performance Management (additive, all nullable/defaulted — every
+  // existing row is unaffected). hireDate is NOT backfilled anywhere; it
+  // is only ever set going forward by a Super Admin, and its absence
+  // (null) means "tenure unknown", never "recently hired". The exempt
+  // flag is a generic, human-entered override (leave / role change /
+  // data-quality issue / any other reason) — deliberately NOT modelled
+  // as leave-specific fields, since Walz has no leave-tracking system to
+  // draw from; see lib/performance/sales.ts for the full rationale.
+  hireDate                      DateTime? @map("hire_date")
+  performanceReviewExempt       Boolean   @default(false) @map("performance_review_exempt")
+  performanceReviewExemptReason String?   @map("performance_review_exempt_reason")
+  performanceReviewExemptUntil  DateTime? @map("performance_review_exempt_until")
+
   activityLogs     ActivityLog[]
   checkIns         CheckInRecord[]
   manager          Staff?              @relation("StaffManager", fields: [managerId], references: [id])
@@ -6813,4 +6826,181 @@ model TeamEmailNotificationPreference {
   staff              Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
   @@map("team_email_notification_preferences")
+}
+
+// ============================================================
+// STAFF PERFORMANCE MANAGEMENT (Warning Letters / PIP) — Super Admin only
+// ============================================================
+// AUTHORITATIVE "COMPLETED SALE" DEFINITION used throughout this feature:
+//   Booking.status = CONFIRMED AND Booking.paymentStatus = SUCCEEDED,
+//   attributed to Booking.createdByStaffId, dated by Booking.updatedAt
+//   (Booking has no confirmedAt/paidAt column — updatedAt is the closest
+//   proxy available and is documented as a known limitation). See
+//   lib/performance/sales.ts for the single query that implements this
+//   and the full rationale for rejecting Trip/Quote/Invoice/Lead/PaymentLink
+//   as the ground truth (no reliable staff attribution, or too early/late
+//   in the lifecycle to represent a completed sale).
+//
+// staffId fields below are plain strings with NO @relation to Staff,
+// matching the existing repo-wide convention (Booking.createdByStaffId,
+// Quote.createdBy, Invoice.staffId, etc.) — this keeps the change fully
+// additive and never touches the Staff model's existing relations.
+//
+// NO WARNING IS EVER GENERATED OR SENT AUTOMATICALLY. Every status
+// transition below is written only by an explicit Super Admin action in
+// the application layer — there is no cron/trigger that creates or
+// issues a StaffPerformanceDocument.
+
+model StaffPerformanceCase {
+  id      String @id @default(cuid())
+  staffId String @map("staff_id")
+
+  // OPEN | MONITORING | COACHING | PIP_ACTIVE | REVIEW_DUE | IMPROVED_CLOSED | EXTENDED | ESCALATED | CLOSED
+  status String @default("OPEN")
+
+  openedAt        DateTime @default(now()) @map("opened_at")
+  openedByStaffId String   @map("opened_by_staff_id")
+  openedByName    String   @map("opened_by_name")
+
+  reviewPeriodStart DateTime @map("review_period_start")
+  reviewPeriodEnd   DateTime @map("review_period_end")
+
+  // Evidence snapshot taken at the moment the case was opened — frozen so
+  // later sales activity can never quietly rewrite the historical record
+  // a management decision was actually based on.
+  daysSinceLastSaleAtOpen Int       @map("days_since_last_sale_at_open")
+  lastCompletedSaleAtOpen DateTime? @map("last_completed_sale_at_open")
+  salesInPeriodAtOpen     Int       @map("sales_in_period_at_open")
+
+  // System-suggested signal text only (e.g. "PERFORMANCE REVIEW
+  // RECOMMENDED") — informational, never an instruction, never auto-applied.
+  recommendedAction String? @map("recommended_action") @db.Text
+
+  // The human's actual decision — set only via an explicit Super Admin action:
+  // NO_ACTION | MONITOR | COACHING_REQUIRED | PIP_STARTED | FIRST_WARNING_ISSUED | FINAL_WARNING_ISSUED
+  managementAction String? @map("management_action")
+
+  notes                   String? @map("notes") @db.Text
+  mitigatingCircumstances String? @map("mitigating_circumstances") @db.Text
+
+  nextReviewDate DateTime? @map("next_review_date")
+
+  closedAt       DateTime? @map("closed_at")
+  closedByStaffId String?  @map("closed_by_staff_id")
+  closedByName    String?  @map("closed_by_name")
+  // IMPROVED_CLOSE | EXTEND_MONITORING | CONTINUE_PIP | FURTHER_MANAGEMENT_REVIEW
+  closureOutcome  String?  @map("closure_outcome")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  documents StaffPerformanceDocument[]
+  history   StaffPerformanceHistory[]
+
+  @@index([staffId])
+  @@index([status])
+  @@index([nextReviewDate])
+  @@map("staff_performance_cases")
+}
+
+model StaffPerformanceDocument {
+  id     String               @id @default(cuid())
+  caseId String               @map("case_id")
+  case   StaffPerformanceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  staffId String @map("staff_id")
+  version Int    @default(1)
+
+  // COACHING_NOTE | FIRST_WRITTEN_WARNING | FINAL_WARNING | PERFORMANCE_IMPROVEMENT_PLAN
+  warningType String @map("warning_type")
+
+  // DRAFT | APPROVED | ISSUED | ACKNOWLEDGED | SUPERSEDED
+  status String @default("DRAFT")
+
+  // ── Protected facts — pre-populated from authoritative records at
+  // generation time. Jade (lib/performance/jade.ts) receives these
+  // separately from free-form instructions and is contractually unable
+  // to change them; every write path that touches these columns requires
+  // the document to still be in DRAFT status. ──────────────────────────
+  employeeNameSnapshot  String   @map("employee_name_snapshot")
+  jobTitleSnapshot      String   @map("job_title_snapshot")
+  departmentSnapshot    String   @map("department_snapshot")
+  reviewPeriodStart     DateTime @map("review_period_start")
+  reviewPeriodEnd       DateTime @map("review_period_end")
+  salesInPeriod         Int      @map("sales_in_period")
+  lastSaleDate          DateTime? @map("last_sale_date")
+  warningHistorySummary String   @map("warning_history_summary") @db.Text
+
+  requiredImprovement String    @map("required_improvement") @db.Text
+  pipDurationDays     Int?      @map("pip_duration_days")
+  reviewDate          DateTime  @map("review_date")
+  additionalNotes     String?   @map("additional_notes") @db.Text
+
+  issuedByStaffId String? @map("issued_by_staff_id")
+  issuedByName    String? @map("issued_by_name")
+
+  // Editable while DRAFT. Never read once ISSUED (issuedContent below is
+  // the immutable source of truth for anything already sent).
+  draftContent String @map("draft_content") @db.Text
+
+  // Frozen at Approve & Issue — never changes again, regardless of any
+  // later edits to draftContent (a superseding document is issued
+  // separately instead; see StaffPerformanceHistory action=SUPERSEDED).
+  issuedContent     String? @map("issued_content") @db.Text
+  // sha256(issuedContent) — tamper-evidence only, not a secrecy mechanism.
+  issuedContentHash String? @map("issued_content_hash")
+
+  deliveredAt DateTime? @map("delivered_at")
+  openedAt    DateTime? @map("opened_at")
+
+  // Fixed wording captured at acknowledgement time — deliberately never
+  // "I agree with this warning". See lib/performance/acknowledgement.ts.
+  acknowledgedAt      DateTime? @map("acknowledged_at")
+  acknowledgementText String?   @map("acknowledgement_text") @db.Text
+
+  employeeResponse   String?   @map("employee_response") @db.Text
+  employeeResponseAt DateTime? @map("employee_response_at")
+
+  // Resend message id — support/troubleshooting only, never re-derives recipient.
+  emailMessageId String? @map("email_message_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  history StaffPerformanceHistory[]
+
+  @@index([caseId])
+  @@index([staffId])
+  @@index([status])
+  @@map("staff_performance_documents")
+}
+
+model StaffPerformanceHistory {
+  id     String               @id @default(cuid())
+  caseId String               @map("case_id")
+  case   StaffPerformanceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  documentId String?                   @map("document_id")
+  document   StaffPerformanceDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  actorStaffId String? @map("actor_staff_id")
+  actorName    String? @map("actor_name")
+
+  // DRAFTED | EDITED | JADE_ASSIST | NOTES_UPDATED | APPROVED | ISSUED |
+  // EMAIL_QUEUED | EMAIL_SENT | EMAIL_FAILED | OPENED | ACKNOWLEDGED |
+  // EMPLOYEE_RESPONSE | REMINDER_SENT | REVIEW_COMPLETED | CLOSED
+  action String
+
+  documentVersion Int?  @map("document_version")
+  // Small structured metadata only (e.g. { warningType, reviewDate }) —
+  // NEVER full document content, matching the ActivityLog convention
+  // elsewhere in this codebase of never logging sensitive body content.
+  metadata        Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([caseId])
+  @@index([documentId])
+  @@index([action])
+  @@map("staff_performance_history")
 }

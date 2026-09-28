@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import {
   UserPlus, RefreshCw, ShieldCheck, Eye, EyeOff, Pencil,
   Trash2, RotateCcw, CheckCircle, XCircle, X, Users, Activity,
-  Globe, ChevronDown, Clock, AlertTriangle,
+  Globe, ChevronDown, Clock, AlertTriangle, Gauge,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
@@ -671,6 +672,15 @@ export default function StaffPage() {
                       {/* Actions */}
                       <td className="px-4 py-4">
                         <div className="flex items-center justify-end gap-1">
+                          {callerRole === 'super_admin' && (
+                            <Link
+                              href={`/admin/intelligence/staff-performance/review/${member.id}`}
+                              className="p-1.5 text-gray-400 hover:text-[#0B1F3A] hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Performance → Review Performance"
+                            >
+                              <Gauge className="w-3.5 h-3.5" />
+                            </Link>
+                          )}
                           {can('staff_edit') && (
                             <button onClick={() => setEditing(member)}
                               className="p-1.5 text-gray-400 hover:text-[#0B1F3A] hover:bg-gray-100 rounded-lg transition-colors" title="Edit">
