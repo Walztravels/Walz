@@ -4433,6 +4433,7 @@ model JadeClubMembership {
 
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   physicalCard JadePhysicalCard?
+  terms        JadeClubMembershipTerms[]
 
   @@index([userId])
   @@index([tier])
@@ -4494,6 +4495,242 @@ model JadeClubBenefit {
   @@index([category])
   @@index([status])
   @@map("jade_club_benefits")
+}
+
+// ===========================
+// Jade Travel Club — Release 2A: Commercial Control & Entitlements
+//
+// Authoritative architecture (Finalization Addendum — implemented exactly,
+// not redesigned):
+//
+//   JadeClubCommercialPolicy -> JadeClubPolicyBenefit
+//   JadeClubMembership (unchanged) -> JadeClubMembershipTerms
+//       -> JadeClubMembershipBenefitSnapshot -> JadeClubEntitlementSlot
+//           -> JadeClubEntitlementEvent
+//   Plus: JadeClubServiceFeeDiscountApplication (built, zero live wiring)
+//
+// This layer is ADDITIVE. It never changes adminAdjustMembership()'s
+// existing behaviour and never mutates JadeClubMembership/JadePhysicalCard/
+// JadeClubBenefit rows itself (JadeClubBenefit is only ever READ, to copy a
+// benefitName at snapshot time). No paid checkout, auto-renew, family
+// pooling, Miles multipliers, or live eSIM/lounge/card redemption is wired
+// here — see lib/jade-club/service-fee-discount.ts's header for the one
+// deliberately-unwired exception (service fee discount).
+//
+// Same snake_case + @map/@@map + TEXT/CHECK convention as Phase 1 (see that
+// section's header above for why: widening a CHECK is a trivial idempotent
+// ALTER, unlike ALTER TYPE). Valid values are additionally enforced in
+// TypeScript via lib/jade-club/commercial-types.ts.
+// ===========================
+
+// Versioned policy envelope — UNIVERSAL tier terms only (no per-member
+// override lives here; that is what JadeClubMembershipTerms is for).
+// serviceFeeDiscountPercent is deliberately FIRST-CLASS on this model, not
+// folded into the generic JadeClubPolicyBenefit rows below — an explicit,
+// deliberated architecture decision from the Finalization Addendum. Do not
+// move it. No seed data ships with this model's migration — zero policy
+// rows are created until an admin explicitly authors one.
+model JadeClubCommercialPolicy {
+  id                       String    @id @default(cuid())
+  tier                     String                                    // CLUB | CLUB_PLUS (never FREE — Free has no commercial policy)
+  market                   String                                    // e.g. "NG", "GLOBAL" — free-text scope key, paired with tier+currency
+  currency                 String                                    // ISO 4217, e.g. "NGN", "USD"
+  annualPriceMinor         Int       @map("annual_price_minor")      // minor units of `currency`
+  durationMonths           Int       @default(12) @map("duration_months")
+  serviceFeeDiscountPercent Int      @map("service_fee_discount_percent")
+  effectiveFrom            DateTime  @map("effective_from")
+  effectiveTo              DateTime? @map("effective_to")
+  version                  Int
+  status                   String    @default("DRAFT")               // DRAFT | ACTIVE | SUPERSEDED
+  createdBy                String    @map("created_by")               // admin/staff id — server-derived, never client-supplied
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  benefits JadeClubPolicyBenefit[]
+  terms    JadeClubMembershipTerms[]  // traceability only — see that model's `policyId` comment
+
+  @@unique([tier, market, currency, version])
+  @@index([tier, market, currency])
+  @@index([status])
+  @@map("jade_club_commercial_policies")
+}
+
+// Generic typed benefit-grant rows per policy version. Exactly one of
+// countPerPeriod / costCapMinorUsd / booleanEligible is authoritative,
+// selected by entitlementType — no raw/untyped JSON for these financial
+// fields. Immutable once the parent policy is or ever was ACTIVE; enforced
+// in lib/jade-club/commercial-policy.ts (no route may UPDATE/DELETE a row
+// belonging to a non-DRAFT policy) — there is deliberately no DB trigger
+// for this, matching this repo's convention of enforcing business rules in
+// the application layer above hand-written SQL.
+model JadeClubPolicyBenefit {
+  id                String   @id @default(cuid())
+  policyId          String   @map("policy_id")
+  benefitKey        String   @map("benefit_key")             // matches JadeClubBenefit.key
+  entitlementType   String   @map("entitlement_type")        // COUNT_PER_PERIOD | COST_CAPPED | BOOLEAN_ELIGIBILITY
+  countPerPeriod    Int?     @map("count_per_period")
+  costCapMinorUsd   Int?     @map("cost_cap_minor_usd")
+  booleanEligible   Boolean? @map("boolean_eligible")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  policy JadeClubCommercialPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, benefitKey])
+  @@map("jade_club_policy_benefits")
+}
+
+// Immutable, COMPLETE commercial-contract snapshot, written ONCE at
+// activation and never updated after. All scalar fields below are COPIED
+// at that moment — never derived by joining back to the policy at read
+// time. `policyId` exists for traceability ONLY: no calculation function in
+// this feature may ever read JadeClubCommercialPolicy/JadeClubPolicyBenefit
+// through this FK (see lib/jade-club/service-fee-discount.ts and
+// lib/jade-club/entitlements.ts, which read ONLY this table and its
+// children). This is what makes a later policy version change, or a policy
+// supersession, powerless to affect an already-activated member's terms.
+model JadeClubMembershipTerms {
+  id                        String    @id @default(cuid())
+  membershipId              String    @map("membership_id")
+  policyId                  String    @map("policy_id")                 // traceability ONLY — never read for a calculation
+  policyVersion             Int       @map("policy_version")
+  tier                      String
+  market                    String
+  currency                  String
+  annualPriceMinor          Int       @map("annual_price_minor")
+  durationMonths            Int       @map("duration_months")
+  serviceFeeDiscountPercent Int       @map("service_fee_discount_percent")
+  activatedAt               DateTime  @map("activated_at")
+  expiresAt                 DateTime  @map("expires_at")
+  source                    String                                       // matches JadeClubMembership.source: DEFAULT | ADMIN_GRANT | PROMOTION | PURCHASE
+  createdAt                 DateTime  @default(now()) @map("created_at")
+
+  membership JadeClubMembership                @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  policy     JadeClubCommercialPolicy           @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  benefits   JadeClubMembershipBenefitSnapshot[]
+  slots      JadeClubEntitlementSlot[]
+  discountApplications JadeClubServiceFeeDiscountApplication[]
+
+  @@index([membershipId])
+  @@index([expiresAt])
+  @@map("jade_club_membership_terms")
+}
+
+// Immutable, one row per benefit granted at that activation. benefitKey is
+// a PLAIN COPY, not a live FK to JadeClubBenefit — a later catalog rename
+// never changes what an already-issued snapshot displays. benefitName is
+// likewise copied AT THAT MOMENT.
+model JadeClubMembershipBenefitSnapshot {
+  id                String   @id @default(cuid())
+  membershipTermsId String   @map("membership_terms_id")
+  benefitKey        String   @map("benefit_key")           // plain copy, NOT a live FK
+  benefitName       String   @map("benefit_name")          // copied from JadeClubBenefit.name at activation time
+  entitlementType   String   @map("entitlement_type")
+  countPerPeriod    Int?     @map("count_per_period")
+  costCapMinorUsd   Int?     @map("cost_cap_minor_usd")
+  booleanEligible   Boolean? @map("boolean_eligible")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  membershipTerms JadeClubMembershipTerms   @relation(fields: [membershipTermsId], references: [id], onDelete: Cascade)
+  slots           JadeClubEntitlementSlot[]
+
+  @@unique([membershipTermsId, benefitKey])
+  @@map("jade_club_membership_benefit_snapshots")
+}
+
+// Pre-issued mutable entitlement inventory — the concurrency-safety
+// mechanism. ALL N slots for a COUNT_PER_PERIOD benefit are pre-issued
+// together, in the SAME operation that creates the parent
+// JadeClubMembershipTerms/JadeClubMembershipBenefitSnapshot rows (see
+// lib/jade-club/entitlements.ts::activateMembershipTerms).
+// BOOLEAN_ELIGIBILITY benefits need no slots at all — eligibility is read
+// directly off the snapshot's booleanEligible field.
+//
+// The @@unique below is THE constraint that makes phantom entitlement
+// creation structurally impossible: reservation/consumption NEVER inserts
+// a row, it only CAS-transitions an already-issued one via
+// `updateMany({ where: { id, status: 'AVAILABLE' }, data: { status: 'RESERVED', ... } })`
+// and checks `.count === 1` — the exact pattern already established by
+// Staff Check-in V2's waive-deduction fix and Quote Builder's
+// recalculate-currency route (see lib/jade-club/entitlements.ts).
+//
+// State machine: AVAILABLE --reserve(CAS)--> RESERVED --consume(CAS)-->
+// CONSUMED [terminal]; RESERVED --release(TTL expiry)--> AVAILABLE;
+// CONSUMED --admin reversal(audited)--> REVERSED [terminal]. A REVERSED
+// slot never automatically returns to AVAILABLE — a replacement grant (if
+// ever authorized) always creates a NEW slot row via an explicit admin
+// action, never resurrects the old one.
+model JadeClubEntitlementSlot {
+  id                     String    @id @default(cuid())
+  membershipTermsId      String    @map("membership_terms_id")
+  benefitSnapshotId      String    @map("benefit_snapshot_id")
+  periodKey              String    @map("period_key")                 // e.g. "Y1" — supports a future multi-period grant; 2A only ever issues one period per activation
+  slotNumber             Int       @map("slot_number")                // 1..countPerPeriod
+  status                 String    @default("AVAILABLE")              // AVAILABLE | RESERVED | CONSUMED | REVERSED
+  reservedAt             DateTime? @map("reserved_at")
+  reservedBy             String?   @map("reserved_by")                // caller-supplied reservation/correlation token — internal only, NOT a provider idempotency key (see lib/jade-club/entitlements.ts header)
+  reservationExpiresAt   DateTime? @map("reservation_expires_at")
+  consumedAt             DateTime? @map("consumed_at")
+  linkedProviderReference String?  @map("linked_provider_reference")  // generic, nullable — for a FUTURE provider order id of any COUNT_PER_PERIOD benefit; unused in 2A, no provider is ever called from this feature
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  membershipTerms JadeClubMembershipTerms           @relation(fields: [membershipTermsId], references: [id], onDelete: Cascade)
+  benefitSnapshot JadeClubMembershipBenefitSnapshot @relation(fields: [benefitSnapshotId], references: [id], onDelete: Cascade)
+  events          JadeClubEntitlementEvent[]
+
+  @@unique([membershipTermsId, benefitSnapshotId, periodKey, slotNumber])
+  @@index([membershipTermsId, benefitSnapshotId, periodKey, status])
+  @@index([status, reservationExpiresAt])
+  @@map("jade_club_entitlement_slots")
+}
+
+// TRUE append-only audit trail — never updated or deleted. Every
+// slot-status transition (including the initial pre-issuance) writes
+// exactly one corresponding event, in the same `prisma.$transaction` as
+// the slot mutation it documents. `metadata` is Json — acceptable here
+// ONLY because this is a pure audit record carrying no financial amount of
+// its own (all financial fields live as typed columns upstream).
+model JadeClubEntitlementEvent {
+  id            String   @id @default(cuid())
+  slotId        String   @map("slot_id")
+  eventType     String   @map("event_type")   // ISSUED | RESERVED | RESERVATION_RELEASED | CONSUMED | REVERSED
+  actorUserId   String?  @map("actor_user_id")
+  actorStaffId  String?  @map("actor_staff_id")
+  detail        String?  @db.Text
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  slot JadeClubEntitlementSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+
+  @@index([slotId])
+  @@index([eventType])
+  @@map("jade_club_entitlement_events")
+}
+
+// Snapshot/audit structure for a discount actually applied to a real
+// service fee elsewhere in the app. Built with ZERO live wiring in 2A — no
+// Quote/Booking/Visa/Flight/Hotel pricing route creates one of these rows
+// yet (see lib/jade-club/service-fee-discount.ts's header). entityType/
+// entityId are a generic pointer (e.g. "Quote/quote_123") to whatever
+// future call site eventually applies a discount, so this table needs no
+// redesign when that wiring lands.
+model JadeClubServiceFeeDiscountApplication {
+  id                    String   @id @default(cuid())
+  membershipTermsId     String   @map("membership_terms_id")
+  entityType            String   @map("entity_type")
+  entityId              String   @map("entity_id")
+  baseServiceFeeMinor   Int      @map("base_service_fee_minor")
+  discountPercent       Int      @map("discount_percent")
+  discountAmountMinor   Int      @map("discount_amount_minor")
+  finalServiceFeeMinor  Int      @map("final_service_fee_minor")
+  appliedAt             DateTime @default(now()) @map("applied_at")
+  appliedBy             String   @map("applied_by")
+
+  membershipTerms JadeClubMembershipTerms @relation(fields: [membershipTermsId], references: [id], onDelete: Restrict)
+
+  @@index([membershipTermsId])
+  @@index([entityType, entityId])
+  @@map("jade_club_service_fee_discount_applications")
 }
 
 // ===========================

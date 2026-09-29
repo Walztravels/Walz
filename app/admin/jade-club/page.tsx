@@ -9,8 +9,8 @@
 // return. A staff member without 'jade_club' sees a plain "no permission"
 // message (the nav item is already hidden for them via getNavForStaff).
 
-import { useEffect, useState, useCallback } from 'react'
-import { Sparkles, Users, CreditCard, Package } from 'lucide-react'
+import { Fragment, useEffect, useState, useCallback } from 'react'
+import { Sparkles, Users, CreditCard, Package, ShieldCheck, Search } from 'lucide-react'
 
 interface Overview {
   jadeFreeCount: number
@@ -61,6 +61,78 @@ const TIERS = ['FREE', 'CLUB', 'CLUB_PLUS']
 const STATUSES = ['FREE', 'ACTIVE', 'EXPIRING', 'EXPIRED', 'CANCELLED']
 const BENEFIT_STATUSES = ['ACTIVE', 'INACTIVE', 'COMING_SOON']
 
+// ── Release 2A: Commercial Control & Entitlements ─────────────────────────
+const COMMERCIAL_TIERS = ['CLUB', 'CLUB_PLUS']
+const ENTITLEMENT_TYPES = ['COUNT_PER_PERIOD', 'COST_CAPPED', 'BOOLEAN_ELIGIBILITY']
+
+interface PolicyRow {
+  id: string
+  tier: string
+  market: string
+  currency: string
+  annualPriceMinor: number
+  durationMonths: number
+  serviceFeeDiscountPercent: number
+  effectiveFrom: string
+  effectiveTo: string | null
+  version: number
+  status: string
+}
+
+interface PolicyBenefitRow {
+  id: string
+  policyId: string
+  benefitKey: string
+  entitlementType: string
+  countPerPeriod: number | null
+  costCapMinorUsd: number | null
+  booleanEligible: boolean | null
+}
+
+interface EntitlementEventRow {
+  id: string
+  eventType: string
+  actorStaffId: string | null
+  actorUserId: string | null
+  detail: string | null
+  createdAt: string
+}
+
+interface EntitlementSlotRow {
+  id: string
+  slotNumber: number
+  status: string
+  reservedBy: string | null
+  reservationExpiresAt: string | null
+  consumedAt: string | null
+  events: EntitlementEventRow[]
+}
+
+interface BenefitSnapshotRow {
+  id: string
+  benefitKey: string
+  benefitName: string
+  entitlementType: string
+  countPerPeriod: number | null
+  costCapMinorUsd: number | null
+  booleanEligible: boolean | null
+  slots: EntitlementSlotRow[]
+}
+
+interface MembershipTermsRow {
+  id: string
+  tier: string
+  market: string
+  currency: string
+  annualPriceMinor: number
+  serviceFeeDiscountPercent: number
+  activatedAt: string
+  expiresAt: string
+  source: string
+  policyVersion: number
+  benefits: BenefitSnapshotRow[]
+}
+
 export default function JadeClubAdminPage() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [memberships, setMemberships] = useState<MembershipRow[]>([])
@@ -69,6 +141,164 @@ export default function JadeClubAdminPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [savingKey, setSavingKey] = useState<string | null>(null)
+
+  // ── Release 2A: Commercial Control & Entitlements state ──────────────
+  const [policies, setPolicies] = useState<PolicyRow[]>([])
+  const [policiesLoading, setPoliciesLoading] = useState(true)
+  const [expandedPolicyId, setExpandedPolicyId] = useState<string | null>(null)
+  const [policyBenefits, setPolicyBenefits] = useState<PolicyBenefitRow[]>([])
+  const [auditUserId, setAuditUserId] = useState('')
+  const [auditTerms, setAuditTerms] = useState<MembershipTermsRow[] | null>(null)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+
+  const loadPolicies = useCallback(async () => {
+    setPoliciesLoading(true)
+    try {
+      const res = await fetch('/api/admin/jade-club/policies')
+      if (res.ok) {
+        const data = await res.json()
+        setPolicies(data.policies)
+      }
+    } finally {
+      setPoliciesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadPolicies() }, [loadPolicies])
+
+  async function loadPolicyBenefits(policyId: string) {
+    if (expandedPolicyId === policyId) {
+      setExpandedPolicyId(null)
+      setPolicyBenefits([])
+      return
+    }
+    const res = await fetch(`/api/admin/jade-club/policies/${policyId}`)
+    if (res.ok) {
+      const data = await res.json()
+      setPolicyBenefits(data.benefits)
+      setExpandedPolicyId(policyId)
+    }
+  }
+
+  async function createDraftPolicy(form: {
+    tier: string; market: string; currency: string; annualPriceMinor: string
+    durationMonths: string; serviceFeeDiscountPercent: string; effectiveFrom: string
+  }) {
+    const reason = prompt('Reason for creating this policy draft (required, kept in the audit log):')
+    if (!reason || !reason.trim()) return
+    const res = await fetch('/api/admin/jade-club/policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tier: form.tier,
+        market: form.market,
+        currency: form.currency,
+        annualPriceMinor: Number(form.annualPriceMinor),
+        durationMonths: Number(form.durationMonths) || 12,
+        serviceFeeDiscountPercent: Number(form.serviceFeeDiscountPercent),
+        effectiveFrom: new Date(form.effectiveFrom).toISOString(),
+        reason,
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      alert(body.error ?? 'Failed to create policy draft')
+      return
+    }
+    await loadPolicies()
+  }
+
+  async function activatePolicyVersion(policyId: string) {
+    const reason = prompt('Reason for activating this policy version (required — this will supersede the current ACTIVE policy for the same tier/market/currency):')
+    if (!reason || !reason.trim()) return
+    const res = await fetch(`/api/admin/jade-club/policies/${policyId}/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      alert(body.error ?? 'Failed to activate policy')
+      return
+    }
+    await loadPolicies()
+  }
+
+  async function addBenefitToPolicy(policyId: string, form: {
+    benefitKey: string; entitlementType: string; countPerPeriod: string; costCapMinorUsd: string; booleanEligible: boolean
+  }) {
+    const reason = prompt('Reason for adding this benefit to the draft policy (required):')
+    if (!reason || !reason.trim()) return
+    const payload: Record<string, unknown> = { benefitKey: form.benefitKey, entitlementType: form.entitlementType, reason }
+    if (form.entitlementType === 'COUNT_PER_PERIOD') payload.countPerPeriod = Number(form.countPerPeriod)
+    if (form.entitlementType === 'COST_CAPPED') payload.costCapMinorUsd = Number(form.costCapMinorUsd)
+    if (form.entitlementType === 'BOOLEAN_ELIGIBILITY') payload.booleanEligible = form.booleanEligible
+    const res = await fetch(`/api/admin/jade-club/policies/${policyId}/benefits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      alert(body.error ?? 'Failed to add benefit')
+      return
+    }
+    await loadPolicyBenefits(policyId).catch(() => {})
+    // re-open the panel with fresh data
+    setExpandedPolicyId(null)
+    await loadPolicyBenefits(policyId)
+  }
+
+  async function loadMemberAudit() {
+    if (!auditUserId.trim()) return
+    setAuditLoading(true)
+    setAuditError(null)
+    setAuditTerms(null)
+    try {
+      const res = await fetch(`/api/admin/jade-club/memberships/${encodeURIComponent(auditUserId.trim())}/terms`)
+      if (res.status === 403) { setAuditError('You do not have permission to view this.'); return }
+      if (!res.ok) { setAuditError('Failed to load member terms/entitlements.'); return }
+      const data = await res.json()
+      setAuditTerms(data.terms)
+    } catch {
+      setAuditError('Failed to load member terms/entitlements.')
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
+  async function reverseSlot(slotId: string) {
+    const reason = prompt('Reason for reversing this CONSUMED entitlement slot (required, audited, terminal):')
+    if (!reason || !reason.trim()) return
+    const res = await fetch(`/api/admin/jade-club/entitlement-slots/${slotId}/reverse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      alert(body.error ?? 'Failed to reverse slot')
+      return
+    }
+    await loadMemberAudit()
+  }
+
+  async function replaceSlot(snapshotId: string) {
+    const reason = prompt('Reason for granting a replacement entitlement slot (required — creates a brand-new slot, never resurrects a reversed one):')
+    if (!reason || !reason.trim()) return
+    const res = await fetch(`/api/admin/jade-club/benefit-snapshots/${snapshotId}/replace-slot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      alert(body.error ?? 'Failed to grant replacement slot')
+      return
+    }
+    await loadMemberAudit()
+  }
 
   const load = useCallback(async (q: string) => {
     setLoading(true)
@@ -260,6 +490,255 @@ export default function JadeClubAdminPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Release 2A: Commercial Policies ──────────── */}
+      <div className="bg-[#0f1c33] rounded-xl border border-white/8 overflow-hidden">
+        <div className="p-4 border-b border-white/8 flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-[#C9A84C]" />
+          <h2 className="text-white font-semibold text-sm flex-1">Commercial Policies</h2>
+        </div>
+        <div className="p-4 border-b border-white/8">
+          <NewPolicyForm onCreate={createDraftPolicy} />
+        </div>
+        {policiesLoading ? (
+          <div className="p-4 text-white/40 text-sm">Loading policies…</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-white/40 text-xs uppercase">
+                <th className="text-left px-4 py-2">Tier</th>
+                <th className="text-left px-4 py-2">Market</th>
+                <th className="text-left px-4 py-2">Currency</th>
+                <th className="text-left px-4 py-2">Annual Price (minor)</th>
+                <th className="text-left px-4 py-2">Fee Discount %</th>
+                <th className="text-left px-4 py-2">Version</th>
+                <th className="text-left px-4 py-2">Status</th>
+                <th className="text-left px-4 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {policies.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-6 text-white/30 text-center">No commercial policies have been authored yet.</td></tr>
+              )}
+              {policies.map(p => (
+                <Fragment key={p.id}>
+                  <tr className="border-t border-white/5">
+                    <td className="px-4 py-2 text-white">{p.tier}</td>
+                    <td className="px-4 py-2 text-white/60">{p.market}</td>
+                    <td className="px-4 py-2 text-white/60">{p.currency}</td>
+                    <td className="px-4 py-2 text-white/60">{p.annualPriceMinor.toLocaleString()}</td>
+                    <td className="px-4 py-2 text-white/60">{p.serviceFeeDiscountPercent}%</td>
+                    <td className="px-4 py-2 text-white/60">v{p.version}</td>
+                    <td className="px-4 py-2">
+                      <span className={
+                        p.status === 'ACTIVE' ? 'text-emerald-400' : p.status === 'DRAFT' ? 'text-amber-300' : 'text-white/30'
+                      }>{p.status}</span>
+                    </td>
+                    <td className="px-4 py-2 flex items-center gap-2">
+                      <button onClick={() => loadPolicyBenefits(p.id)} className="text-xs font-semibold text-[#C9A84C]">
+                        {expandedPolicyId === p.id ? 'Hide Benefits' : 'Benefits'}
+                      </button>
+                      {p.status === 'DRAFT' && (
+                        <button onClick={() => activatePolicyVersion(p.id)} className="text-xs font-semibold text-emerald-400">Activate</button>
+                      )}
+                    </td>
+                  </tr>
+                  {expandedPolicyId === p.id && (
+                    <tr className="border-t border-white/5 bg-white/[0.02]">
+                      <td colSpan={8} className="px-4 py-3">
+                        <PolicyBenefitsPanel
+                          policyId={p.id}
+                          benefits={policyBenefits}
+                          editable={p.status === 'DRAFT'}
+                          onAdd={(form) => addBenefitToPolicy(p.id, form)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <p className="text-white/30 text-xs p-4 border-t border-white/8">
+          No hardcoded Club/Club+ price or discount value is used anywhere — every number above was authored here by an admin.
+        </p>
+      </div>
+
+      {/* ── Release 2A: Member Terms / Entitlements audit (read-only) ── */}
+      <div className="bg-[#0f1c33] rounded-xl border border-white/8 overflow-hidden">
+        <div className="p-4 border-b border-white/8 flex items-center gap-3">
+          <Search className="w-4 h-4 text-[#C9A84C]" />
+          <h2 className="text-white font-semibold text-sm flex-1">Member Terms &amp; Entitlements (Support / Audit)</h2>
+          <input
+            value={auditUserId}
+            onChange={e => setAuditUserId(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') loadMemberAudit() }}
+            placeholder="Paste a User ID…"
+            className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-white/30 w-64"
+          />
+          <button onClick={loadMemberAudit} className="text-xs font-semibold text-[#C9A84C]">Look up</button>
+        </div>
+        <div className="p-4">
+          {auditLoading && <p className="text-white/40 text-sm">Loading…</p>}
+          {auditError && <p className="text-red-400 text-sm">{auditError}</p>}
+          {auditTerms && auditTerms.length === 0 && <p className="text-white/30 text-sm">No commercial terms have ever been activated for this member.</p>}
+          {auditTerms && auditTerms.map(t => (
+            <div key={t.id} className="mb-4 border border-white/8 rounded-lg p-3">
+              <p className="text-white text-sm font-semibold">{t.tier} · {t.market}/{t.currency} · policy v{t.policyVersion}</p>
+              <p className="text-white/40 text-xs mb-2">
+                Activated {new Date(t.activatedAt).toLocaleDateString()} · Expires {new Date(t.expiresAt).toLocaleDateString()} · Fee discount {t.serviceFeeDiscountPercent}% · Source {t.source}
+              </p>
+              {t.benefits.map(b => (
+                <div key={b.id} className="ml-2 mb-2">
+                  <p className="text-white/70 text-xs font-semibold">{b.benefitName} ({b.entitlementType})</p>
+                  {b.entitlementType === 'COUNT_PER_PERIOD' && (
+                    <table className="w-full text-xs mt-1">
+                      <thead>
+                        <tr className="text-white/30 uppercase"><th className="text-left py-1">Slot</th><th className="text-left py-1">Status</th><th className="text-left py-1">Reserved By</th><th className="text-left py-1">Consumed</th><th className="text-left py-1">Events</th><th className="text-left py-1">Actions</th></tr>
+                      </thead>
+                      <tbody>
+                        {b.slots.map(s => (
+                          <tr key={s.id} className="border-t border-white/5">
+                            <td className="py-1 text-white/60">#{s.slotNumber}</td>
+                            <td className="py-1 text-white/60">{s.status}</td>
+                            <td className="py-1 text-white/40 font-mono">{s.reservedBy ?? '—'}</td>
+                            <td className="py-1 text-white/40">{s.consumedAt ? new Date(s.consumedAt).toLocaleString() : '—'}</td>
+                            <td className="py-1 text-white/30">{s.events.map(e => e.eventType).join(' → ')}</td>
+                            <td className="py-1 flex gap-2">
+                              {s.status === 'CONSUMED' && <button onClick={() => reverseSlot(s.id)} className="text-red-400 font-semibold">Reverse</button>}
+                              {s.status === 'REVERSED' && <button onClick={() => replaceSlot(b.id)} className="text-[#C9A84C] font-semibold">Grant Replacement</button>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {b.entitlementType === 'BOOLEAN_ELIGIBILITY' && (
+                    <p className="text-white/40 text-xs">Eligible: {b.booleanEligible ? 'Yes' : 'No'}</p>
+                  )}
+                  {b.entitlementType === 'COST_CAPPED' && (
+                    <p className="text-white/40 text-xs">Cost cap: {b.costCapMinorUsd ?? '—'} (minor USD)</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NewPolicyForm({ onCreate }: {
+  onCreate: (form: { tier: string; market: string; currency: string; annualPriceMinor: string; durationMonths: string; serviceFeeDiscountPercent: string; effectiveFrom: string }) => void
+}) {
+  const [tier, setTier] = useState(COMMERCIAL_TIERS[0])
+  const [market, setMarket] = useState('')
+  const [currency, setCurrency] = useState('')
+  const [annualPriceMinor, setAnnualPriceMinor] = useState('')
+  const [durationMonths, setDurationMonths] = useState('12')
+  const [serviceFeeDiscountPercent, setServiceFeeDiscountPercent] = useState('')
+  const [effectiveFrom, setEffectiveFrom] = useState('')
+
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      <Field label="Tier">
+        <select value={tier} onChange={e => setTier(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white">
+          {COMMERCIAL_TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </Field>
+      <Field label="Market"><input value={market} onChange={e => setMarket(e.target.value)} placeholder="e.g. NG" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
+      <Field label="Currency"><input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} placeholder="e.g. NGN" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
+      <Field label="Annual Price (minor)"><input value={annualPriceMinor} onChange={e => setAnnualPriceMinor(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-28" /></Field>
+      <Field label="Duration (months)"><input value={durationMonths} onChange={e => setDurationMonths(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
+      <Field label="Fee Discount %"><input value={serviceFeeDiscountPercent} onChange={e => setServiceFeeDiscountPercent(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
+      <Field label="Effective From"><input value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} type="date" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white" /></Field>
+      <button
+        disabled={!market || !currency || !annualPriceMinor || !serviceFeeDiscountPercent || !effectiveFrom}
+        onClick={() => onCreate({ tier, market, currency, annualPriceMinor, durationMonths, serviceFeeDiscountPercent, effectiveFrom })}
+        className="text-xs font-semibold text-[#C9A84C] disabled:opacity-40 border border-[#C9A84C]/40 rounded-lg px-3 py-1.5"
+      >
+        Create Draft
+      </button>
+    </div>
+  )
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] text-white/30 uppercase">{label}</span>
+      {children}
+    </label>
+  )
+}
+
+function PolicyBenefitsPanel({ policyId, benefits, editable, onAdd }: {
+  policyId: string
+  benefits: PolicyBenefitRow[]
+  editable: boolean
+  onAdd: (form: { benefitKey: string; entitlementType: string; countPerPeriod: string; costCapMinorUsd: string; booleanEligible: boolean }) => void
+}) {
+  const [benefitKey, setBenefitKey] = useState('')
+  const [entitlementType, setEntitlementType] = useState(ENTITLEMENT_TYPES[0])
+  const [countPerPeriod, setCountPerPeriod] = useState('')
+  const [costCapMinorUsd, setCostCapMinorUsd] = useState('')
+  const [booleanEligible, setBooleanEligible] = useState(true)
+
+  return (
+    <div>
+      <table className="w-full text-xs mb-3">
+        <thead>
+          <tr className="text-white/30 uppercase"><th className="text-left py-1">Benefit Key</th><th className="text-left py-1">Type</th><th className="text-left py-1">Value</th></tr>
+        </thead>
+        <tbody>
+          {benefits.length === 0 && <tr><td colSpan={3} className="py-2 text-white/30">No benefit rows configured for this policy version yet.</td></tr>}
+          {benefits.map(b => (
+            <tr key={b.id} className="border-t border-white/5">
+              <td className="py-1 text-white/70">{b.benefitKey}</td>
+              <td className="py-1 text-white/50">{b.entitlementType}</td>
+              <td className="py-1 text-white/50">
+                {b.entitlementType === 'COUNT_PER_PERIOD' && `${b.countPerPeriod}× per period`}
+                {b.entitlementType === 'COST_CAPPED' && `${b.costCapMinorUsd} minor USD cap`}
+                {b.entitlementType === 'BOOLEAN_ELIGIBILITY' && (b.booleanEligible ? 'Eligible' : 'Not eligible')}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {editable ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <Field label="Benefit Key"><input value={benefitKey} onChange={e => setBenefitKey(e.target.value)} placeholder="e.g. jade-connect" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-40" /></Field>
+          <Field label="Entitlement Type">
+            <select value={entitlementType} onChange={e => setEntitlementType(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white">
+              {ENTITLEMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          {entitlementType === 'COUNT_PER_PERIOD' && (
+            <Field label="Count / Period"><input value={countPerPeriod} onChange={e => setCountPerPeriod(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
+          )}
+          {entitlementType === 'COST_CAPPED' && (
+            <Field label="Cost Cap (minor USD)"><input value={costCapMinorUsd} onChange={e => setCostCapMinorUsd(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-28" /></Field>
+          )}
+          {entitlementType === 'BOOLEAN_ELIGIBILITY' && (
+            <Field label="Eligible">
+              <select value={booleanEligible ? 'yes' : 'no'} onChange={e => setBooleanEligible(e.target.value === 'yes')} className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white">
+                <option value="yes">Yes</option><option value="no">No</option>
+              </select>
+            </Field>
+          )}
+          <button
+            disabled={!benefitKey}
+            onClick={() => onAdd({ benefitKey, entitlementType, countPerPeriod, costCapMinorUsd, booleanEligible })}
+            className="text-xs font-semibold text-[#C9A84C] disabled:opacity-40 border border-[#C9A84C]/40 rounded-lg px-3 py-1.5"
+          >
+            Add Benefit
+          </button>
+        </div>
+      ) : (
+        <p className="text-white/30 text-xs">This policy is {policyId ? 'no longer DRAFT' : ''} — benefit rows are immutable once ACTIVE.</p>
+      )}
     </div>
   )
 }
