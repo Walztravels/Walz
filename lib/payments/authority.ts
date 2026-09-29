@@ -91,8 +91,8 @@ export interface FlightIntentInput {
   // lower it below the Duffel fare.
   seatsTotal?:    number
   extrasTotal?:   number
-  // Requested miles discount — honoured only up to the server-side
-  // WalzRewardsMembership balance for the authenticated email (100 mi = £1).
+  // Requested miles discount — FROZEN (see createFlightPaymentIntent):
+  // always ignored server-side regardless of what's sent here.
   discountGBP?:   number
   clientEmail?:   string | null
   clientName?:    string | null
@@ -118,20 +118,26 @@ export async function createFlightPaymentIntent(input: FlightIntentInput): Promi
   const seats  = Math.min(Math.max(Number(input.seatsTotal)  || 0, 0), fareTotal)
   const extras = Math.min(Math.max(Number(input.extrasTotal) || 0, 0), fareTotal)
 
-  // 3. Miles discount — only what the server-side balance supports.
-  let discount = 0
+  // 3. Miles discount against airfare — FROZEN (see FROZEN note below).
+  //
+  // FROZEN: Walz Miles redemption against flights is permanently out of
+  // policy (My Walz Phase 1 mission, "FLIGHTS WILL NOT BE REDEEMABLE WITH
+  // WALZ MILES") AND this exact code path had a live financial leak
+  // independent of that policy question: it checked the customer's
+  // milesBalance only as a ceiling on the discount, applied that discount
+  // to the real charge below, and never decremented the balance anywhere
+  // in the codebase — so the same balance could back an unlimited number
+  // of discounted flight purchases. Frozen server-side (not just hidden in
+  // the UI) so a direct API call can never bypass this — any requested
+  // discount is now unconditionally clamped to 0, regardless of balance.
+  // Do not re-enable without both (a) an explicit product decision to
+  // permit flight redemption, reversing the stated policy above, and
+  // (b) fixing the missing balance-decrement, with a real ledger entry
+  // and idempotency guard, before any discount is ever applied again.
+  const discount = 0
   const requested = Math.max(Number(input.discountGBP) || 0, 0)
-  if (requested > 0 && input.clientEmail) {
-    const user = await prisma.user.findUnique({
-      where:  { email: input.clientEmail.toLowerCase() },
-      select: { walzRewards: { select: { milesBalance: true } } },
-    }).catch(() => null)
-    const balance     = user?.walzRewards?.milesBalance ?? 0
-    const maxDiscount = Math.floor(balance / 100)
-    discount = Math.min(requested, maxDiscount)
-  }
-  if (discount < requested) {
-    console.warn(`[pay-authority] flight discount clamped ${requested}→${discount} (offer ${input.offerId})`)
+  if (requested > 0) {
+    console.warn(`[pay-authority] flight Miles discount requested but frozen — clamped ${requested}→0 (offer ${input.offerId})`)
   }
 
   const fareChargeTotal = Math.max(fareTotal + seats + extras - discount, 0.5)

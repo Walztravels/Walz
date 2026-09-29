@@ -9,11 +9,9 @@ import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
 import type { FlightSegment } from '@/lib/flights/types'
 
 const STEPS = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
-const MILES_OPTIONS = [
-  { miles: 5000,  discount: 50  },
-  { miles: 10000, discount: 100 },
-  { miles: 20000, discount: 200 },
-]
+// MILES_OPTIONS (the old 5,000/10,000/20,000-miles-for-£50/£100/£200 redeem
+// picker) removed along with the redemption UI below — see the frozen-path
+// comment in lib/payments/authority.ts for why.
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 function SectionHead({ icon, title, sub }: { icon: string; title: string; sub?: string }) {
@@ -182,7 +180,7 @@ export default function ReviewPage() {
   const router = useRouter()
   const store  = useFlightStore()
   const { selected, passengers, extras, seats, loyalty,
-    milesRedeemed, discountGBP, setMilesRedeemed, setStep, seatsTotal, extrasTotal } = store
+    discountGBP, setStep, seatsTotal, extrasTotal } = store
 
   const [agreedTc, setAgreedTc] = useState(false)
   const fp = useFlightPrice()
@@ -190,12 +188,11 @@ export default function ReviewPage() {
   const airfare   = selected?.price.total ?? 0
   const seatCost  = seatsTotal()
   const extraCost = extrasTotal()
+  // discountGBP can no longer be set from this page (the redeem picker was
+  // removed) and is separately clamped to 0 server-side regardless — kept
+  // in the calc as a harmless no-op rather than stripped from the store
+  // type, in case a stale in-flight session still has a non-zero value.
   const grand     = Math.max(0, airfare + seatCost + extraCost - discountGBP)
-
-  function handleMilesRedeem(miles: number, discount: number) {
-    if (milesRedeemed === miles) setMilesRedeemed(0, 0)
-    else setMilesRedeemed(miles, discount)
-  }
 
   function handleProceed() {
     if (!agreedTc) return
@@ -433,32 +430,23 @@ export default function ReviewPage() {
               </div>
             )}
 
-            {/* Section: Jade Miles redemption */}
-            {loyalty && !loyalty.isGuest && loyalty.miles >= 5000 && (
+            {/* Section: Walz Miles — redemption frozen (see lib/payments/authority.ts
+                for the full reason: policy + a real balance-decrement bug).
+                Shown as an informational "coming soon" message, per the
+                approved wording — never a stated monetary/exchange value —
+                rather than removed outright, so returning customers don't
+                see a silently vanished feature with no explanation. No
+                interactive control remains that could set discountGBP. */}
+            {loyalty && !loyalty.isGuest && loyalty.miles > 0 && (
               <div className="bg-white rounded-2xl border border-black/5 overflow-hidden">
                 <div className="bg-gradient-to-r from-[#C9A84C]/10 to-transparent border-b border-[#C9A84C]/10 px-5 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-[#C9A84C]/20 flex items-center justify-center flex-shrink-0">
                     <span className="text-sm">⭐</span>
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-[#8B6914]">Redeem Jade Miles</p>
-                    <p className="text-[10px] text-[#0B1F3A]/40">{loyalty.miles.toLocaleString()} miles available · 100 miles = £1</p>
+                    <p className="text-sm font-bold text-[#8B6914]">Walz Miles</p>
+                    <p className="text-[10px] text-[#0B1F3A]/40">{loyalty.miles.toLocaleString()} miles · Redemption benefits are coming soon</p>
                   </div>
-                </div>
-                <div className="p-4 grid sm:grid-cols-3 gap-2">
-                  {MILES_OPTIONS.filter(o => o.miles <= loyalty.miles).map(opt => (
-                    <label key={opt.miles}
-                      className={`flex flex-col gap-1 cursor-pointer p-4 rounded-xl border transition-all ${milesRedeemed === opt.miles ? 'border-[#C9A84C] bg-[#C9A84C]/5 shadow-sm shadow-[#C9A84C]/10' : 'border-black/5 hover:border-[#C9A84C]/30'}`}>
-                      <div className="flex items-center gap-2">
-                        <input type="radio" name="miles" checked={milesRedeemed === opt.miles}
-                          onChange={() => handleMilesRedeem(opt.miles, opt.discount)}
-                          className="accent-[#C9A84C]" />
-                        <span className="text-sm font-bold text-[#0B1F3A]">{opt.miles.toLocaleString()} miles</span>
-                      </div>
-                      <span className="text-lg font-bold text-emerald-600 ml-5">-{fp(opt.discount)}</span>
-                      <span className="text-[10px] text-[#0B1F3A]/30 ml-5">off your total</span>
-                    </label>
-                  ))}
                 </div>
               </div>
             )}

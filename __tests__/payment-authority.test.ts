@@ -212,12 +212,47 @@ describe('Flutterwave server authority', () => {
     expect(step).toContain('tx_ref: txRef ?? bookingRef')
   })
 
-  it('flight intent floors at the Duffel fare; discount capped by the server miles balance', () => {
+  it('flight intent floors at the Duffel fare', () => {
     const src = read('lib/payments/authority.ts')
     expect(src).toContain("duffelGet<DuffelOfferLite>(`/air/offers/${input.offerId}`)")
-    expect(src).toContain('walzRewards')
-    expect(src).toContain('Math.min(requested, maxDiscount)')
     expect(src).toContain('Math.max(fareTotal + seats + extras - discount, 0.5)')
+  })
+
+  it('createFlightPaymentIntent: a requested discount is ignored end-to-end even when the customer genuinely has a large real Miles balance', async () => {
+    process.env.DUFFEL_ACCESS_TOKEN = 'test-token'
+    fetchHandler = url =>
+      url.includes('/air/offers/off_test1')
+        ? { ok: true, json: { data: { total_amount: '250.00', total_currency: 'GBP' } } }
+        : { ok: false, status: 404 }
+    mockDb.user.findUnique.mockResolvedValue({ walzRewards: { milesBalance: 1_000_000 } }) // would have capped a £10,000 discount under the old logic
+    mockDb.paymentLink.create.mockResolvedValue({})
+
+    const { createFlightPaymentIntent } = require('@/lib/payments/authority')
+    const result = await createFlightPaymentIntent({
+      offerId: 'off_test1', chargeCurrency: 'GBP', seatsTotal: 0, extrasTotal: 0,
+      discountGBP: 100, clientEmail: 'jane@walztravels.com', clientName: 'Jane',
+    })
+
+    expect(result.amount).toBe(250) // full fare — no discount subtracted
+    expect(result.currency).toBe('GBP')
+    // The balance is never even looked up any more for this decision.
+    expect(mockDb.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('Walz Miles discount against flight fares is FROZEN — never applied, server-side, regardless of any requested amount or the customer\'s real balance', () => {
+    // Found live in production, independent of the "flights should never be
+    // redeemable" product policy: the old discount path checked
+    // walzRewards.milesBalance only as a CEILING and never decremented it
+    // anywhere in the codebase — the same balance could back unlimited
+    // discounted flight purchases. Frozen server-side (not just hidden in
+    // the review-page UI) so no direct API call can bypass this. Do not
+    // reintroduce `walzRewards`/`milesBalance` reads into this discount
+    // path without also fixing that missing decrement.
+    const src = read('lib/payments/authority.ts')
+    expect(src).toContain('const discount = 0')
+    expect(src).not.toContain('walzRewards')
+    expect(src).not.toContain('.milesBalance') // field access — a plain-English mention in an explanatory comment is fine
+    expect(src).not.toContain('Math.min(requested, maxDiscount)')
   })
 
   it('paystack initialize replaces browser amounts with the intent snapshot and blocks bare product charges', () => {
