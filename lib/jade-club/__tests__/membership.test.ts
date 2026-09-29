@@ -164,6 +164,75 @@ describe('adminAdjustMembership — server-authoritative, audited, RBAC-gated', 
     const updateArgs = membershipUpdate.mock.calls[0][0]
     expect(updateArgs.data.source).not.toBe('PURCHASE')
   })
+
+  // Found by independent financial review: nothing previously stopped an
+  // admin from persisting an internally inconsistent record (ACTIVE with a
+  // past expiry, or EXPIRED with no expiry at all). No money/Miles are
+  // affected either way — this guards data/audit-trail correctness only.
+  describe('status/expiresAt consistency guard (data-integrity, not financial)', () => {
+    it('rejects ACTIVE with an expiresAt already in the past, without touching the database', async () => {
+      const admin = fakeAdmin('super_admin')
+      membershipFindUnique.mockResolvedValueOnce(fakeRow({ status: 'ACTIVE', expiresAt: new Date('2020-01-01') }))
+
+      await expect(
+        adminAdjustMembership(admin, 'user_1', { reason: 'no-op touch' }),
+      ).rejects.toThrow(/expiresAt in the past/i)
+      expect(membershipUpdate).not.toHaveBeenCalled()
+      expect(activityLogCreate).not.toHaveBeenCalled()
+    })
+
+    it('rejects setting status to EXPIRING when the (unchanged) expiresAt is already in the past', async () => {
+      const admin = fakeAdmin('super_admin')
+      membershipFindUnique.mockResolvedValueOnce(fakeRow({ status: 'ACTIVE', expiresAt: new Date('2020-01-01') }))
+
+      await expect(
+        adminAdjustMembership(admin, 'user_1', { status: 'EXPIRING', reason: 'flag as expiring' }),
+      ).rejects.toThrow(/expiresAt in the past/i)
+      expect(membershipUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects EXPIRED with no expiresAt set (neither before nor in this adjustment)', async () => {
+      const admin = fakeAdmin('super_admin')
+      membershipFindUnique.mockResolvedValueOnce(fakeRow({ status: 'ACTIVE', expiresAt: null }))
+
+      await expect(
+        adminAdjustMembership(admin, 'user_1', { status: 'EXPIRED', reason: 'expire it' }),
+      ).rejects.toThrow(/without an expiresAt/i)
+      expect(membershipUpdate).not.toHaveBeenCalled()
+    })
+
+    it('allows EXPIRED when this same adjustment also sets a past expiresAt', async () => {
+      const admin = fakeAdmin('super_admin')
+      const past = new Date('2025-01-01')
+      membershipFindUnique.mockResolvedValueOnce(fakeRow({ status: 'ACTIVE', expiresAt: null }))
+      membershipUpdate.mockResolvedValueOnce(fakeRow({ status: 'EXPIRED', expiresAt: past }))
+
+      const result = await adminAdjustMembership(admin, 'user_1', { status: 'EXPIRED', expiresAt: past, reason: 'lapsed' })
+      expect(result.status).toBe('EXPIRED')
+      expect(membershipUpdate).toHaveBeenCalledTimes(1)
+    })
+
+    it('allows ACTIVE with no expiresAt at all (an indefinite grant is a valid, consistent state)', async () => {
+      const admin = fakeAdmin('super_admin')
+      membershipFindUnique.mockResolvedValueOnce(fakeRow({ status: 'FREE', expiresAt: null }))
+      membershipUpdate.mockResolvedValueOnce(fakeRow({ tier: 'CLUB', status: 'ACTIVE', expiresAt: null }))
+
+      const result = await adminAdjustMembership(admin, 'user_1', { tier: 'CLUB', status: 'ACTIVE', reason: 'VIP grant, no expiry' })
+      expect(result.status).toBe('ACTIVE')
+      expect(membershipUpdate).toHaveBeenCalledTimes(1)
+    })
+
+    it('allows ACTIVE with a future expiresAt', async () => {
+      const admin = fakeAdmin('super_admin')
+      const future = new Date('2099-01-01')
+      membershipFindUnique.mockResolvedValueOnce(fakeRow({ status: 'FREE', expiresAt: null }))
+      membershipUpdate.mockResolvedValueOnce(fakeRow({ tier: 'CLUB', status: 'ACTIVE', expiresAt: future }))
+
+      const result = await adminAdjustMembership(admin, 'user_1', { tier: 'CLUB', status: 'ACTIVE', expiresAt: future, reason: '1-year grant' })
+      expect(result.status).toBe('ACTIVE')
+      expect(membershipUpdate).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 describe('rotateOwnVerificationToken — customer-scoped, cannot touch another customer', () => {

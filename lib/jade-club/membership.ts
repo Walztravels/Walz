@@ -195,6 +195,33 @@ export async function adminAdjustMembership(
 
   const before = await ensureJadeClubMembership(targetUserId)
 
+  // Data-integrity guard (found by independent financial review): reject a
+  // status/expiresAt combination that would be internally inconsistent,
+  // considering the FINAL state after this adjustment is applied (a field
+  // left `undefined` keeps its current value from `before`). This never
+  // touches money or Miles — it only stops an admin from accidentally
+  // persisting a nonsensical record, e.g. "Active, valid through a date
+  // already in the past" or "Expired" with no expiry date at all.
+  const resultingStatus = adjustment.status !== undefined ? adjustment.status : before.status
+  const resultingExpiresAt = adjustment.expiresAt !== undefined ? adjustment.expiresAt : before.expiresAt
+
+  if (
+    (resultingStatus === 'ACTIVE' || resultingStatus === 'EXPIRING')
+    && resultingExpiresAt !== null
+    && resultingExpiresAt.getTime() < Date.now()
+  ) {
+    throw new Error(
+      `Cannot set status ${resultingStatus} with an expiresAt in the past (${resultingExpiresAt.toISOString()}). `
+      + 'Set a future expiresAt, clear it for an indefinite grant, or choose status EXPIRED instead.',
+    )
+  }
+  if (resultingStatus === 'EXPIRED' && resultingExpiresAt === null) {
+    throw new Error(
+      'Cannot set status EXPIRED without an expiresAt date. Provide an expiresAt, '
+      + 'or use CANCELLED for an indefinite end with no expiry date.',
+    )
+  }
+
   const data: { tier?: JadeClubTier; status?: JadeClubMembershipStatus; expiresAt?: Date | null; source: JadeClubMembershipSource } = {
     source: 'ADMIN_GRANT',
   }

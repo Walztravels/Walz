@@ -39,6 +39,14 @@ interface MembershipRow {
   physicalCardStatus: string
 }
 
+// YYYY-MM-DD for an <input type="date">, or '' if unset.
+function toDateInputValue(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return d.toISOString().slice(0, 10)
+}
+
 interface BenefitRow {
   key: string
   name: string
@@ -94,15 +102,20 @@ export default function JadeClubAdminPage() {
 
   useEffect(() => { load('') }, [load])
 
-  async function adjustMembership(userId: string, tier: string, status: string) {
+  async function adjustMembership(userId: string, tier: string, status: string, expiresAtChanged: boolean, expiresAt: string) {
     const reason = prompt('Reason for this membership change (required, kept in the audit log):')
     if (!reason || !reason.trim()) return
     setSavingKey(userId)
     try {
+      const body: Record<string, unknown> = { tier, status, reason }
+      // Only include expiresAt when the admin actually touched the date
+      // field — omitting it entirely leaves the existing value unchanged
+      // (see adminAdjustMembership's `undefined` = "no change" contract).
+      if (expiresAtChanged) body.expiresAt = expiresAt ? new Date(expiresAt).toISOString() : null
       const res = await fetch(`/api/admin/jade-club/memberships/${userId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier, status, reason }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
@@ -200,6 +213,7 @@ export default function JadeClubAdminPage() {
                     userId={m.userId}
                     tier={m.tier}
                     status={m.status}
+                    expiresAt={m.expiresAt}
                     saving={savingKey === m.userId}
                     onSave={adjustMembership}
                   />
@@ -260,27 +274,46 @@ function Stat({ label, value, icon }: { label: string; value: number; icon: Reac
   )
 }
 
-function AdjustForm({ userId, tier, status, saving, onSave }: {
-  userId: string; tier: string; status: string; saving: boolean
-  onSave: (userId: string, tier: string, status: string) => void
+function AdjustForm({ userId, tier, status, expiresAt, saving, onSave }: {
+  userId: string; tier: string; status: string; expiresAt: string | null; saving: boolean
+  onSave: (userId: string, tier: string, status: string, expiresAtChanged: boolean, expiresAt: string) => void
 }) {
+  const initialExpiresAt = toDateInputValue(expiresAt)
   const [t, setT] = useState(tier)
   const [s, setS] = useState(status)
-  useEffect(() => { setT(tier); setS(status) }, [tier, status])
+  const [exp, setExp] = useState(initialExpiresAt)
+  useEffect(() => { setT(tier); setS(status); setExp(toDateInputValue(expiresAt)) }, [tier, status, expiresAt])
+  // EXPIRED requires an expiresAt (server-enforced); ACTIVE/EXPIRING reject a
+  // past one — surface this in the UI so the date field appears exactly
+  // when a change would otherwise be rejected server-side.
+  const expiresAtRequired = s === 'EXPIRED' && !exp
   return (
-    <div className="flex items-center gap-1.5">
-      <select value={t} onChange={e => setT(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white">
-        {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
-      </select>
-      <select value={s} onChange={e => setS(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white">
-        {STATUSES.map(x => <option key={x} value={x}>{x}</option>)}
-      </select>
-      <button
-        disabled={saving}
-        onClick={() => onSave(userId, t, s)}
-        className="text-xs font-semibold text-[#C9A84C] disabled:opacity-50">
-        {saving ? 'Saving…' : 'Save'}
-      </button>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
+        <select value={t} onChange={e => setT(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white">
+          {TIERS.map(x => <option key={x} value={x}>{x}</option>)}
+        </select>
+        <select value={s} onChange={e => setS(e.target.value)} className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white">
+          {STATUSES.map(x => <option key={x} value={x}>{x}</option>)}
+        </select>
+        <button
+          disabled={saving || expiresAtRequired}
+          onClick={() => onSave(userId, t, s, exp !== initialExpiresAt, exp)}
+          className="text-xs font-semibold text-[#C9A84C] disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="date"
+          value={exp}
+          onChange={e => setExp(e.target.value)}
+          className="bg-white/5 border border-white/10 rounded-lg px-1.5 py-1 text-xs text-white"
+        />
+        <span className="text-[10px] text-white/30">
+          {expiresAtRequired ? 'Required for EXPIRED' : 'Expires (optional)'}
+        </span>
+      </div>
     </div>
   )
 }
