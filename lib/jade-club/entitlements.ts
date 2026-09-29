@@ -90,28 +90,47 @@ export async function activateMembershipTerms(
   const cleanReason = requireReason(reason)
   if (!isJadeClubMembershipSource(source)) throw new Error('Invalid source')
 
-  const membership = await prisma.jadeClubMembership.findUnique({ where: { id: membershipId } })
-  if (!membership) throw new Error('Membership not found')
-
-  const policy = await prisma.jadeClubCommercialPolicy.findUnique({ where: { id: policyId }, include: { benefits: true } })
-  if (!policy) throw new Error('Policy not found')
-  if (policy.status !== 'ACTIVE') throw new Error(`Policy must be ACTIVE to activate terms from it (this one is ${policy.status})`)
-  if (policy.tier !== membership.tier) {
-    throw new Error(`Policy tier (${policy.tier}) does not match the membership's current tier (${membership.tier}) — adjust the membership tier first`)
-  }
-
-  const now = new Date()
-  const existingUnexpired = await prisma.jadeClubMembershipTerms.findFirst({
-    where: { membershipId, expiresAt: { gt: now } },
-    orderBy: { activatedAt: 'desc' },
-  })
-  if (existingUnexpired) {
-    throw new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A')
-  }
-
-  const expiresAt = addMonths(now, policy.durationMonths)
-
+  // SECURITY FIX (independent review — HIGH finding): the "no unexpired
+  // terms already exists" check and the terms/snapshot/slot creation used
+  // to run as a standalone pre-check followed by a SEPARATE transaction,
+  // with no DB constraint backing the "at most one unexpired terms period
+  // per membership" invariant (a partial unique index isn't viable here
+  // since `expiresAt > now()` isn't an IMMUTABLE condition Postgres can
+  // index on). Two concurrent activation calls for the SAME membership
+  // could both pass the pre-check before either committed, silently
+  // double-granting a full set of entitlement slots.
+  //
+  // Fixed by taking a row lock on the membership (`SELECT ... FOR UPDATE`)
+  // as the FIRST statement inside the SAME transaction that re-checks
+  // existingUnexpired and creates everything — a second concurrent call
+  // for the same membershipId blocks on the lock until the first
+  // transaction commits or rolls back, then re-reads and correctly sees
+  // the just-created row, and bails out with the same clear error instead
+  // of racing past the check.
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM jade_club_memberships WHERE id = ${membershipId} FOR UPDATE`
+
+    const membership = await tx.jadeClubMembership.findUnique({ where: { id: membershipId } })
+    if (!membership) throw new Error('Membership not found')
+
+    const policy = await tx.jadeClubCommercialPolicy.findUnique({ where: { id: policyId }, include: { benefits: true } })
+    if (!policy) throw new Error('Policy not found')
+    if (policy.status !== 'ACTIVE') throw new Error(`Policy must be ACTIVE to activate terms from it (this one is ${policy.status})`)
+    if (policy.tier !== membership.tier) {
+      throw new Error(`Policy tier (${policy.tier}) does not match the membership's current tier (${membership.tier}) — adjust the membership tier first`)
+    }
+
+    const now = new Date()
+    const existingUnexpired = await tx.jadeClubMembershipTerms.findFirst({
+      where: { membershipId, expiresAt: { gt: now } },
+      orderBy: { activatedAt: 'desc' },
+    })
+    if (existingUnexpired) {
+      throw new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A')
+    }
+
+    const expiresAt = addMonths(now, policy.durationMonths)
+
     const terms = await tx.jadeClubMembershipTerms.create({
       data: {
         membershipId,
@@ -154,7 +173,10 @@ export async function activateMembershipTerms(
       }
     }
 
-    return { termsId: terms.id, expiresAt: terms.expiresAt, benefitCount: policy.benefits.length, slotsIssued }
+    return {
+      termsId: terms.id, expiresAt: terms.expiresAt, benefitCount: policy.benefits.length, slotsIssued,
+      policyId: policy.id, policyVersion: policy.version, tier: policy.tier,
+    }
   })
 
   await prisma.activityLog.create({
@@ -163,7 +185,7 @@ export async function activateMembershipTerms(
       action: 'JADE_CLUB_TERMS_ACTIVATED', module: 'jade_club',
       entityType: 'JadeClubMembershipTerms', entityId: result.termsId, detail: cleanReason,
       before: Prisma.JsonNull,
-      after: { membershipId, policyId: policy.id, policyVersion: policy.version, tier: policy.tier, expiresAt: result.expiresAt, slotsIssued: result.slotsIssued },
+      after: { membershipId, policyId: result.policyId, policyVersion: result.policyVersion, tier: result.tier, expiresAt: result.expiresAt, slotsIssued: result.slotsIssued },
     },
   }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
 
@@ -421,7 +443,22 @@ export async function reverseConsumedSlot(admin: AdminSession, slotId: string, r
   }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
 }
 
-/** Explicit admin action that creates a genuinely NEW slot row — never resurrects a REVERSED one. */
+/**
+ * Explicit admin action that creates a genuinely NEW slot row — never
+ * resurrects a REVERSED one.
+ *
+ * RELIABILITY FIX (independent review — MEDIUM finding): `nextSlotNumber`
+ * is derived by a read-then-write (`findFirst` + max+1) with no CAS on the
+ * insert itself. Data integrity was never at risk here — the
+ * `@@unique([membershipTermsId, benefitSnapshotId, periodKey, slotNumber])`
+ * constraint already rejects a genuine duplicate slot number outright — but
+ * a losing concurrent call surfaced a raw, unhandled Prisma P2002 error
+ * instead of a clean message. Fixed with a small retry-on-conflict loop,
+ * mirroring the exact P2002-catch-and-translate pattern already used in
+ * activatePolicy() above: on a unique-constraint collision, re-read the
+ * current max slotNumber (which the winning transaction just advanced) and
+ * retry, rather than surfacing the raw DB error to the caller.
+ */
 export async function createReplacementSlot(admin: AdminSession, benefitSnapshotId: string, reason: string): Promise<{ slotId: string; slotNumber: number }> {
   requireManage(admin)
   const cleanReason = requireReason(reason)
@@ -430,34 +467,46 @@ export async function createReplacementSlot(admin: AdminSession, benefitSnapshot
   if (!snapshot) throw new Error('Benefit snapshot not found')
   if (snapshot.entitlementType !== 'COUNT_PER_PERIOD') throw new Error('Replacement slots only apply to COUNT_PER_PERIOD benefits')
 
-  const result = await prisma.$transaction(async (tx) => {
-    const maxSlot = await tx.jadeClubEntitlementSlot.findFirst({
-      where: { benefitSnapshotId, periodKey: 'Y1' },
-      orderBy: { slotNumber: 'desc' },
-      select: { slotNumber: true, membershipTermsId: true },
-    })
-    const nextSlotNumber = (maxSlot?.slotNumber ?? 0) + 1
-    const membershipTermsId = maxSlot?.membershipTermsId ?? (await tx.jadeClubMembershipBenefitSnapshot.findUniqueOrThrow({ where: { id: benefitSnapshotId } })).membershipTermsId
+  const MAX_ATTEMPTS = 5
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        const maxSlot = await tx.jadeClubEntitlementSlot.findFirst({
+          where: { benefitSnapshotId, periodKey: 'Y1' },
+          orderBy: { slotNumber: 'desc' },
+          select: { slotNumber: true, membershipTermsId: true },
+        })
+        const nextSlotNumber = (maxSlot?.slotNumber ?? 0) + 1
+        const membershipTermsId = maxSlot?.membershipTermsId ?? (await tx.jadeClubMembershipBenefitSnapshot.findUniqueOrThrow({ where: { id: benefitSnapshotId } })).membershipTermsId
 
-    const slot = await tx.jadeClubEntitlementSlot.create({
-      data: { membershipTermsId, benefitSnapshotId, periodKey: 'Y1', slotNumber: nextSlotNumber, status: 'AVAILABLE' },
-    })
-    await tx.jadeClubEntitlementEvent.create({
-      data: { slotId: slot.id, eventType: 'ISSUED', actorStaffId: admin.id, detail: `Replacement grant: ${cleanReason}`, metadata: {} },
-    })
-    return { slotId: slot.id, slotNumber: nextSlotNumber }
-  })
+        const slot = await tx.jadeClubEntitlementSlot.create({
+          data: { membershipTermsId, benefitSnapshotId, periodKey: 'Y1', slotNumber: nextSlotNumber, status: 'AVAILABLE' },
+        })
+        await tx.jadeClubEntitlementEvent.create({
+          data: { slotId: slot.id, eventType: 'ISSUED', actorStaffId: admin.id, detail: `Replacement grant: ${cleanReason}`, metadata: {} },
+        })
+        return { slotId: slot.id, slotNumber: nextSlotNumber }
+      })
 
-  await prisma.activityLog.create({
-    data: {
-      staffId: admin.id, staffName: admin.name, staffRole: admin.role,
-      action: 'JADE_CLUB_ENTITLEMENT_SLOT_REPLACEMENT_GRANTED', module: 'jade_club',
-      entityType: 'JadeClubEntitlementSlot', entityId: result.slotId, detail: cleanReason,
-      before: Prisma.JsonNull, after: { benefitSnapshotId, slotNumber: result.slotNumber },
-    },
-  }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
+      await prisma.activityLog.create({
+        data: {
+          staffId: admin.id, staffName: admin.name, staffRole: admin.role,
+          action: 'JADE_CLUB_ENTITLEMENT_SLOT_REPLACEMENT_GRANTED', module: 'jade_club',
+          entityType: 'JadeClubEntitlementSlot', entityId: result.slotId, detail: cleanReason,
+          before: Prisma.JsonNull, after: { benefitSnapshotId, slotNumber: result.slotNumber },
+        },
+      }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
 
-  return result
+      return result
+    } catch (err: unknown) {
+      const code = (err as { code?: string } | null)?.code
+      if (code === 'P2002' && attempt < MAX_ATTEMPTS - 1) continue // a concurrent replacement grant won this slotNumber first — retry with a fresh read
+      if (code === 'P2002') throw new Error('Another replacement grant is in progress for this benefit — please retry')
+      throw err
+    }
+  }
+  // Unreachable — the loop always returns or throws — but keeps tsc happy.
+  throw new Error('Failed to create replacement slot')
 }
 
 // ─── Read-only support/audit views ─────────────────────────────────────

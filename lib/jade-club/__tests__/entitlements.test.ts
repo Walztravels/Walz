@@ -15,7 +15,21 @@
  * under Node's run-to-completion scheduling, so `Promise.all([...])` racing
  * multiple reservation attempts here exercises the SAME interleaving
  * hazard a real concurrent request pair would hit against Postgres.
+ *
+ * $queryRaw's `FOR UPDATE` row-lock simulation (added for the
+ * activateMembershipTerms concurrent-double-activation regression test
+ * below) uses Node's AsyncLocalStorage to correlate "this lock was
+ * acquired inside THIS specific $transaction invocation" across genuinely
+ * interleaved concurrent async calls, and releases it exactly when that
+ * transaction's callback settles (success or failure) — the same moment a
+ * real Postgres row lock releases on COMMIT/ROLLBACK.
  */
+
+import { AsyncLocalStorage } from 'node:async_hooks'
+
+const txContext = new AsyncLocalStorage<{ locksHeld: string[] }>()
+const lockQueue = new Map<string, Promise<void>>()
+const lockReleasers = new Map<string, () => void>()
 
 // ─── Fake DB ────────────────────────────────────────────────────────────
 
@@ -122,6 +136,20 @@ function makeFakeDb() {
       },
       findMany: async ({ where }: any) => matchSlots(where ?? {}),
       create: async ({ data }: any) => {
+        // Faithful unique-constraint enforcement for
+        // @@unique([membershipTermsId, benefitSnapshotId, periodKey, slotNumber])
+        // — without this, the fake DB could not exercise a genuine P2002
+        // collision, which is exactly the scenario the replacement-slot
+        // retry-on-conflict fix (independent review — MEDIUM finding) needs
+        // a real test for.
+        const collision = [...state.slots.values()].some((s) =>
+          s.membershipTermsId === data.membershipTermsId && s.benefitSnapshotId === data.benefitSnapshotId
+          && s.periodKey === data.periodKey && s.slotNumber === data.slotNumber)
+        if (collision) {
+          const err: any = new Error('Unique constraint failed on jade_club_entitlement_slots')
+          err.code = 'P2002'
+          throw err
+        }
         const row: FakeSlot = {
           id: nid('slot'), reservedAt: null, reservedBy: null, reservationExpiresAt: null,
           consumedAt: null, linkedProviderReference: null, createdAt: new Date(), updatedAt: new Date(),
@@ -145,7 +173,40 @@ function makeFakeDb() {
       findMany: async ({ where }: any) => state.events.filter((e) => !where?.slotId || e.slotId === where.slotId),
     },
     activityLog: { create: async ({ data }: any) => { state.activityLogs.push(data); return data } },
-    $transaction: async (cb: any) => cb(mockPrisma),
+    $transaction: async (cb: any) => {
+      const ctx = { locksHeld: [] as string[] }
+      try {
+        return await txContext.run(ctx, () => cb(mockPrisma))
+      } finally {
+        // Release, in this fake, exactly when the enclosing $transaction's
+        // callback settles (success or failure) — the same moment a real
+        // Postgres `FOR UPDATE` row lock releases on COMMIT/ROLLBACK.
+        for (const id of ctx.locksHeld) {
+          const release = lockReleasers.get(id)
+          if (release) { lockReleasers.delete(id); release() }
+        }
+      }
+    },
+    // Faithful simulation of `SELECT ... FOR UPDATE`: a second concurrent
+    // caller for the SAME key genuinely awaits until the first holder's
+    // enclosing transaction settles, exercising the exact serialization
+    // hazard the real row lock exists to prevent — see the module header's
+    // FakeDb philosophy note for why this level of fidelity matters for the
+    // concurrency tests below.
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const sql = strings.join('?')
+      if (sql.includes('FOR UPDATE')) {
+        const key = String(values[0])
+        while (lockQueue.has(key)) await lockQueue.get(key)
+        let release!: () => void
+        const held = new Promise<void>((res) => { release = res })
+        lockQueue.set(key, held)
+        lockReleasers.set(key, () => { lockQueue.delete(key); release() })
+        const ctx = txContext.getStore()
+        if (ctx) ctx.locksHeld.push(key)
+      }
+      return []
+    },
   }
 
   return { mockPrisma, state, nid }
@@ -174,6 +235,7 @@ function resetDb() {
   state.memberships.clear(); state.policies.clear(); state.benefits.clear()
   state.terms.clear(); state.snapshots.clear(); state.slots.clear()
   state.events.length = 0; state.activityLogs.length = 0
+  lockQueue.clear(); lockReleasers.clear() // no stale FOR UPDATE locks carrying over between tests
 }
 
 /** Seeds a benefit snapshot + N AVAILABLE slots directly, bypassing activation, for focused reservation/consumption tests. */
@@ -259,6 +321,32 @@ describe('activateMembershipTerms — pre-issues exact slot counts in one transa
   it('rejects re-activation while an unexpired terms period already exists', async () => {
     await activateMembershipTerms(MANAGER, 'mem_1', 'pol_1', 'first activation')
     await expect(activateMembershipTerms(MANAGER, 'mem_1', 'pol_1', 'second activation')).rejects.toThrow(/already has an unexpired/)
+  })
+
+  // SECURITY FIX regression test (independent review — HIGH finding): two
+  // GENUINELY concurrent activation calls for the SAME membership (e.g. a
+  // double-click before the button disables, or two admins racing) must
+  // never both succeed — exactly one must win, backed by the FOR UPDATE row
+  // lock, not by luck of interleaving order.
+  it('two CONCURRENT activation calls for the SAME membership — exactly one wins, never both, never doubled slots', async () => {
+    const [r1, r2] = await Promise.allSettled([
+      activateMembershipTerms(MANAGER, 'mem_1', 'pol_1', 'concurrent attempt A'),
+      activateMembershipTerms(MANAGER, 'mem_1', 'pol_1', 'concurrent attempt B'),
+    ])
+    const outcomes = [r1, r2]
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled')
+    const rejected = outcomes.filter((o) => o.status === 'rejected')
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already has an unexpired/)
+
+    // The DB itself only ever has ONE terms row for this membership, and
+    // exactly 3 slots (never 6) for the COUNT_PER_PERIOD benefit — not two
+    // full sets silently double-granted.
+    const termsRows = [...state.terms.values()].filter((t) => t.membershipId === 'mem_1')
+    expect(termsRows).toHaveLength(1)
+    const slotsForTerms = [...state.slots.values()].filter((s) => s.membershipTermsId === termsRows[0].id)
+    expect(slotsForTerms).toHaveLength(3)
   })
 })
 
@@ -547,5 +635,22 @@ describe('createReplacementSlot — genuinely NEW slot, never resurrects the REV
     const termsId = nid('terms')
     state.snapshots.set('snap_bool', { id: 'snap_bool', membershipTermsId: termsId, benefitKey: 'priority-pass', entitlementType: 'BOOLEAN_ELIGIBILITY', booleanEligible: true, countPerPeriod: null, costCapMinorUsd: null })
     await expect(createReplacementSlot(MANAGER, 'snap_bool', 'x')).rejects.toThrow(/only apply to COUNT_PER_PERIOD/)
+  })
+
+  // RELIABILITY FIX regression test (independent review — MEDIUM finding):
+  // two concurrent replacement-grant calls for the SAME benefit snapshot
+  // used to race a read-then-write slotNumber derivation with no CAS on the
+  // insert — data integrity was never actually at risk (the unique
+  // constraint rejects a true duplicate outright), but the LOSING call used
+  // to surface a raw, unhandled P2002 error instead of quietly retrying.
+  it('two CONCURRENT replacement-grant calls for the SAME snapshot — both succeed, on distinct slotNumbers, no raw DB error surfaced', async () => {
+    const { snapshotId } = seedCountBenefit(1) // slotNumber 1 already exists
+    const [r1, r2] = await Promise.all([
+      createReplacementSlot(MANAGER, snapshotId, 'replacement A'),
+      createReplacementSlot(MANAGER, snapshotId, 'replacement B'),
+    ])
+    expect(r1.slotId).not.toBe(r2.slotId)
+    expect(new Set([r1.slotNumber, r2.slotNumber]).size).toBe(2) // distinct, never double-booked
+    expect([r1.slotNumber, r2.slotNumber].sort()).toEqual([2, 3]) // advances past the pre-existing slot 1
   })
 })
