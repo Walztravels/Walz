@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { ArrowLeft, Compass, Sparkles, ChevronRight, MapPin, Calendar, Users } from 'lucide-react'
 import prisma from '@/lib/db'
+import { groupTrips } from '@/lib/portal/trip-grouping'
 
 export const dynamic = 'force-dynamic'
 
@@ -134,17 +135,7 @@ export default async function TripsPage() {
     confirmedItemCount: t.items.filter(i => i.confirmed).length,
   }))
 
-  const now = Date.now()
-  const upcoming = trips.filter(t =>
-    !['CANCELLED', 'COMPLETED', 'DRAFT', 'PLANNING'].includes(t.status)
-    || (t.startDate != null && new Date(t.startDate).getTime() >= now),
-  ).filter(t => t.status !== 'CANCELLED')
-  const saved = trips.filter(t => (t.status === 'DRAFT' || t.status === 'PLANNING') && !upcoming.includes(t))
-  const past = trips.filter(t =>
-    t.status === 'COMPLETED'
-    || t.status === 'CANCELLED'
-    || (t.endDate != null && new Date(t.endDate).getTime() < now && !upcoming.includes(t) && !saved.includes(t)),
-  )
+  const { upcoming, saved, past } = groupTrips(trips)
 
   return (
     <div className="min-h-screen bg-[#060e1c] px-5 lg:px-8 py-8 pb-24">
@@ -155,7 +146,7 @@ export default async function TripsPage() {
           Back to dashboard
         </Link>
 
-        <div className="flex items-center justify-between gap-3 mb-8">
+        <div className="flex items-center justify-between gap-3 mb-8 flex-wrap">
           <div className="flex items-center gap-3">
             <Compass className="w-5 h-5 text-[#C9A84C]" />
             <h1 className="text-white font-bold text-2xl">My Trips</h1>
