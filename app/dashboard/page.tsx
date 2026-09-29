@@ -11,6 +11,7 @@ import {
   Plane, Hotel, Map, FileText, Gift, Upload,
   MessageCircle, Shield, Globe, Compass, AlertCircle,
   ChevronRight, Clock, ArrowRight, Sparkles, Package2,
+  Award, MapPin, Calendar, Wallet,
 } from 'lucide-react'
 import { getDashboardData } from '@/lib/portal/dashboard-data'
 import { deriveCustomerActions } from '@/lib/portal/customer-actions'
@@ -22,8 +23,18 @@ import {
 import { NotificationsBell } from './_components/NotificationsBell'
 import prisma from '@/lib/db'
 import { getPassportExpiryStatus } from '@/lib/portal/traveller-dto'
+import { getMilesWalletData } from '@/lib/portal/miles-data'
 
 export const dynamic = 'force-dynamic'
+
+// Server-time-of-day greeting. Uses the server clock (not the visitor's local
+// time) — a deliberate, documented simplification for Phase 1; see the My
+// Walz Phase 1 final report for the trade-off.
+function greetingForHour(hour: number): string {
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
+}
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions)
@@ -31,10 +42,19 @@ export default async function DashboardPage() {
 
   const userId = session.user.id
 
-  const [data, unreadCount, vault] = await Promise.all([
+  const [data, unreadCount, vault, milesWallet, primaryTrip] = await Promise.all([
     getDashboardData(userId, session.user.email ?? ''),
     prisma.portalNotification.count({ where: { userId, read: false } }),
     prisma.passportVault.findUnique({ where: { userId }, select: { expiryDate: true } }).catch(() => null),
+    getMilesWalletData(userId),
+    // Most relevant trip: an active (non-cancelled, non-completed) trip,
+    // soonest start date first, falling back to most recently updated.
+    // Ownership: Trip.userId === userId — never a client-supplied id.
+    prisma.trip.findFirst({
+      where: { userId, status: { notIn: ['CANCELLED', 'COMPLETED'] } },
+      orderBy: [{ startDate: 'asc' }, { updatedAt: 'desc' }],
+      include: { items: { select: { confirmed: true } } },
+    }),
   ])
 
   const actions = deriveCustomerActions({ applications: data.applications, proposals: data.proposals })
@@ -48,6 +68,20 @@ export default async function DashboardPage() {
   const bookings  = data.bookings
   const proposals = data.proposals
   const vouchers  = [...data.purchasedVouchers, ...data.giftVouchers].filter(v => v.active)
+  const greeting  = greetingForHour(new Date().getHours())
+
+  // Payments summary — grounded strictly in data already fetched for the
+  // Applications section (amount / amountPaid). No new query, no invented figures.
+  // (Uses a plain record, not the ES `Map` type, since `Map` above is the
+  // lucide-react icon imported for the Payments card.)
+  const outstandingByCurrency: Record<string, number> = {}
+  for (const app of apps) {
+    if (app.amount != null && app.amountPaid < app.amount) {
+      const remaining = app.amount - app.amountPaid
+      outstandingByCurrency[app.currency] = (outstandingByCurrency[app.currency] ?? 0) + remaining
+    }
+  }
+  const outstandingBalances = Object.entries(outstandingByCurrency)
 
   return (
     <div className="min-h-screen bg-[#060e1c]">
@@ -66,11 +100,17 @@ export default async function DashboardPage() {
 
       {/* ── Welcome ─────────────────────────────────── */}
       <div className="bg-[#0B1F3A]/60 border-b border-white/5 px-5 lg:px-8 py-8">
-        <p className="text-[#C9A84C] text-xs uppercase tracking-widest font-semibold mb-1">My Portal</p>
-        <h1 className="text-white text-2xl lg:text-3xl font-bold">Welcome back, {firstName}</h1>
-        <p className="text-white/40 text-sm mt-1">Your travel hub — itineraries, applications, and bookings in one place.</p>
+        <div className="flex items-center gap-2 mb-1">
+          <p className="text-[#C9A84C] text-xs uppercase tracking-widest font-semibold">My Walz</p>
+          <span className="text-[10px] font-bold uppercase tracking-wide text-[#0B1F3A] bg-[#C9A84C] px-2 py-0.5 rounded-full">
+            Jade Free
+          </span>
+        </div>
+        <h1 className="text-white text-2xl lg:text-3xl font-bold">{greeting}, {firstName}</h1>
+        <p className="text-white/40 text-sm mt-1">Your travel hub — trips, Walz Miles, applications, and bookings in one place.</p>
 
-        <div className="grid grid-cols-4 gap-3 mt-6 max-w-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 max-w-lg">
+          <StatTile value={milesWallet.milesBalance} label="Walz Miles" highlight />
           <StatTile value={data.stats.pendingProposals}   label="Proposals"    />
           <StatTile value={data.stats.activeApplications} label="Applications" />
           <StatTile value={bookings.length}               label="Bookings"     />
@@ -79,6 +119,23 @@ export default async function DashboardPage() {
       </div>
 
       <div className="px-5 lg:px-8 py-8 space-y-6 pb-24">
+
+        {/* ── Where would you like to go? (primary Jade entry) ─────────── */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#0B1F3A] to-[#0B1F3A]/60 border border-white/8 p-6 text-center">
+          <h2 className="text-white font-bold text-lg lg:text-xl mb-4">Where would you like to go?</h2>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <Link href="/dashboard/jade"
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors">
+              <Sparkles className="w-4 h-4" />
+              Ask Jade
+            </Link>
+            <Link href="/plan/library"
+              className="flex items-center gap-2 px-5 py-2.5 bg-white/8 border border-white/15 text-white text-sm font-bold rounded-xl hover:bg-white/12 transition-colors">
+              <Compass className="w-4 h-4" />
+              Plan a Trip
+            </Link>
+          </div>
+        </div>
 
         {/* ── Action required ─────────────────────── */}
         {actions.length > 0 && (
@@ -160,18 +217,87 @@ export default async function DashboardPage() {
           ))}
         </div>
 
-        {/* ── Ask Jade CTA ─────────────────────────── */}
-        <Link href="/dashboard/jade"
-          className="flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-[#C9A84C]/10 to-[#C9A84C]/5 border border-[#C9A84C]/20 hover:border-[#C9A84C]/40 transition-all group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-5 h-5 text-[#0B1F3A]" />
+        {/* ── Upcoming Trip ─────────────────────────── */}
+        {primaryTrip && (
+          <Card
+            title="Upcoming Trip"
+            icon={<MapPin className="w-4 h-4 text-[#C9A84C]" />}
+            viewAll="/dashboard/trips"
+          >
+            <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+              <div>
+                <h3 className="font-bold text-white text-base">{primaryTrip.destination || primaryTrip.title}</h3>
+                <p className="text-white/40 text-xs mt-1 flex items-center gap-1.5 flex-wrap">
+                  {(primaryTrip.startDate || primaryTrip.endDate) && (
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {primaryTrip.startDate ? format(new Date(primaryTrip.startDate), 'd MMM yyyy') : 'Dates TBD'}
+                      {primaryTrip.endDate && <> – {format(new Date(primaryTrip.endDate), 'd MMM yyyy')}</>}
+                    </span>
+                  )}
+                  {primaryTrip.items.length > 0 && (
+                    <span>· {primaryTrip.items.filter(i => i.confirmed).length}/{primaryTrip.items.length} confirmed</span>
+                  )}
+                </p>
+              </div>
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/10 text-white/60">
+                {primaryTrip.status.replace(/_/g, ' ')}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link href={`/plan/${primaryTrip.id}`}
+                className="flex items-center gap-1 px-3 py-2 border border-white/15 text-xs font-medium text-white/70 rounded-lg hover:bg-white/8 transition-colors">
+                View Trip <ChevronRight className="w-3 h-3" />
+              </Link>
+              <Link href={`/dashboard/jade?trip=${primaryTrip.id}`}
+                className="flex items-center gap-1 px-3 py-2 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-xs font-semibold text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
+                <Sparkles className="w-3 h-3" /> Ask Jade
+              </Link>
+            </div>
+          </Card>
+        )}
+
+        {/* ── Walz Miles ────────────────────────────── */}
+        <Card
+          title="Walz Miles"
+          icon={<Award className="w-4 h-4 text-[#C9A84C]" />}
+          viewAll="/dashboard/miles"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-3xl font-bold text-[#C9A84C]">{milesWallet.milesBalance.toLocaleString()}</p>
+              <p className="text-white/40 text-xs mt-1">
+                {milesWallet.milesBalance > 0
+                  ? 'Available Walz Miles'
+                  : 'Earn Walz Miles on eligible Walz bookings'}
+              </p>
+            </div>
+            <Link href="/dashboard/miles"
+              className="flex-shrink-0 flex items-center gap-1 px-3 py-2 bg-white/8 border border-white/15 text-xs font-medium text-white/80 rounded-lg hover:bg-white/12 transition-colors">
+              View Wallet <ChevronRight className="w-3 h-3" />
+            </Link>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white font-semibold text-sm">Ask Jade</p>
-            <p className="text-white/40 text-xs">Your personal Walz Travels concierge — trips, bookings, and more</p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-[#C9A84C]/60 group-hover:text-[#C9A84C] transition-colors flex-shrink-0" />
-        </Link>
+        </Card>
+
+        {/* ── Payments (outstanding balances only — no invented figures) ── */}
+        {outstandingBalances.length > 0 && (
+          <Card
+            title="Payments"
+            icon={<Wallet className="w-4 h-4 text-[#C9A84C]" />}
+          >
+            <div className="space-y-2">
+              {outstandingBalances.map(([currency, amount]) => (
+                <div key={currency} className="flex items-center justify-between p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/15">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Outstanding balance</p>
+                    <p className="text-white/40 text-xs mt-0.5">{currency} {amount.toFixed(2)}</p>
+                  </div>
+                  <Link href="/portal/application" className="text-xs font-semibold text-[#C9A84C] hover:underline">View →</Link>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
 
         {/* ── My Itineraries (proposals) ───────────── */}
         {proposals.length > 0 && (
@@ -252,10 +378,17 @@ export default async function DashboardPage() {
                           </p>
                         )}
                       </div>
-                      <Link href={`/portal/application/${app.id}`}
-                        className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 border border-white/15 text-xs font-medium text-white/70 rounded-lg hover:bg-white/8 transition-colors">
-                        View <ChevronRight className="w-3 h-3" />
-                      </Link>
+                      <div className="flex-shrink-0 flex items-center gap-1.5">
+                        <Link href={`/portal/application/${app.id}`}
+                          className="flex items-center gap-1 px-2.5 py-1.5 border border-white/15 text-xs font-medium text-white/70 rounded-lg hover:bg-white/8 transition-colors">
+                          View <ChevronRight className="w-3 h-3" />
+                        </Link>
+                        <Link href={`/dashboard/jade?application=${app.id}`}
+                          title="Ask Jade about this application"
+                          className="flex items-center px-2 py-1.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
+                          <Sparkles className="w-3 h-3" />
+                        </Link>
+                      </div>
                     </div>
                     {app.stage !== 'REJECTED' && (
                       <div className="mb-2">
@@ -332,6 +465,11 @@ export default async function DashboardPage() {
                         <span>{format(new Date(b.createdAt), 'd MMM yyyy')}</span>
                       </div>
                     </div>
+                    <Link href={`/dashboard/jade?booking=${b.id}`}
+                      title="Ask Jade about this booking"
+                      className="flex-shrink-0 flex items-center px-2 py-1.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
+                      <Sparkles className="w-3 h-3" />
+                    </Link>
                   </div>
                 )
               })}
@@ -339,19 +477,28 @@ export default async function DashboardPage() {
           )}
         </Card>
 
-        {/* ── Trips (planner) ───────────────────────── */}
+        {/* ── My Trips ───────────────────────────────── */}
         <Card
           title="My Trips"
           icon={<Compass className="w-4 h-4 text-[#C9A84C]" />}
-          viewAll="/plan/library"
+          viewAll="/dashboard/trips"
         >
           <div className="text-center py-4">
-            <p className="text-white/40 text-sm mb-4">Plan and manage your personal trips with our AI-powered trip planner.</p>
-            <Link href="/plan/library"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors">
-              <Compass className="w-4 h-4" />
-              Open Trip Planner
-            </Link>
+            <p className="text-white/40 text-sm mb-4">
+              {primaryTrip ? 'View all your trips, or keep planning with our AI-powered trip planner.' : 'Plan and manage your personal trips with our AI-powered trip planner.'}
+            </p>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <Link href="/dashboard/trips"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-white/8 border border-white/15 text-white text-sm font-bold rounded-xl hover:bg-white/12 transition-colors">
+                <Compass className="w-4 h-4" />
+                View My Trips
+              </Link>
+              <Link href="/plan/library"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors">
+                <Compass className="w-4 h-4" />
+                Open Trip Planner
+              </Link>
+            </div>
           </div>
         </Card>
 
@@ -401,10 +548,10 @@ export default async function DashboardPage() {
 
 // ── Shared UI components ──────────────────────────────────────────────────────
 
-function StatTile({ value, label }: { value: number; label: string }) {
+function StatTile({ value, label, highlight }: { value: number; label: string; highlight?: boolean }) {
   return (
-    <div className="bg-white/5 rounded-xl px-3 py-3 text-center">
-      <p className="text-xl font-bold text-[#C9A84C]">{value}</p>
+    <div className={`rounded-xl px-3 py-3 text-center ${highlight ? 'bg-[#C9A84C]/10 border border-[#C9A84C]/25' : 'bg-white/5'}`}>
+      <p className="text-xl font-bold text-[#C9A84C]">{value.toLocaleString()}</p>
       <p className="text-white/40 text-xs mt-0.5">{label}</p>
     </div>
   )

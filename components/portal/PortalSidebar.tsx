@@ -9,6 +9,7 @@ import {
   LayoutDashboard, FileText, Upload, CreditCard,
   CheckSquare, Users, LogOut, Globe, ChevronRight,
   UserCircle, MessageCircle, Shield, Compass, Sparkles, Package2, Bell,
+  Award, Map,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -18,7 +19,9 @@ const LOGO_CACHE_TTL  = 60 * 60 * 1000
 const NAV = [
   { href: '/dashboard',                label: 'Dashboard',        icon: LayoutDashboard },
   { href: '/dashboard/jade',           label: 'Ask Jade',         icon: Sparkles        },
-  { href: '/plan/library',            label: 'My Trips',         icon: Compass         },
+  { href: '/dashboard/trips',         label: 'My Trips',         icon: Map             },
+  { href: '/dashboard/miles',         label: 'Walz Miles',       icon: Award           },
+  { href: '/plan/library',            label: 'Trip Planner',     icon: Compass         },
   { href: '/dashboard/proposals',     label: 'My Itineraries',   icon: Sparkles        },
   { href: '/dashboard/bookings',      label: 'My Bookings',      icon: Package2        },
   { href: '/dashboard/travellers',    label: 'Travellers',       icon: Users           },

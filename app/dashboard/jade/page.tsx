@@ -10,7 +10,7 @@ import PortalJadeChat           from './_components/PortalJadeChat'
 export const dynamic = 'force-dynamic'
 
 interface Props {
-  searchParams: { trip?: string; booking?: string; proposal?: string }
+  searchParams: { trip?: string; booking?: string; proposal?: string; application?: string }
 }
 
 export default async function PortalJadePage({ searchParams }: Props) {
@@ -18,9 +18,10 @@ export default async function PortalJadePage({ searchParams }: Props) {
   if (!session?.user?.id) redirect('/login?callbackUrl=/dashboard/jade')
 
   const hint: PortalContextHint = {
-    tripId:     searchParams.trip     || undefined,
-    bookingId:  searchParams.booking  || undefined,
-    proposalId: searchParams.proposal || undefined,
+    tripId:        searchParams.trip        || undefined,
+    bookingId:     searchParams.booking     || undefined,
+    proposalId:    searchParams.proposal    || undefined,
+    applicationId: searchParams.application || undefined,
   }
 
   const ctx = await buildPortalJadeContext(session.user.id, hint)

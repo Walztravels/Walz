@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getServerSession }          from 'next-auth'
 import { authOptions }               from '@/lib/auth'
 import { prisma }                    from '@/lib/db'
@@ -88,27 +88,23 @@ export async function GET() {
   })
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const body   = await req.json()
-    const action = body.action as string
-
-    if (action === 'earn') {
-      const amountGBP  = Number(body.amountGBP ?? 0)
-      const bookingRef = String(body.bookingRef ?? '')
-      const baseMiles  = Math.round(amountGBP * 10)
-      return NextResponse.json({ earned: baseMiles, bookingRef, message: `+${baseMiles} miles earned on booking ${bookingRef}` })
-    }
-
-    if (action === 'redeem') {
-      const milesRequired = Number(body.milesRequired ?? 0)
-      const discountGBP   = Math.floor(milesRequired / 100)
-      return NextResponse.json({ redeemed: milesRequired, discountGBP })
-    }
-
-    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
-  } catch (err) {
-    console.error('[loyalty] Error:', err)
-    return NextResponse.json({ error: 'Request failed' }, { status: 500 })
-  }
-}
+// POST handler removed — My Walz Phase 1 cleanup (see commit 58b228af,
+// "fix(payments): freeze Walz Miles redemption against flight fares", which
+// flagged this stub for removal during this exact mission).
+//
+// Independently reconfirmed dead before removal:
+//   - No caller anywhere in the codebase ever POSTs to this route (grepped
+//     for '/api/flights/loyalty' — the only consumer is
+//     components/flights/loyalty/LoyaltyDashboard.tsx's GET-only
+//     `refreshAccount`, and register/login pages POST to
+//     /api/rewards/membership, a different route).
+//   - It never touched the database — 'earn' computed a number and returned
+//     it without writing a WalzMilesTransaction (the real EARN path is
+//     booking-confirmation-triggered in app/api/admin/bookings/[id]/route.ts),
+//     and 'redeem' computed a fake discount with a hardcoded "100 miles = £1"
+//     conversion and never decremented anything.
+//   - It had no auth check and could be called by anyone, authenticated or not.
+// Removing it also removes the one remaining piece of code in this repo that
+// stated a Miles-to-currency conversion value, which My Walz Phase 1's policy
+// forbids everywhere. Do not reintroduce a POST handler here without a real
+// server-authoritative ledger write and an explicit product decision.

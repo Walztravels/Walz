@@ -12,7 +12,7 @@ import { BUSINESS }                                   from '@/lib/config/busines
 
 interface Message { role: 'user' | 'assistant'; content: string }
 
-interface FocusEntity { type: 'trip' | 'booking' | 'proposal'; id: string; label: string }
+interface FocusEntity { type: 'trip' | 'booking' | 'proposal' | 'application'; id: string; label: string }
 
 interface Props {
   displayName:        string
@@ -30,6 +30,7 @@ function getSuggestedPrompts(p: Pick<Props, 'hasBookings' | 'hasProposals' | 'ha
   if (p.focusEntity?.type === 'booking') return ['Is this booking confirmed?', 'What did I pay?', 'What should I do next?', 'Find alternative flights']
   if (p.focusEntity?.type === 'proposal') return ['Tell me about this proposal', 'What is included?', 'Help me decide', 'Continue planning']
   if (p.focusEntity?.type === 'trip') return ['What is the status of this trip?', 'Which parts are confirmed?', 'Find airport transfer', 'Find activities to add']
+  if (p.focusEntity?.type === 'application') return ['What is the status of my application?', 'What documents do I still need?', 'When will this be decided?']
   if (p.hasActionsRequired) base.unshift('What do I need to do?')
   if (p.hasBookings)    base.push('Are my bookings confirmed?')
   if (p.hasProposals)   base.push('Tell me about my proposals')
@@ -89,9 +90,10 @@ export default function PortalJadeChat({
           message: trimmed,
           conversationHistory: messages,
           contextHint: {
-            tripId:     focus?.type === 'trip'     ? focus.id : initialContextHint.tripId,
-            bookingId:  focus?.type === 'booking'  ? focus.id : initialContextHint.bookingId,
-            proposalId: focus?.type === 'proposal' ? focus.id : initialContextHint.proposalId,
+            tripId:        focus?.type === 'trip'        ? focus.id : initialContextHint.tripId,
+            bookingId:     focus?.type === 'booking'     ? focus.id : initialContextHint.bookingId,
+            proposalId:    focus?.type === 'proposal'    ? focus.id : initialContextHint.proposalId,
+            applicationId: focus?.type === 'application' ? focus.id : initialContextHint.applicationId,
           },
         }),
       })

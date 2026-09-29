@@ -63,7 +63,7 @@ export interface PortalJadeContextTraveller {
 
 export interface PortalJadeContext {
   customer: { displayName: string; firstName: string }
-  focusEntity?: { type: 'trip' | 'booking' | 'proposal'; id: string; label: string }
+  focusEntity?: { type: 'trip' | 'booking' | 'proposal' | 'application'; id: string; label: string }
   activeTrip?: PortalJadeContextTrip
   recentBookings: PortalJadeContextBooking[]
   openProposals: PortalJadeContextProposal[]
@@ -78,6 +78,12 @@ export interface PortalContextHint {
   tripId?: string
   bookingId?: string
   proposalId?: string
+  // Visa/travel application hint — Ask Jade entry point from the Applications
+  // card. Ownership verified below against the same session-scoped query
+  // already used for the Home dashboard/actions-required list. Never trusted
+  // on its own — a hint for a PortalApplication owned by someone else simply
+  // resolves to no focusEntity.
+  applicationId?: string
 }
 
 // ─── Builder ──────────────────────────────────────────────────────────────────
@@ -247,6 +253,11 @@ export async function buildPortalJadeContext(
   } else if (hint?.proposalId) {
     const owned = proposals.find(p => p.id === hint.proposalId)
     if (owned) focusEntity = { type: 'proposal', id: owned.id, label: `Proposal ${owned.referenceNumber}` }
+  } else if (hint?.applicationId) {
+    // Ownership: matched against `applications`, already queried scoped to
+    // `where: { userId }` above — a foreign applicationId simply finds nothing.
+    const owned = applications.find(a => a.id === hint.applicationId)
+    if (owned) focusEntity = { type: 'application', id: owned.id, label: owned.title || owned.refNumber || 'Application' }
   }
 
   return {
