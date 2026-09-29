@@ -5,16 +5,33 @@
 // POST — create a new Organization. Requires 'b2b.manage'. This is the ONLY
 //        organization-creation path in Release 1 — there is no self-service
 //        signup route anywhere in this domain.
+//
+// SECURITY FIX (delta review after the independent security review's MEDIUM
+// finding): creation can no longer set an arbitrary lifecycle status — every
+// new Organization enters ONBOARDING, full stop. Reaching ACTIVE (or any
+// other status) is a separate, explicit, audited transition — see
+// app/api/admin/business/organizations/[id]/status/route.ts. This mirrors
+// the "no automatic/silent lifecycle jump" principle already established in
+// this codebase (Jade Club's JadeClubMembership never starts anywhere but
+// FREE; a status change is always its own audited admin action).
+// `accountManagerId` (a Staff.email string, per the schema comment) is now
+// verified against a real, active Staff row before the Organization is
+// created — a typo'd or made-up email is rejected rather than silently
+// stored, closing the "arbitrary string" gap the review flagged.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import prisma from '@/lib/db'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { CREATION_STATUS } from '@/lib/business/organization-status'
 
 export const dynamic = 'force-dynamic'
-
-const VALID_STATUSES = ['LEAD', 'ONBOARDING', 'ACTIVE', 'SUSPENDED', 'CLOSED']
+// Every Organization is created in CREATION_STATUS ('ONBOARDING'),
+// unconditionally. The POST body's `status` field (if a caller sends one)
+// is intentionally ignored — see the removed destructure below. The only
+// other place Organization.status may be written is the dedicated
+// [id]/status/route.ts transition endpoint.
 
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
@@ -58,8 +75,10 @@ export async function POST(req: NextRequest) {
 
   const {
     legalName, tradingName, registrationNumber, country, billingAddress,
-    businessEmail, businessPhone, status, accountManagerId, defaultCurrency, market,
+    businessEmail, businessPhone, accountManagerId, defaultCurrency, market,
   } = (body ?? {}) as Record<string, unknown>
+  // `status` is deliberately NOT destructured/accepted here — see the
+  // module header. Any status field a caller sends is silently ignored.
 
   if (typeof legalName !== 'string' || !legalName.trim()) {
     return NextResponse.json({ error: 'legalName is required' }, { status: 400 })
@@ -70,8 +89,18 @@ export async function POST(req: NextRequest) {
   if (typeof businessEmail !== 'string' || !businessEmail.trim()) {
     return NextResponse.json({ error: 'businessEmail is required' }, { status: 400 })
   }
-  if (status !== undefined && !VALID_STATUSES.includes(status as string)) {
-    return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+
+  let verifiedAccountManagerId: string | null = null
+  if (accountManagerId !== undefined && accountManagerId !== null) {
+    if (typeof accountManagerId !== 'string' || !accountManagerId.trim()) {
+      return NextResponse.json({ error: 'accountManagerId must be a non-empty string' }, { status: 400 })
+    }
+    const email = accountManagerId.trim().toLowerCase()
+    const staff = await prisma.staff.findUnique({ where: { email }, select: { email: true, isActive: true } })
+    if (!staff || !staff.isActive) {
+      return NextResponse.json({ error: 'accountManagerId must be an active Staff email' }, { status: 400 })
+    }
+    verifiedAccountManagerId = staff.email
   }
 
   const organization = await prisma.organization.create({
@@ -83,8 +112,8 @@ export async function POST(req: NextRequest) {
       billingAddress: typeof billingAddress === 'string' ? billingAddress.trim() : null,
       businessEmail: businessEmail.trim().toLowerCase(),
       businessPhone: typeof businessPhone === 'string' ? businessPhone.trim() : null,
-      status: (status as string) ?? 'LEAD',
-      accountManagerId: typeof accountManagerId === 'string' ? accountManagerId.trim() : null,
+      status: CREATION_STATUS,
+      accountManagerId: verifiedAccountManagerId,
       defaultCurrency: typeof defaultCurrency === 'string' && defaultCurrency.trim() ? defaultCurrency.trim().toUpperCase() : 'GBP',
       market: typeof market === 'string' ? market.trim() : null,
     },

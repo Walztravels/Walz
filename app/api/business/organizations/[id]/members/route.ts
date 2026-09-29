@@ -1,5 +1,12 @@
 // app/api/business/organizations/[id]/members/route.ts — Walz Business (R1)
-// GET  — list members. No minRole (any ACTIVE member may see the roster).
+// GET  — list members. minRole COORDINATOR — the full roster (names, emails,
+//        roles) is management-tier-and-above visibility. Only the floor role
+//        TRAVELLER is denied here (SECURITY FIX, delta review: the ordinary
+//        TRAVELLER role must not see the full organization member roster
+//        by default). OWNER/ADMIN/TRAVEL_MANAGER/APPROVER/FINANCE/
+//        COORDINATOR keep unrestricted roster visibility within their own
+//        organization — this never crosses the organization boundary
+//        either way, only narrows who sees it within one org.
 // POST — invite a member. minRole ADMIN.
 //
 // Release 1 limitation (not a deferred-list item, just an implementation
@@ -25,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id)
+  const access = await assertOrgScopedAccess(session.user.id, params.id, { minRole: 'COORDINATOR' })
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }

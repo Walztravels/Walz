@@ -5,6 +5,7 @@
  */
 const mockPrisma = {
   organization: { findMany: jest.fn(), create: jest.fn() },
+  staff: { findUnique: jest.fn() },
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
 jest.mock('@/lib/admin-auth', () => ({ getAdminSession: jest.fn() }))
@@ -86,21 +87,92 @@ describe('POST create organization (staff-only path)', () => {
     expect(mockPrisma.organization.create).not.toHaveBeenCalled()
   })
 
-  it('creates an organization with b2b.manage and records an audit row', async () => {
+  it('creates an organization with b2b.manage and records an audit row — always status ONBOARDING', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
-    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme Ltd', businessEmail: 'a@acme.com', status: 'LEAD' })
+    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme Ltd', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
 
     const res = await POST(postReq({ legalName: 'Acme Ltd', country: 'GB', businessEmail: 'A@Acme.com' }))
     expect(res.status).toBe(201)
     expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ legalName: 'Acme Ltd', businessEmail: 'a@acme.com', status: 'LEAD', defaultCurrency: 'GBP' }),
+      data: expect.objectContaining({ legalName: 'Acme Ltd', businessEmail: 'a@acme.com', status: 'ONBOARDING', defaultCurrency: 'GBP' }),
     }))
     expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'organization.create' }))
   })
 
-  it('rejects an invalid status value', async () => {
+  // SECURITY FIX (delta review, MEDIUM finding): a client-supplied `status`
+  // can no longer set anything but the hardcoded ONBOARDING creation value —
+  // it is silently ignored rather than rejected, since accepting-but-
+  // ignoring is simpler and equally safe (a caller cannot use this field to
+  // achieve any effect at all, valid or invalid).
+  it('silently ignores a client-supplied status field — creation is always ONBOARDING regardless', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+
+    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', status: 'ACTIVE' }))
+    expect(res.status).toBe(201)
+    expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'ONBOARDING' }),
+    }))
+  })
+
+  it('silently ignores even an invalid/bogus status value — no 400, just ignored', async () => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+
     const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', status: 'BOGUS' }))
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(201)
+    expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'ONBOARDING' }),
+    }))
+  })
+
+  describe('accountManagerId verification (SECURITY FIX, delta review)', () => {
+    it('rejects a non-existent Staff email', async () => {
+      ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+      mockPrisma.staff.findUnique.mockResolvedValue(null)
+
+      const res = await POST(postReq({
+        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', accountManagerId: 'ghost@walztravels.com',
+      }))
+      expect(res.status).toBe(400)
+      expect(mockPrisma.organization.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects an inactive Staff email', async () => {
+      ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+      mockPrisma.staff.findUnique.mockResolvedValue({ email: 'exstaff@walztravels.com', isActive: false })
+
+      const res = await POST(postReq({
+        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', accountManagerId: 'exstaff@walztravels.com',
+      }))
+      expect(res.status).toBe(400)
+      expect(mockPrisma.organization.create).not.toHaveBeenCalled()
+    })
+
+    it('accepts and stores a verified active Staff email', async () => {
+      ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+      mockPrisma.staff.findUnique.mockResolvedValue({ email: 'ops@walztravels.com', isActive: true })
+      mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+
+      const res = await POST(postReq({
+        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', accountManagerId: 'OPS@Walztravels.com',
+      }))
+      expect(res.status).toBe(201)
+      expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ accountManagerId: 'ops@walztravels.com' }),
+      }))
+    })
+
+    it('omits accountManagerId entirely when not supplied — no Staff lookup performed', async () => {
+      ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+      mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com' }))
+      expect(res.status).toBe(201)
+      expect(mockPrisma.staff.findUnique).not.toHaveBeenCalled()
+      expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ accountManagerId: null }),
+      }))
+    })
   })
 })

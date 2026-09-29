@@ -1,6 +1,9 @@
 /**
  * Walz Business (Release 1) — /api/business/organizations/[id]/requests
- * GET (list, no minRole) / POST (create DRAFT, minRole TRAVEL_MANAGER).
+ * GET (list, no minRole to CALL it, but SECURITY FIX per delta review: the
+ * floor role TRAVELLER's results are filtered to only requests they
+ * themselves submitted or that name them as a traveller — never the full
+ * org list) / POST (create DRAFT, minRole TRAVEL_MANAGER).
  */
 const mockPrisma = {
   organizationMembership: { findUnique: jest.fn() },
@@ -43,8 +46,8 @@ describe('GET travel requests', () => {
     expect(res.status).toBe(404)
   })
 
-  it('lists requests for any ACTIVE member', async () => {
-    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'TRAVELLER' }))
+  it('COORDINATOR and above see the full org-wide list (unfiltered where)', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'COORDINATOR' }))
     mockPrisma.travelRequest.findMany.mockResolvedValue([
       { id: 'r1', title: 'Lagos trip', notes: null, status: 'DRAFT', submittedByMembershipId: 'mem_1', createdAt: new Date() },
     ])
@@ -52,6 +55,37 @@ describe('GET travel requests', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.requests).toHaveLength(1)
+    expect(mockPrisma.travelRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: ORG_A },
+    }))
+  })
+
+  // SECURITY FIX (delta review): the floor role TRAVELLER must only see
+  // their own business travel requests — either ones they submitted, or
+  // ones that name them as a traveller.
+  it('TRAVELLER gets a filtered where-clause scoped to their own submitted or traveller-linked requests only', async () => {
+    const mem = membershipRow({ role: 'TRAVELLER' })
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(mem)
+    mockPrisma.travelRequest.findMany.mockResolvedValue([])
+    const res = await GET(getReq(), { params: { id: ORG_A } })
+    expect(res.status).toBe(200)
+    expect(mockPrisma.travelRequest.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        organizationId: ORG_A,
+        OR: [
+          { submittedByMembershipId: mem.id },
+          { travellers: { some: { businessTraveller: { userId: USER } } } },
+        ],
+      },
+    }))
+  })
+
+  it('TRAVELLER never receives the unfiltered org-wide where-clause', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'TRAVELLER' }))
+    mockPrisma.travelRequest.findMany.mockResolvedValue([])
+    await GET(getReq(), { params: { id: ORG_A } })
+    const calledWhere = mockPrisma.travelRequest.findMany.mock.calls[0][0].where
+    expect(calledWhere).not.toEqual({ organizationId: ORG_A })
   })
 })
 
