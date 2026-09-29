@@ -4483,7 +4483,7 @@ model JadeClubBenefit {
   description         String?  @db.Text
   eligibleTiers       String[] @default([]) @map("eligible_tiers")  // subset of FREE | CLUB | CLUB_PLUS
   status              String   @default("COMING_SOON")  // ACTIVE | INACTIVE | COMING_SOON
-  activationMethod    String?  @map("activation_method")  // EXTERNAL_LINK | CODE | API | MANUAL
+  activationMethod    String?  @map("activation_method")  // EXTERNAL_LINK | CODE | API | MANUAL | NONE
   activationUrl       String?  @map("activation_url")
   countryRestrictions String[] @default([]) @map("country_restrictions")
   sortOrder           Int      @default(0) @map("sort_order")

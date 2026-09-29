@@ -170,7 +170,7 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_jade_club_benefits_activation_method') THEN
     ALTER TABLE jade_club_benefits
       ADD CONSTRAINT chk_jade_club_benefits_activation_method
-      CHECK (activation_method IS NULL OR activation_method IN ('EXTERNAL_LINK','CODE','API','MANUAL'));
+      CHECK (activation_method IS NULL OR activation_method IN ('EXTERNAL_LINK','CODE','API','MANUAL','NONE'));
   END IF;
 END $$;
 
