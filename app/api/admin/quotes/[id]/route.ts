@@ -536,11 +536,18 @@ export async function PATCH(
   }
 
   // ── Generic field update ───────────────────────────────────────────────────
+  // SECURITY FIX (UX-4.2 closure review): `status` removed from this list —
+  // it was reachable with only `quotes.edit` (held by nearly every
+  // operational role) and no identity re-check, letting a quote be marked
+  // 'accepted' with zero client evidence (no acceptedAt/acceptedIp/
+  // clientSignatureName). Every legitimate status transition already has
+  // its own dedicated, audited action branch above (send/resend, cancel/
+  // archive, convert, create_revision) — grepped every caller in the repo
+  // and confirmed none sends `status` through this generic path.
   const allowedFields = [
     'title', 'description', 'currency', 'internalNotes', 'assignedTo',
     'clientName', 'clientEmail', 'clientPhone', 'clientCountry',
     'validUntil', 'depositMinor', 'depositCurrency', 'depositPercentage',
-    'status',
   ]
 
   // Currency-integrity guard (V1.2.1.1 hardening) — fail-closed only, no
@@ -580,6 +587,29 @@ export async function PATCH(
           code: 'CURRENCY_LOCKED',
         },
         { status: 409 },
+      )
+    }
+  }
+
+  // SECURITY FIX (UX-4.2 closure review): for a conversation-linked quote,
+  // changing WHO receives the proposal (name/email/phone/country) must go
+  // through the same VERIFIED/LINKED identity check every other commercial
+  // mutation on this quote already requires — otherwise a staff member
+  // holding only `quotes.edit` could PATCH clientEmail post-creation to
+  // redirect a proposal link away from the verified client, entirely
+  // bypassing the creation-time identity gate. Quotes with no
+  // conversationId (the plain admin wizard) are unaffected — this check
+  // only applies when the quote is actually tied to an Inbox conversation.
+  const identityFields = ['clientName', 'clientEmail', 'clientPhone', 'clientCountry']
+  if (quote.conversationId != null && identityFields.some(f => f in fields)) {
+    const resolved = await resolveClientActionContext(quote.conversationId, session)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error, code: 'CLIENT_IDENTITY_REQUIRED' }, { status: resolved.status })
+    }
+    if (resolved.context.resolution !== 'VERIFIED' && resolved.context.resolution !== 'LINKED') {
+      return NextResponse.json(
+        { error: 'Verify the client identity before changing client details on this quote.', code: 'CLIENT_IDENTITY_REQUIRED' },
+        { status: 403 },
       )
     }
   }
