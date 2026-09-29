@@ -108,6 +108,9 @@ export type Permission =
   | 'quotes.manage_pricing'
   | 'quotes.extend_validity'
   | 'quotes.view_audit'
+  // ── Jade Travel Club ─────────────────────────────────────────────────────
+  | 'jade_club'
+  | 'jade_club.manage'
 
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
@@ -141,6 +144,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'concierge', 'concierge.book', 'concierge.images',
   'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
   'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
+  'jade_club', 'jade_club.manage',
 ]
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
@@ -168,6 +172,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'concierge', 'concierge.book', 'concierge.images',
     'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
     'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
+    'jade_club', 'jade_club.manage',
   ],
 
   visa_officer: [
@@ -243,6 +248,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'clients', 'bookings', 'visa', 'leads', 'approvals',
     'jade.staff',
     'concierge',
+    'jade_club',
   ],
 
   // ── Backward-compatible aliases ──────────────────────────────────────────
@@ -270,6 +276,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'concierge', 'concierge.book', 'concierge.images',
     'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
     'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
+    'jade_club', 'jade_club.manage',
   ],
 
   senior_manager: [
@@ -286,6 +293,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'concierge',
     'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.convert',
     'quotes.view_margin', 'quotes.extend_validity', 'quotes.view_audit',
+    'jade_club',
   ],
 
   sales_rep: [
@@ -427,6 +435,12 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'QUOTES',
     items: [
       { href: '/admin/quotes', label: 'Quotes & Proposals', icon: 'FileText', permission: 'quotes' },
+    ],
+  },
+  {
+    section: 'JADE TRAVEL CLUB',
+    items: [
+      { href: '/admin/jade-club', label: 'Jade Club Control Centre', icon: 'Star', permission: 'jade_club' },
     ],
   },
   {

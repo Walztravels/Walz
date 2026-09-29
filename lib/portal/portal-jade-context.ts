@@ -8,6 +8,8 @@ import { buildPrimaryJadeContext } from './jade-context'
 import { getTravellerProfileCompleteness } from './traveller-completeness'
 import { getPassportExpiryStatus } from './traveller-dto'
 import { deriveCustomerActions } from './customer-actions'
+import { getJadeClubMembership } from '@/lib/jade-club/membership'
+import { JADE_CLUB_TIER_LABELS } from '@/lib/jade-club/types'
 
 // ─── Safe DTO types ────────────────────────────────────────────────────────────
 
@@ -72,6 +74,8 @@ export interface PortalJadeContext {
   unreadNotificationCount: number
   pendingDocumentCount: number
   actionsRequired: Array<{ label: string; description: string; href: string; priority: string }>
+  // Only populated when PortalContextHint.club is set — see the builder.
+  clubMembership?: { tierLabel: string }
 }
 
 export interface PortalContextHint {
@@ -84,6 +88,13 @@ export interface PortalContextHint {
   // on its own — a hint for a PortalApplication owned by someone else simply
   // resolves to no focusEntity.
   applicationId?: string
+  // Jade Travel Club entry point ("Ask Jade about Jade Travel Club"). Unlike
+  // the hints above this carries no id to verify — it just tells the
+  // builder to look up THIS session's own membership (see
+  // getJadeClubMembership below) and surface it as the focus entity. There
+  // is nothing to "own" incorrectly here: the membership is always resolved
+  // from the caller's own authenticated session, never from client input.
+  club?: boolean
 }
 
 // ─── Builder ──────────────────────────────────────────────────────────────────
@@ -260,6 +271,17 @@ export async function buildPortalJadeContext(
     if (owned) focusEntity = { type: 'application', id: owned.id, label: owned.title || owned.refNumber || 'Application' }
   }
 
+  // Jade Travel Club — resolved independently of focusEntity (its type union
+  // is 'trip' | 'booking' | 'proposal' | 'application' and is left
+  // unchanged here; see clubMembership below instead). Read-only: never
+  // creates a membership row just from being asked — a user with no row yet
+  // is legitimately Jade Free (see lib/jade-club/membership.ts).
+  let clubMembership: PortalJadeContext['clubMembership']
+  if (hint?.club) {
+    const membership = await getJadeClubMembership(userId)
+    clubMembership = { tierLabel: JADE_CLUB_TIER_LABELS[membership?.tier ?? 'FREE'] }
+  }
+
   return {
     customer: { displayName, firstName },
     focusEntity,
@@ -271,6 +293,7 @@ export async function buildPortalJadeContext(
     unreadNotificationCount: unreadCount,
     pendingDocumentCount: pendingDocCount,
     actionsRequired: actions.map(a => ({ label: a.label, description: a.description, href: a.href, priority: a.priority })),
+    clubMembership,
   }
 }
 
@@ -342,6 +365,10 @@ export function serializePortalContextForPrompt(ctx: PortalJadeContext): string 
       lines.push(`  [${a.priority.toUpperCase()}] ${a.label}: ${a.description}`)
     }
     lines.push('')
+  }
+
+  if (ctx.clubMembership) {
+    lines.push(`Jade Travel Club membership: ${ctx.clubMembership.tierLabel}`, '')
   }
 
   const badges: string[] = []

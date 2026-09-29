@@ -10,7 +10,7 @@ import PortalJadeChat           from './_components/PortalJadeChat'
 export const dynamic = 'force-dynamic'
 
 interface Props {
-  searchParams: { trip?: string; booking?: string; proposal?: string; application?: string }
+  searchParams: { trip?: string; booking?: string; proposal?: string; application?: string; club?: string }
 }
 
 export default async function PortalJadePage({ searchParams }: Props) {
@@ -22,6 +22,7 @@ export default async function PortalJadePage({ searchParams }: Props) {
     bookingId:     searchParams.booking     || undefined,
     proposalId:    searchParams.proposal    || undefined,
     applicationId: searchParams.application || undefined,
+    club:          searchParams.club === '1' || undefined,
   }
 
   const ctx = await buildPortalJadeContext(session.user.id, hint)

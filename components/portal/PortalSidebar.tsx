@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, Upload, CreditCard,
   CheckSquare, Users, LogOut, Globe, ChevronRight,
   UserCircle, MessageCircle, Shield, Compass, Sparkles, Package2, Bell,
-  Award, Map,
+  Award, Map, Gem,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -21,6 +21,7 @@ const NAV = [
   { href: '/dashboard/jade',           label: 'Ask Jade',         icon: Sparkles        },
   { href: '/dashboard/trips',         label: 'My Trips',         icon: Map             },
   { href: '/dashboard/miles',         label: 'Walz Miles',       icon: Award           },
+  { href: '/dashboard/club',          label: 'Jade Travel Club', icon: Gem             },
   { href: '/plan/library',            label: 'Trip Planner',     icon: Compass         },
   { href: '/dashboard/proposals',     label: 'My Itineraries',   icon: Sparkles        },
   { href: '/dashboard/bookings',      label: 'My Bookings',      icon: Package2        },

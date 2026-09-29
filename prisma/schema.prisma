@@ -58,6 +58,7 @@ model User {
   tripRequests         TripRequest[]
   walzRewards          WalzRewardsMembership?
   travellerProfiles    TravellerProfile[]
+  jadeClubMembership   JadeClubMembership?
 }
 
 model Account {
@@ -4387,6 +4388,112 @@ model WalzMilesTransaction {
 
   @@index([membershipId])
   @@unique([bookingId, type])
+}
+
+// ===========================
+// Jade Travel Club — Phase 1
+//
+// Membership/benefits programme. This is a SEPARATE concept from the Walz
+// Miles loyalty/status tier above (WalzRewardsMembership.tier —
+// bronze/silver/gold/platinum, earned from booking activity). Jade Club
+// membership (FREE/CLUB/CLUB_PLUS) is a purchased-or-granted programme tier;
+// the two are never merged. A user with no JadeClubMembership row is Jade
+// Free by default — rows are created lazily on first Club-page/Digital Card
+// visit, never bulk-backfilled for existing users (see
+// lib/jade-club/membership.ts ensureJadeClubMembership).
+//
+// No paid tier is ever activated by app code in Phase 1 — JadeClubMembership
+// rows can only move to a non-FREE tier/status via an admin-authorized,
+// audited mutation (recorded on the existing ActivityLog table), never via a
+// customer-facing route. Walz Miles are read-only from this module — never
+// mutated, backfilled, or given monetary value. See the flight Miles
+// redemption freeze in lib/payments/authority.ts (untouched by this feature).
+//
+// snake_case + @map/@@map, TEXT + CHECK (not native Postgres ENUM) — matches
+// this repo's established convention for every recent hand-run migration
+// (see the Team Hub V1 comment above and Quote.status), because widening a
+// CHECK constraint is a trivial idempotent ALTER, unlike ALTER TYPE.
+// Valid values are still fully enforced in TypeScript via the union types in
+// lib/jade-club/types.ts, not just at the DB layer.
+// ===========================
+
+model JadeClubMembership {
+  id             String    @id @default(cuid())
+  userId         String    @unique @map("user_id")
+  memberCode     String    @unique @map("member_code")  // public-safe display ID (e.g. JW-002847) — never the DB id/cuid
+  tier           String    @default("FREE")             // FREE | CLUB | CLUB_PLUS
+  status         String    @default("FREE")             // FREE | ACTIVE | EXPIRING | EXPIRED | CANCELLED
+  source         String    @default("DEFAULT")          // DEFAULT | ADMIN_GRANT | PROMOTION | PURCHASE (reserved, unused in Phase 1)
+  startedAt      DateTime  @default(now()) @map("started_at")
+  expiresAt      DateTime? @map("expires_at")
+  cancelledAt    DateTime? @map("cancelled_at")
+  qrTokenVersion Int       @default(1) @map("qr_token_version")  // bump to rotate/invalidate every previously issued QR code
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  physicalCard JadePhysicalCard?
+
+  @@index([userId])
+  @@index([tier])
+  @@index([status])
+  @@map("jade_club_memberships")
+}
+
+// Membership-card fulfilment foundation only — no ordering flow exposed to
+// customers in Phase 1 (UI shows "Coming Soon"). Membership credential only:
+// no payment functionality, no stored balance, no PAN/CVV, no identity
+// document data (no passport number/DOB/home address beyond a shipping
+// address for fulfilment).
+model JadePhysicalCard {
+  id                String    @id @default(cuid())
+  membershipId      String    @unique @map("membership_id")
+  status            String    @default("NOT_ORDERED")  // NOT_ORDERED | REQUESTED | APPROVED | PRINTING | SHIPPED | DELIVERED | CANCELLED
+  cardholderName    String?   @map("cardholder_name")
+  shippingAddress1  String?   @map("shipping_address1")
+  shippingAddress2  String?   @map("shipping_address2")
+  shippingCity      String?   @map("shipping_city")
+  shippingState     String?   @map("shipping_state")
+  shippingPostal    String?   @map("shipping_postal")
+  shippingCountry   String?   @map("shipping_country")
+  trackingReference String?   @map("tracking_reference")
+  requestedAt       DateTime? @map("requested_at")
+  approvedAt        DateTime? @map("approved_at")
+  shippedAt         DateTime? @map("shipped_at")
+  deliveredAt       DateTime? @map("delivered_at")
+  cancelledAt       DateTime? @map("cancelled_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  membership JadeClubMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("jade_physical_cards")
+}
+
+// Reusable benefits catalog (Walz + Partner benefits). Per-member entitlement
+// is computed at read time (membership.tier ∈ eligibleTiers) — Phase 1 has no
+// paid tiers active, so this intentionally has no per-member override table.
+model JadeClubBenefit {
+  id                  String   @id @default(cuid())
+  key                 String   @unique  // stable slug, e.g. "jade-ai", "priority-pass"
+  name                String
+  category            String            // WALZ | PARTNER
+  provider            String?           // e.g. "Walz Travels", "Priority Pass"
+  description         String?  @db.Text
+  eligibleTiers       String[] @default([]) @map("eligible_tiers")  // subset of FREE | CLUB | CLUB_PLUS
+  status              String   @default("COMING_SOON")  // ACTIVE | INACTIVE | COMING_SOON
+  activationMethod    String?  @map("activation_method")  // EXTERNAL_LINK | CODE | API | MANUAL
+  activationUrl       String?  @map("activation_url")
+  countryRestrictions String[] @default([]) @map("country_restrictions")
+  sortOrder           Int      @default(0) @map("sort_order")
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([status])
+  @@map("jade_club_benefits")
 }
 
 // ===========================
