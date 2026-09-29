@@ -59,6 +59,11 @@ model User {
   walzRewards          WalzRewardsMembership?
   travellerProfiles    TravellerProfile[]
   jadeClubMembership   JadeClubMembership?
+
+  // ── Walz Business (Release 1) ─────────────────────────────────────────────
+  // Back-relations only — additive, does not change any existing field.
+  organizationMemberships OrganizationMembership[]
+  businessTravellerLinks  BusinessTraveller[]
 }
 
 model Account {
@@ -7205,4 +7210,238 @@ model StaffPerformanceHistory {
   @@index([documentId])
   @@index([action])
   @@map("staff_performance_history")
+}
+
+// ============================================================================
+// WALZ BUSINESS — RELEASE 1: Secure Organization Foundation
+// ============================================================================
+// Additive-only domain (new tables only). Does NOT modify the shape or
+// behavior of Trip/Quote/VisaApplication/Itinerary/PaymentLink in any way —
+// TravelRequestService below holds plain, unenforced-at-Prisma-level id
+// columns pointing at those tables (no organizationId column added to any of
+// them, no Prisma relation/back-relation declared on them either — mirrors
+// how Quote.createdBy already references Staff.email as a loose string
+// rather than a hard FK/relation). Organization scope for those mature
+// records is resolved by joining through TravelRequestService, never by a
+// column on the mature table itself.
+//
+// AUTHORIZATION: every route touching these models MUST call
+// lib/business/authz.ts::assertOrgScopedAccess() (or
+// assertSensitiveDocumentAccess() for visa/passport documents) as its first
+// authorization step. See that file for the fail-closed contract and the
+// documented role ordering.
+//
+// CONVENTION: snake_case tables + TEXT for status-like fields (valid values
+// enforced via CHECK constraints in the hand-written SQL migration and
+// re-validated in TypeScript), matching this repo's established convention
+// for recent hand-run migrations — see prisma/migrations/jade_travel_club_v1.sql
+// and prisma/migrations/staff_checkin_v2.sql for precedent.
+// ============================================================================
+
+model Organization {
+  id                 String   @id @default(cuid())
+  legalName          String   @map("legal_name")
+  tradingName        String?  @map("trading_name")
+  registrationNumber String?  @map("registration_number")
+  country            String
+  billingAddress     String?  @map("billing_address") @db.Text
+  businessEmail      String   @map("business_email")
+  businessPhone      String?  @map("business_phone")
+  // LEAD | ONBOARDING | ACTIVE | SUSPENDED | CLOSED
+  status             String   @default("LEAD")
+  // Staff.email — deliberately NOT a hard FK to Staff (matches how
+  // Quote.createdBy already references Staff.email as a plain string).
+  accountManagerId   String?  @map("account_manager_id")
+  defaultCurrency    String   @default("GBP") @map("default_currency")
+  market             String?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  memberships    OrganizationMembership[]
+  travellers     BusinessTraveller[]
+  travelRequests TravelRequest[]
+
+  @@index([status])
+  @@map("organizations")
+}
+
+model OrganizationMembership {
+  id             String    @id @default(cuid())
+  organizationId String    @map("organization_id")
+  userId         String    @map("user_id")
+  // OWNER | ADMIN | TRAVEL_MANAGER | APPROVER | FINANCE | TRAVELLER | COORDINATOR
+  // See lib/business/authz.ts for the documented role ordering.
+  role           String
+  // INVITED | ACTIVE | SUSPENDED | REMOVED
+  status         String    @default("INVITED")
+  invitedBy      String?   @map("invited_by")
+  joinedAt       DateTime? @map("joined_at")
+  lastActivityAt DateTime? @map("last_activity_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  submittedRequests TravelRequest[]  @relation("SubmittedByMembership")
+  approvals         TravelApproval[] @relation("ApproverMembership")
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("organization_memberships")
+}
+
+model BusinessTraveller {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  // Explicit-verification-only claim — NEVER set automatically on
+  // email match. See lib/business/claim.ts.
+  userId         String?  @map("user_id")
+  firstName      String   @map("first_name")
+  lastName       String   @map("last_name")
+  email          String
+  phone          String?
+  status         String   @default("active")
+  // Staff or organization-member identifier who created this row.
+  createdBy      String   @map("created_by")
+
+  // Explicit-verification claim flow — data model only in Release 1. See
+  // lib/business/claim.ts::initiateBusinessTravellerClaim() doc comment.
+  claimVerificationToken String?   @unique @map("claim_verification_token")
+  claimVerifiedAt        DateTime? @map("claim_verified_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  travelRequestLinks TravelRequestTraveller[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([email])
+  @@map("business_travellers")
+}
+
+model TravelRequest {
+  id                      String   @id @default(cuid())
+  organizationId          String   @map("organization_id")
+  submittedByMembershipId String   @map("submitted_by_membership_id")
+  // DRAFT | SUBMITTED | AWAITING_APPROVAL | APPROVED | REJECTED |
+  // IN_PROGRESS | COMPLETED | CANCELLED
+  // Deliberately its own independent status string — NOT TripStatus, NOT
+  // VisaApplication.status.
+  status                  String   @default("DRAFT")
+  title                   String?
+  notes                   String?  @db.Text
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  submittedBy  OrganizationMembership @relation("SubmittedByMembership", fields: [submittedByMembershipId], references: [id], onDelete: Restrict)
+
+  travellers TravelRequestTraveller[]
+  services   TravelRequestService[]
+  approvals  TravelApproval[]
+
+  @@index([organizationId])
+  @@index([submittedByMembershipId])
+  @@index([status])
+  @@map("travel_requests")
+}
+
+model TravelRequestTraveller {
+  id                  String   @id @default(cuid())
+  travelRequestId     String   @map("travel_request_id")
+  businessTravellerId String   @map("business_traveller_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  travelRequest     TravelRequest     @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+  businessTraveller BusinessTraveller @relation(fields: [businessTravellerId], references: [id], onDelete: Cascade)
+
+  @@unique([travelRequestId, businessTravellerId])
+  @@index([businessTravellerId])
+  @@map("travel_request_travellers")
+}
+
+model TravelRequestService {
+  id              String   @id @default(cuid())
+  travelRequestId String   @map("travel_request_id")
+  // FLIGHT | HOTEL | VISA | TRANSFER | ESIM | ITINERARY
+  serviceType     String   @map("service_type")
+
+  // Loose, unenforced-at-Prisma-level references into the mature booking
+  // domain — deliberately NOT Prisma relations (no @relation, no back-field
+  // on Quote/VisaApplication/Itinerary/Trip). This is the ONLY place
+  // organization scope for those tables is resolved, by joining through
+  // this table; see the migration SQL for the actual (nullable,
+  // ON DELETE SET NULL) foreign keys enforcing referential integrity
+  // without touching the shape of those tables themselves.
+  linkedQuoteId           String? @map("linked_quote_id")
+  linkedVisaApplicationId String? @map("linked_visa_application_id")
+  linkedItineraryId       String? @map("linked_itinerary_id")
+  linkedTripId            String? @map("linked_trip_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  travelRequest TravelRequest @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+
+  @@index([travelRequestId])
+  @@index([linkedQuoteId])
+  @@index([linkedVisaApplicationId])
+  @@index([linkedItineraryId])
+  @@index([linkedTripId])
+  @@map("travel_request_services")
+}
+
+model TravelApproval {
+  id                   String    @id @default(cuid())
+  travelRequestId      String    @map("travel_request_id")
+  approverMembershipId String    @map("approver_membership_id")
+  // PENDING | APPROVED | REJECTED | EXPIRED
+  // IMMUTABILITY INVARIANT: once decision is APPROVED or REJECTED with a
+  // non-null decidedAt, this row must never be updated again by any route.
+  // Enforced in application code (app/api/business/.../approve/route.ts)
+  // via an atomic compare-and-swap updateMany() keyed on decision:'PENDING'
+  // — never by a plain update() — so a concurrent second decision can never
+  // silently overwrite the first. Not enforced by a DB trigger in Release 1.
+  decision             String    @default("PENDING")
+  decidedAt            DateTime? @map("decided_at")
+  reason               String?   @db.Text
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  travelRequest      TravelRequest          @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+  approverMembership OrganizationMembership @relation("ApproverMembership", fields: [approverMembershipId], references: [id], onDelete: Restrict)
+
+  // One decision per (request, approver) — Release 1 is single-decision;
+  // multi-step approval *policies* are explicitly deferred (see mission
+  // brief). This unique constraint also gives the approve route a stable
+  // row to find-or-create before running its CAS update.
+  @@unique([travelRequestId, approverMembershipId])
+  @@index([travelRequestId])
+  @@index([approverMembershipId])
+  @@map("travel_approvals")
+}
+
+model BusinessAuditLog {
+  id             String   @id @default(cuid())
+  organizationId String?  @map("organization_id")
+  // Exactly one of actorUserId/actorStaffId is normally set — a customer
+  // portal action sets actorUserId, a staff/admin action sets actorStaffId.
+  actorUserId    String?  @map("actor_user_id")
+  actorStaffId   String?  @map("actor_staff_id")
+  action         String
+  entityType     String   @map("entity_type")
+  entityId       String?  @map("entity_id")
+  before         Json?
+  after          Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("business_audit_log")
 }

@@ -111,6 +111,9 @@ export type Permission =
   // ── Jade Travel Club ─────────────────────────────────────────────────────
   | 'jade_club'
   | 'jade_club.manage'
+  // ── Walz Business (Release 1) ───────────────────────────────────────────
+  | 'b2b'
+  | 'b2b.manage'
 
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
@@ -145,6 +148,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
   'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
   'jade_club', 'jade_club.manage',
+  'b2b', 'b2b.manage',
 ]
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
@@ -173,6 +177,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
     'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
     'jade_club', 'jade_club.manage',
+    'b2b', 'b2b.manage',
   ],
 
   visa_officer: [
@@ -277,6 +282,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
     'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
     'jade_club', 'jade_club.manage',
+    'b2b', 'b2b.manage',
   ],
 
   senior_manager: [
@@ -294,6 +300,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.convert',
     'quotes.view_margin', 'quotes.extend_validity', 'quotes.view_audit',
     'jade_club',
+    'b2b',
   ],
 
   sales_rep: [
@@ -441,6 +448,12 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'JADE TRAVEL CLUB',
     items: [
       { href: '/admin/jade-club', label: 'Jade Club Control Centre', icon: 'Star', permission: 'jade_club' },
+    ],
+  },
+  {
+    section: 'WALZ BUSINESS',
+    items: [
+      { href: '/admin/business', label: 'Organizations', icon: 'Building2', permission: 'b2b' },
     ],
   },
   {
