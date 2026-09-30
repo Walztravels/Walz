@@ -70,15 +70,18 @@ describe('Release 2B — purchase engine stays inside the same boundaries', () =
     expect(purchaseSrc).toMatch(/amountMinor: policy\.annualPriceMinor/)
   })
 
-  it('terms/entitlement creation with source PURCHASE goes through the shared createMembershipTermsCore only, never re-implemented elsewhere (structural remediation)', () => {
+  it('terms/entitlement CREATION with source PURCHASE goes through the shared createMembershipTermsCore only, never re-implemented elsewhere (structural remediation)', () => {
     const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
     expect(activationSrc).toMatch(/createMembershipTermsCore\(/)
     expect(activationSrc).toMatch(/source: 'PURCHASE'/)
-    // purchase-activation.ts never re-implements the membership lock or the
-    // terms/snapshot/slot creation itself — that logic lives ONLY in the
-    // shared core inside entitlements.ts.
-    expect(activationSrc).not.toMatch(/SELECT id FROM jade_club_memberships WHERE id/)
+    // purchase-activation.ts never re-implements terms/snapshot/slot
+    // CREATION itself — that logic lives ONLY in the shared core inside
+    // entitlements.ts. (It DOES intentionally reuse the membership lock
+    // statement/query shape as a read-only pre-check for the
+    // winner-determined-before-mutation fix — see that fix's own header
+    // comment — but never duplicates the actual row-creation logic.)
     expect(activationSrc).not.toMatch(/jadeClubMembershipBenefitSnapshot\.create/)
+    expect(activationSrc).not.toMatch(/jadeClubEntitlementSlot\.create/)
 
     // The shared core's own lock/guard behavior is unchanged.
     const entitlementsSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'entitlements.ts'), 'utf8')
@@ -86,6 +89,39 @@ describe('Release 2B — purchase engine stays inside the same boundaries', () =
     // Correction 3: the collision case is a RETURNED result, not a thrown
     // exception, at the shared-core level.
     expect(entitlementsSrc).toMatch(/ok: false, reason: 'UNEXPIRED_TERMS_EXISTS'/)
+  })
+
+  it('applyPurchaseTierBump is called ONLY after the winner-determination pre-check, never speculatively before it (narrow fix)', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+    const bumpIndex = activationSrc.indexOf('await applyPurchaseTierBump(tx')
+    const preCheckIndex = activationSrc.indexOf('conflictingUnexpiredTerms')
+    expect(bumpIndex).toBeGreaterThan(-1)
+    expect(preCheckIndex).toBeGreaterThan(-1)
+    expect(bumpIndex).toBeGreaterThan(preCheckIndex)
+    expect(activationSrc).toMatch(/WINNER — confirmed\. Only NOW does canonical membership state change/)
+  })
+
+  it('applyPurchaseTierBump has exactly ONE call site anywhere in the codebase outside its own tests — inside attemptActivation, after the collision branch', () => {
+    // Full call-site inventory, per the narrow-fix mandate: search every
+    // .ts/.tsx file in the repo (excluding node_modules and this
+    // function's own test files) for a call to applyPurchaseTierBump.
+    const repoRoot = path.join(JADE_CLUB_DIR, '..', '..')
+    const callSites: string[] = []
+    function walk(dir: string) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === '.git') continue
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) { walk(full); continue }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue
+        if (entry.name.includes('.test.')) continue // test files call it directly to exercise it — not a production call site
+        const content = fs.readFileSync(full, 'utf8')
+        if (/applyPurchaseTierBump\(/.test(content) && !full.endsWith(path.join('lib', 'jade-club', 'membership.ts'))) {
+          callSites.push(full)
+        }
+      }
+    }
+    walk(repoRoot)
+    expect(callSites).toEqual([path.join(JADE_CLUB_DIR, 'purchase-activation.ts')])
   })
 
   it('activateMembershipTerms (2A admin wrapper) still throws the exact same collision error string — its external contract is unaffected by the shared-core refactor', () => {

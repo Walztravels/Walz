@@ -602,3 +602,199 @@ describe('Admin retry (reason-required, audited, reason-allowlisted, permission-
     await expect(adminResetForRetry(FAKE_ADMIN, p.id, 'trying anyway')).rejects.toThrow('not eligible for a mechanical retry')
   })
 })
+
+// ─── Mandatory new cross-tier tests (narrow fix, independent-review HIGH
+// finding: a losing purchase must never mutate JadeClubMembership.tier —
+// not even transiently — since a speculative pre-collision-check bump
+// could leave the membership's tier permanently diverged from the tier
+// of the terms the winner actually got issued). These are PERMANENT
+// regression tests, not throwaway verification. ─────────────────────────
+
+function seedCrossTierPolicy(tier: 'CLUB' | 'CLUB_PLUS', benefitKey: string, countPerPeriod: number) {
+  const policy = seedPolicy({ tier, currency: 'NGN', market: 'NG', annualPriceMinor: tier === 'CLUB' ? 8_500_000 : 15_000_000 })
+  state.policyBenefits.set(policy.id, [
+    { id: nid('pb', { n: purchaseSeq++ }), policyId: policy.id, benefitKey, entitlementType: 'COUNT_PER_PERIOD', countPerPeriod, costCapMinorUsd: null, booleanEligible: null },
+  ])
+  state.benefitsCatalog.set(benefitKey, { name: benefitKey })
+  return policy
+}
+
+describe('TEST 1 — CLUB wins, CLUB_PLUS loses (cross-tier, narrow fix)', () => {
+  it('membership.tier ends CLUB, terms.tier=CLUB, CLUB entitlements only; the losing CLUB_PLUS purchase never mutated the membership tier', async () => {
+    const userId = 'user_cross_tier_1'
+    const clubPolicy = seedCrossTierPolicy('CLUB', 'jade-connect-club', 3)
+    const clubPlusPolicy = seedCrossTierPolicy('CLUB_PLUS', 'jade-connect-club-plus', 6)
+
+    const membership = await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-CT1', tier: 'CLUB', status: 'FREE', source: 'DEFAULT' } })
+    const purchaseClub = seedPurchase({ userId, policyId: clubPolicy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+    const purchaseClubPlus = seedPurchase({ userId, policyId: clubPlusPolicy.id, tier: 'CLUB_PLUS', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    // Force CLUB to win by activating it first.
+    const outcomeA = await attemptActivation(purchaseClub.id)
+    expect(outcomeA.outcome).toBe('ACTIVATED')
+
+    const outcomeB = await attemptActivation(purchaseClubPlus.id)
+    expect(outcomeB).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    // Exactly one active terms period, for CLUB.
+    const allTerms = [...state.terms.values()].filter((t) => t.membershipId === membership.id)
+    expect(allTerms).toHaveLength(1)
+    expect(allTerms[0].tier).toBe('CLUB')
+
+    // Membership tier reflects the WINNER — CLUB, never CLUB_PLUS.
+    const membershipAfter = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    expect(membershipAfter.tier).toBe('CLUB')
+    expect(membershipAfter.status).toBe('ACTIVE')
+
+    // Only CLUB's entitlement slots exist (3), never CLUB_PLUS's (6).
+    const slotsForTerms = [...state.slots.values()].filter((s) => s.membershipTermsId === allTerms[0].id)
+    expect(slotsForTerms).toHaveLength(3)
+
+    // Purchase states.
+    const clubAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchaseClub.id } })
+    const clubPlusAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchaseClubPlus.id } })
+    expect(clubAfter.activationStatus).toBe('ACTIVATED')
+    expect(clubPlusAfter.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(clubPlusAfter.failureReason).toBe('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+    expect(clubPlusAfter.tier).toBe('CLUB_PLUS') // retained on ITS OWN purchase record for audit — never projected onto the membership
+
+    // THE explicit assertion the fix targets: the membership was NEVER at
+    // CLUB_PLUS at any point this test can observe, and definitely isn't now.
+    expect(membershipAfter.tier).not.toBe('CLUB_PLUS')
+  })
+})
+
+describe('TEST 2 — CLUB_PLUS wins, CLUB loses (cross-tier, narrow fix, reverse)', () => {
+  it('membership.tier ends CLUB_PLUS, terms.tier=CLUB_PLUS, CLUB_PLUS entitlements only; the losing CLUB purchase never downgraded the tier', async () => {
+    const userId = 'user_cross_tier_2'
+    const clubPolicy = seedCrossTierPolicy('CLUB', 'jade-connect-club-2', 3)
+    const clubPlusPolicy = seedCrossTierPolicy('CLUB_PLUS', 'jade-connect-club-plus-2', 6)
+
+    const membership = await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-CT2', tier: 'CLUB_PLUS', status: 'FREE', source: 'DEFAULT' } })
+    const purchaseClubPlus = seedPurchase({ userId, policyId: clubPlusPolicy.id, tier: 'CLUB_PLUS', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+    const purchaseClub = seedPurchase({ userId, policyId: clubPolicy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    // Force CLUB_PLUS to win by activating it first.
+    const outcomeB = await attemptActivation(purchaseClubPlus.id)
+    expect(outcomeB.outcome).toBe('ACTIVATED')
+
+    const outcomeA = await attemptActivation(purchaseClub.id)
+    expect(outcomeA).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    const allTerms = [...state.terms.values()].filter((t) => t.membershipId === membership.id)
+    expect(allTerms).toHaveLength(1)
+    expect(allTerms[0].tier).toBe('CLUB_PLUS')
+
+    const membershipAfter = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    expect(membershipAfter.tier).toBe('CLUB_PLUS')
+
+    const slotsForTerms = [...state.slots.values()].filter((s) => s.membershipTermsId === allTerms[0].id)
+    expect(slotsForTerms).toHaveLength(6)
+
+    const clubAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchaseClub.id } })
+    expect(clubAfter.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(clubAfter.failureReason).toBe('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+
+    // THE explicit assertion: the membership was NEVER downgraded to CLUB.
+    expect(membershipAfter.tier).not.toBe('CLUB')
+  })
+})
+
+describe('TEST 3 — loser arrives after the winner already settled (cross-tier)', () => {
+  it('a differently-tiered purchase attempting activation AFTER pre-existing active terms already exist changes nothing on the membership', async () => {
+    const userId = 'user_cross_tier_3'
+    const clubPolicy = seedCrossTierPolicy('CLUB', 'jade-connect-club-3', 3)
+    const clubPlusPolicy = seedCrossTierPolicy('CLUB_PLUS', 'jade-connect-club-plus-3', 6)
+
+    const membership = await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-CT3', tier: 'CLUB', status: 'ACTIVE', source: 'PURCHASE' } })
+    const winnerPurchase = seedPurchase({ userId, policyId: clubPolicy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'ACTIVATED' })
+    const winnerTerms = await fakeDb.jadeClubMembershipTerms.create({
+      data: {
+        membershipId: membership.id, policyId: clubPolicy.id, policyVersion: 1, tier: 'CLUB', market: 'NG', currency: 'NGN',
+        annualPriceMinor: 8_500_000, durationMonths: 12, serviceFeeDiscountPercent: 10,
+        activatedAt: new Date(), expiresAt: new Date(Date.now() + 1e10), source: 'PURCHASE', purchaseId: winnerPurchase.id,
+      },
+    })
+    await fakeDb.jadeClubPurchase.update({ where: { id: winnerPurchase.id }, data: { membershipTermsId: winnerTerms.id } })
+
+    const lateComer = seedPurchase({ userId, policyId: clubPlusPolicy.id, tier: 'CLUB_PLUS', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    const outcome = await attemptActivation(lateComer.id)
+    expect(outcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    // Membership/terms/entitlements completely unchanged.
+    const membershipAfter = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    expect(membershipAfter.tier).toBe('CLUB')
+    const allTerms = [...state.terms.values()].filter((t) => t.membershipId === membership.id)
+    expect(allTerms).toHaveLength(1)
+    expect(allTerms[0].id).toBe(winnerTerms.id)
+
+    const lateComerAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: lateComer.id } })
+    expect(lateComerAfter.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(lateComerAfter.membershipTermsId).toBeNull()
+  })
+})
+
+describe('TEST 4 — same-tier concurrency regression (unchanged behavior, still correct after the reorder)', () => {
+  it('two distinct SAME-TIER purchases: one winner, one reconciliation loser, no duplicate terms/benefits, correct membership tier', async () => {
+    const userId = 'user_same_tier_regression'
+    const policy = seedCrossTierPolicy('CLUB', 'jade-connect-same-tier', 3)
+    const membership = await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-ST1', tier: 'CLUB', status: 'FREE', source: 'DEFAULT' } })
+    const purchaseA = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+    const purchaseB = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    const outcomeA = await attemptActivation(purchaseA.id)
+    expect(outcomeA.outcome).toBe('ACTIVATED')
+    const outcomeB = await attemptActivation(purchaseB.id)
+    expect(outcomeB).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    const allTerms = [...state.terms.values()].filter((t) => t.membershipId === membership.id)
+    expect(allTerms).toHaveLength(1)
+    const allSnapshotsForTerms = [...state.snapshots.values()].filter((s) => s.membershipTermsId === allTerms[0].id)
+    expect(allSnapshotsForTerms).toHaveLength(1) // one benefit snapshot, never duplicated
+
+    const membershipAfter = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    expect(membershipAfter.tier).toBe('CLUB')
+    expect(membershipAfter.status).toBe('ACTIVE')
+  })
+})
+
+describe('TEST 5 — same-purchase idempotency (the winner retried)', () => {
+  it('retrying the ALREADY-ACTIVATED winning purchase: tier unchanged, same terms returned, same entitlements, ACTIVATED stays monotonic', async () => {
+    const userId = 'user_same_purchase_idempotent'
+    const policy = seedCrossTierPolicy('CLUB_PLUS', 'jade-connect-idempotent', 6)
+    const membership = await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-SP1', tier: 'CLUB_PLUS', status: 'FREE', source: 'DEFAULT' } })
+    const purchase = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB_PLUS', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    const firstOutcome = await attemptActivation(purchase.id)
+    expect(firstOutcome.outcome).toBe('ACTIVATED')
+    const firstTermsId = firstOutcome.outcome === 'ACTIVATED' ? firstOutcome.termsId : null
+
+    const membershipAfterFirst = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    const slotsAfterFirst = [...state.slots.values()].filter((s) => {
+      const snap = state.snapshots.get(s.benefitSnapshotId)
+      return snap && [...state.terms.values()].some((t) => t.id === snap.membershipTermsId && t.membershipId === membership.id)
+    })
+
+    // Retry the SAME purchase — via the top-level ALREADY_ACTIVATED
+    // precheck (the purchase row itself already reflects ACTIVATED) —
+    // ACTIVATED never regresses/changes on a retry.
+    const secondOutcome = await attemptActivation(purchase.id)
+    expect(secondOutcome).toEqual({ outcome: 'ALREADY_ACTIVATED' })
+
+    const membershipAfterSecond = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    expect(membershipAfterSecond.tier).toBe(membershipAfterFirst.tier)
+    expect(membershipAfterSecond.tier).toBe('CLUB_PLUS')
+
+    const allTerms = [...state.terms.values()].filter((t) => t.membershipId === membership.id)
+    expect(allTerms).toHaveLength(1) // never duplicated by the retry
+    expect(allTerms[0].id).toBe(firstTermsId)
+
+    const slotsAfterSecond = [...state.slots.values()].filter((s) => {
+      const snap = state.snapshots.get(s.benefitSnapshotId)
+      return snap && [...state.terms.values()].some((t) => t.id === snap.membershipTermsId && t.membershipId === membership.id)
+    })
+    expect(slotsAfterSecond.length).toBe(slotsAfterFirst.length) // no duplicate entitlement issuance
+    expect(slotsAfterSecond.length).toBe(6)
+  })
+})

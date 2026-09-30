@@ -44,6 +44,14 @@
  *   6. A genuine technical failure during entitlement issuance rolls back
  *      the ENTIRE real-Postgres transaction (no terms, no snapshots, no
  *      slots, no ACTIVATED purchase)
+ *   7. CROSS-TIER: two DIFFERENT-TIER SUCCEEDED purchases (CLUB + CLUB_PLUS)
+ *      race the SAME membership, CLUB forced to win — proves the narrow
+ *      fix (independent-review HIGH finding): the losing CLUB_PLUS
+ *      purchase never mutates membership.tier, which ends CLUB (matching
+ *      the winner), never CLUB_PLUS
+ *   8. CROSS-TIER reverse: CLUB_PLUS forced to win over CLUB — proves the
+ *      fix in the other direction (membership.tier ends CLUB_PLUS, never
+ *      downgraded to CLUB by the loser)
  */
 
 import { execSync, spawnSync } from 'child_process'
@@ -160,14 +168,22 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
         ('user_s3', 's3@example.com', 'Scenario 3', now(), now()),
         ('user_s4', 's4@example.com', 'Scenario 4', now(), now()),
         ('user_s5', 's5@example.com', 'Scenario 5', now(), now()),
-        ('user_s6', 's6@example.com', 'Scenario 6', now(), now());
+        ('user_s6', 's6@example.com', 'Scenario 6', now(), now()),
+        ('user_s7', 's7@example.com', 'Scenario 7', now(), now()),
+        ('user_s8', 's8@example.com', 'Scenario 8', now(), now());
 
       INSERT INTO jade_club_commercial_policies (id, tier, market, currency, annual_price_minor, duration_months, service_fee_discount_percent, effective_from, version, status, created_by, created_at, updated_at)
-      VALUES ('policy_concurrency_1', 'CLUB', 'NG', 'NGN', 8500000, 12, 10, now(), 1, 'ACTIVE', 'test-admin', now(), now());
+      VALUES
+        ('policy_concurrency_1', 'CLUB', 'NG', 'NGN', 8500000, 12, 10, now(), 1, 'ACTIVE', 'test-admin', now(), now()),
+        ('policy_concurrency_plus', 'CLUB_PLUS', 'NG', 'NGN', 15000000, 12, 15, now(), 1, 'ACTIVE', 'test-admin', now(), now());
       INSERT INTO jade_club_benefits (id, key, name, category, status, active, created_at, updated_at)
-      VALUES ('benefit_concurrency_1', 'jade-connect-concurrency', 'Jade Connect (test)', 'WALZ', 'ACTIVE', true, now(), now());
+      VALUES
+        ('benefit_concurrency_1', 'jade-connect-concurrency', 'Jade Connect (test)', 'WALZ', 'ACTIVE', true, now(), now()),
+        ('benefit_concurrency_plus', 'jade-connect-concurrency-plus', 'Jade Connect Plus (test)', 'WALZ', 'ACTIVE', true, now(), now());
       INSERT INTO jade_club_policy_benefits (id, policy_id, benefit_key, entitlement_type, count_per_period, created_at)
-      VALUES ('pb_concurrency_1', 'policy_concurrency_1', 'jade-connect-concurrency', 'COUNT_PER_PERIOD', 3, now());
+      VALUES
+        ('pb_concurrency_1', 'policy_concurrency_1', 'jade-connect-concurrency', 'COUNT_PER_PERIOD', 3, now()),
+        ('pb_concurrency_plus', 'policy_concurrency_plus', 'jade-connect-concurrency-plus', 'COUNT_PER_PERIOD', 6, now());
 
       -- Scenario 1: ONE membership, ONE purchase.
       INSERT INTO jade_club_memberships (id, user_id, member_code, tier, status, source, started_at, qr_token_version, created_at, updated_at)
@@ -210,6 +226,25 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
       VALUES ('membership_s6', 'user_s6', 'JW-900006', 'CLUB', 'FREE', 'DEFAULT', now(), 1, now(), now());
       INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at)
       VALUES ('purchase_s6', 'user_s6', 'membership_s6', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s6', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now());
+
+      -- Scenario 7 (narrow fix, cross-tier): ONE membership, two DIFFERENT-TIER
+      -- purchases (CLUB + CLUB_PLUS). The test forces CLUB to win by
+      -- activating it first.
+      INSERT INTO jade_club_memberships (id, user_id, member_code, tier, status, source, started_at, qr_token_version, created_at, updated_at)
+      VALUES ('membership_s7', 'user_s7', 'JW-900007', 'CLUB', 'FREE', 'DEFAULT', now(), 1, now(), now());
+      INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at)
+      VALUES
+        ('purchase_s7_club', 'user_s7', 'membership_s7', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s7_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
+        ('purchase_s7_plus', 'user_s7', 'membership_s7', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s7_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now());
+
+      -- Scenario 8 (narrow fix, cross-tier reverse): the SAME shape, but the
+      -- test forces CLUB_PLUS to win by activating it first.
+      INSERT INTO jade_club_memberships (id, user_id, member_code, tier, status, source, started_at, qr_token_version, created_at, updated_at)
+      VALUES ('membership_s8', 'user_s8', 'JW-900008', 'CLUB', 'FREE', 'DEFAULT', now(), 1, now(), now());
+      INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at)
+      VALUES
+        ('purchase_s8_plus', 'user_s8', 'membership_s8', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s8_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
+        ('purchase_s8_club', 'user_s8', 'membership_s8', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s8_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now());
     `
     const fixturePath = path.join(logDir, 'fixture.sql')
     fs.writeFileSync(fixturePath, fixtureSql)
@@ -369,5 +404,86 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
     } finally {
       psql(`ALTER TABLE jade_club_entitlement_slots DROP CONSTRAINT test_force_issuance_failure`)
     }
+  })
+
+  it('SCENARIO 7 — CROSS-TIER: CLUB forced to win over CLUB_PLUS — membership.tier ends CLUB, never mutated by the CLUB_PLUS loser (narrow fix, real Postgres)', async () => {
+    const clubOutcome = await attemptActivation('purchase_s7_club')
+    expect(clubOutcome.outcome).toBe('ACTIVATED')
+
+    const plusOutcome = await attemptActivation('purchase_s7_plus')
+    expect(plusOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    // Required final DB values, reported explicitly per the mandate:
+    const membershipTier = psql(`SELECT tier, status FROM jade_club_memberships WHERE id = 'membership_s7'`)
+    const activeTerms = psql(`SELECT id, tier, purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7'`)
+    const winningPurchase = psql(`SELECT activation_status, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s7_club'`)
+    const losingPurchase = psql(`SELECT activation_status, failure_reason, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s7_plus'`)
+    const snapshotCount = psql(`SELECT count(*) FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7')`)
+    const slotCount = psql(`SELECT count(*) FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7')`)
+    const eventCount = psql(`SELECT count(*) FROM jade_club_entitlement_events WHERE slot_id IN (SELECT id FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7'))`)
+
+    // eslint-disable-next-line no-console
+    console.log('[SCENARIO 7 final DB state]', {
+      membershipTier: membershipTier.stdout.trim(),
+      activeTerms: activeTerms.stdout.trim(),
+      winningPurchase: winningPurchase.stdout.trim(),
+      losingPurchase: losingPurchase.stdout.trim(),
+      snapshotCount: snapshotCount.stdout.trim(),
+      slotCount: slotCount.stdout.trim(),
+      eventCount: eventCount.stdout.trim(),
+    })
+
+    expect(membershipTier.stdout).toContain('CLUB')
+    expect(membershipTier.stdout).not.toContain('CLUB_PLUS')
+    expect(activeTerms.stdout).toMatch(/\bCLUB\b/)
+    expect(activeTerms.stdout).not.toContain('CLUB_PLUS')
+    expect(activeTerms.stdout).toContain('purchase_s7_club')
+    expect(winningPurchase.stdout).toContain('ACTIVATED')
+    expect(losingPurchase.stdout).toContain('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(losingPurchase.stdout).toContain('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+    expect(losingPurchase.stdout).toContain('CLUB_PLUS') // retained on ITS OWN record only
+    expect(snapshotCount.stdout.trim()).toBe('1')
+    expect(slotCount.stdout.trim()).toBe('3') // CLUB's count, never CLUB_PLUS's 6
+    expect(Number(eventCount.stdout.trim())).toBeGreaterThan(0)
+  })
+
+  it('SCENARIO 8 — CROSS-TIER reverse: CLUB_PLUS forced to win over CLUB — membership.tier ends CLUB_PLUS, never downgraded by the CLUB loser (narrow fix, real Postgres)', async () => {
+    const plusOutcome = await attemptActivation('purchase_s8_plus')
+    expect(plusOutcome.outcome).toBe('ACTIVATED')
+
+    const clubOutcome = await attemptActivation('purchase_s8_club')
+    expect(clubOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    const membershipTier = psql(`SELECT tier, status FROM jade_club_memberships WHERE id = 'membership_s8'`)
+    const activeTerms = psql(`SELECT id, tier, purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'`)
+    const winningPurchase = psql(`SELECT activation_status, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s8_plus'`)
+    const losingPurchase = psql(`SELECT activation_status, failure_reason, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s8_club'`)
+    const snapshotCount = psql(`SELECT count(*) FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8')`)
+    const slotCount = psql(`SELECT count(*) FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8')`)
+    const eventCount = psql(`SELECT count(*) FROM jade_club_entitlement_events WHERE slot_id IN (SELECT id FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'))`)
+
+    // eslint-disable-next-line no-console
+    console.log('[SCENARIO 8 final DB state]', {
+      membershipTier: membershipTier.stdout.trim(),
+      activeTerms: activeTerms.stdout.trim(),
+      winningPurchase: winningPurchase.stdout.trim(),
+      losingPurchase: losingPurchase.stdout.trim(),
+      snapshotCount: snapshotCount.stdout.trim(),
+      slotCount: slotCount.stdout.trim(),
+      eventCount: eventCount.stdout.trim(),
+    })
+
+    expect(membershipTier.stdout).toContain('CLUB_PLUS')
+    expect(activeTerms.stdout).toContain('CLUB_PLUS')
+    expect(activeTerms.stdout).toContain('purchase_s8_plus')
+    expect(winningPurchase.stdout).toContain('ACTIVATED')
+    expect(losingPurchase.stdout).toContain('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(losingPurchase.stdout).toContain('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+    expect(snapshotCount.stdout.trim()).toBe('1')
+    expect(slotCount.stdout.trim()).toBe('6') // CLUB_PLUS's count, never CLUB's 3
+
+    // THE explicit assertion: membership was never left at (or downgraded to) CLUB.
+    const membershipTierOnly = psql(`SELECT tier FROM jade_club_memberships WHERE id = 'membership_s8'`)
+    expect(membershipTierOnly.stdout.trim()).toBe('CLUB_PLUS')
   })
 })

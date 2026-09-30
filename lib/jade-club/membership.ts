@@ -296,20 +296,19 @@ export async function adminAdjustMembership(
 // no-op read — it never re-writes the row or re-emits an ActivityLog entry
 // for a retry that already succeeded.
 //
-// A NOTE ON THE "COLLISION LOSER STILL BUMPS TIER" CASE: this function is
-// called BEFORE the caller knows whether a distinct-purchase collision
-// will be found (that check happens moments later, inside
-// createMembershipTermsCore, because the policy's tier must already match
-// the membership's tier for that shared core's own guard to pass — see
-// its header). If a collision IS found and the caller commits the
-// PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION branch normally (Correction 3
-// — no rollback for an expected business outcome), this tier bump commits
-// too. This is deliberate, not an oversight: the member genuinely paid
-// for this tier via this purchase, so the membership correctly reflects
-// paying-member status regardless of which specific purchase's terms
-// period ultimately backs the entitlements — and the bump is idempotent/
-// convergent (the winning purchase's own bump, for the same tier, lands
-// on the identical target state).
+// INVARIANT (narrow fix, independent-review HIGH finding): the caller
+// (lib/jade-club/purchase-activation.ts::attemptActivation) MUST call this
+// function ONLY after it has already confirmed, under the membership's
+// FOR UPDATE lock, that this purchase wins activation (no conflicting
+// unexpired terms period exists) — NEVER speculatively before that
+// determination. A purchase that does not win activation must never
+// mutate JadeClubMembership.tier/status, even transiently. (An earlier
+// version of this flow called this function BEFORE the collision check,
+// reasoning that the bump was "harmless" for same-tier collisions — that
+// reasoning broke for a DIFFERENT-TIER collision, where the loser's tier
+// bump could permanently diverge from the tier of the terms the winner
+// actually got issued. Fixed by reordering the caller, not by adding a
+// compensating revert — see that file's header for the full before/after.)
 //
 // `durationMonths` is passed by the caller from the SAME
 // JadeClubCommercialPolicy row that createMembershipTermsCore will then
@@ -325,13 +324,18 @@ export interface PurchaseTierBumpResult {
 
 /**
  * tx-aware get-or-create, mirroring ensureJadeClubMembership's shape
- * exactly but scoped to the caller's transaction. Kept PRIVATE and
- * separate from the widely-used, non-transactional ensureJadeClubMembership
+ * exactly but scoped to the caller's transaction — kept as a SEPARATE
+ * function from the widely-used, non-transactional ensureJadeClubMembership
  * (used by many read-only display call sites that have no need for — and
  * should not be forced to open — a transaction) rather than changing that
- * shared helper's signature.
+ * shared helper's signature. Exported (narrow fix) so
+ * lib/jade-club/purchase-activation.ts::attemptActivation can resolve the
+ * SAME get-or-create membership row for its own winner-determination
+ * pre-check, before ever calling applyPurchaseTierBump — a brand-new
+ * customer's very first purchase must not fail just because no membership
+ * row happens to exist yet at that exact moment.
  */
-async function ensureMembershipInTx(tx: Tx, userId: string): Promise<JadeClubMembershipRecord> {
+export async function ensureMembershipInTx(tx: Tx, userId: string): Promise<JadeClubMembershipRecord> {
   const existing = await tx.jadeClubMembership.findUnique({ where: { userId } })
   if (existing) return toRecord(existing)
 

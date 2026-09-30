@@ -14,17 +14,23 @@
 //   4. If found: idempotent same-purchase recovery — reconcile, never
 //      re-create
 //   5. Require paymentStatus === SUCCEEDED (a branch, not an exception)
-//   6. Lock the membership via 2A's existing, UNCHANGED SELECT ... FOR
-//      UPDATE discipline (inside createMembershipTermsCore)
+//   6. Lock the membership (this file's OWN pre-check, reusing the exact
+//      same lock statement/query shape createMembershipTermsCore itself
+//      uses moments later — entitlements.ts is untouched)
 //   7. Re-check for an unexpired terms period on the membership
-//   8. If a DIFFERENT unexpired terms period exists: explicit branch
-//      (Correction 3 — NOT throw/catch) -> PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION
-//      -> commit normally
-//   9-11. Otherwise: create JadeClubMembershipTerms (source: 'PURCHASE',
-//      purchaseId: currentPurchase.id) + benefit snapshots + entitlement
-//      slots/events — all via lib/jade-club/entitlements.ts's shared
+//   8. If a DIFFERENT unexpired terms period exists (this purchase LOSES):
+//      explicit branch (Correction 3 — NOT throw/catch) ->
+//      PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION -> commit normally.
+//      CANONICAL MEMBERSHIP STATE (tier/status/terms/snapshots/
+//      entitlements) IS NEVER MUTATED ON THIS PATH — see the "winner
+//      determined before mutation" note below.
+//   9-11. Otherwise (this purchase WINS): apply the tier bump — ONLY NOW,
+//      never speculatively before step 8's determination — then create
+//      JadeClubMembershipTerms (source: 'PURCHASE', purchaseId:
+//      currentPurchase.id) + benefit snapshots + entitlement slots/events
+//      — all via lib/jade-club/entitlements.ts's shared
 //      createMembershipTermsCore, which takes `tx` and opens no
-//      transactions of its own
+//      transactions of its own, and is completely unmodified by this fix
 //   12. Update the SAME purchase row (activationStatus: ACTIVATED,
 //       membershipTermsId) — SAME transaction, SAME commit as 9-11
 //   13. Commit
@@ -32,6 +38,23 @@
 // NO POST-COMMIT PURCHASE-ATTRIBUTION WRITE EXISTS ANYWHERE IN THIS FILE —
 // every write to JadeClubPurchase for the activation path happens inside
 // the SAME `prisma.$transaction` callback that also creates the terms.
+//
+// ── WINNER DETERMINED BEFORE ANY CANONICAL STATE MUTATION (narrow fix,
+// independent-review HIGH finding) ──────────────────────────────────────
+// applyPurchaseTierBump (the ONLY function anywhere in this codebase that
+// mutates JadeClubMembership.tier/status from the automated purchase
+// flow — adminAdjustMembership is the one other tier-mutating path, and
+// it is a wholly separate, interactive, admin-only mechanism never
+// invoked by this file) is called ONLY after step 7's collision check has
+// already confirmed this purchase wins. It is never called speculatively
+// before that determination. Previously it ran BEFORE the collision
+// check (to satisfy createMembershipTermsCore's own internal
+// policy-tier-matches-membership-tier guard) — with two DIFFERENT-TIER
+// purchases racing the same membership, the loser's tier bump could still
+// land and permanently diverge from the tier of the terms the winner
+// actually got issued. This is now structurally impossible: a losing
+// purchase's transaction branch (step 8) never calls
+// applyPurchaseTierBump at all.
 //
 // ── LOCK ORDER INVARIANT (read this before touching this file) ──────────
 // Whenever a transaction in this codebase holds BOTH a JadeClubPurchase
@@ -68,7 +91,7 @@ import { Prisma } from '@prisma/client'
 import type { AdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import { createMembershipTermsCore, type Tx } from './entitlements'
-import { applyPurchaseTierBump } from './membership'
+import { applyPurchaseTierBump, ensureMembershipInTx } from './membership'
 import { isJadeCommercialTier } from './commercial-types'
 import type { JadeClubTier } from './types'
 import { isJadePurchaseFailureReason, RETRYABLE_ACTIVATION_FAILURE_REASONS, type JadePurchaseFailureReason } from './purchase-types'
@@ -442,35 +465,83 @@ export async function attemptActivation(purchaseId: string): Promise<AttemptActi
         return { outcome: 'FAILED_PERMANENTLY', reason: 'POLICY_NO_LONGER_ACTIVE' } as const
       }
 
-      // Bump the membership tier to match the purchased policy BEFORE the
-      // collision check — see lib/jade-club/membership.ts's own comment on
-      // why a would-be collision loser's tier bump is deliberately
-      // accepted (idempotent, convergent, reflects that money genuinely
-      // changed hands).
-      await applyPurchaseTierBump(tx, { userId: purchase.userId, tier: purchase.tier as JadeClubTier, durationMonths: policy.durationMonths })
+      // get-or-create — mirrors the fact that applyPurchaseTierBump used to
+      // implicitly create this row (via its own former pre-collision-check
+      // call). A brand-new customer's very first purchase must not fail
+      // here just because no membership row exists yet.
+      const membership = await ensureMembershipInTx(tx, purchase.userId)
 
-      const membership = await tx.jadeClubMembership.findUnique({ where: { userId: purchase.userId } })
-      if (!membership) {
-        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'UNKNOWN_ACTIVATION_ERROR' } })
-        await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchase.id, 'Activation permanently failed: UNKNOWN_ACTIVATION_ERROR (membership row missing after tier bump)', { reason: 'UNKNOWN_ACTIVATION_ERROR' })
-        return { outcome: 'FAILED_PERMANENTLY', reason: 'UNKNOWN_ACTIVATION_ERROR' } as const
+      // ── NARROW FIX (independent review — HIGH finding): "winner" must be
+      // determined BEFORE any canonical membership state is mutated, never
+      // speculatively-then-compensated. A purchase that does not win
+      // activation must not mutate JadeClubMembership.tier — not even
+      // transiently — because with two DIFFERENT-TIER purchases racing the
+      // same membership, a speculative pre-collision-check tier bump could
+      // leave membership.tier reflecting the LOSING purchase's tier while
+      // the actually-issued terms/benefits belong to the WINNER.
+      //
+      // This pre-check locks the membership and re-reads its unexpired
+      // terms using the EXACT SAME lock statement and query shape
+      // lib/jade-club/entitlements.ts::createMembershipTermsCore uses as
+      // its own first two operations — entitlements.ts itself is NOT
+      // modified; this is a read-only, side-effect-free determination of
+      // winner status, reusing the identical lock/collision-check pattern
+      // rather than editing the shared core. Because this transaction
+      // already holds the membership row's FOR UPDATE lock from this
+      // point forward, createMembershipTermsCore's own (unchanged) lock+
+      // recheck moments later is guaranteed to observe the SAME "no
+      // collision" state — no other transaction can have raced in between
+      // (any transaction targeting the same membership row blocks on this
+      // exact lock until this one commits or rolls back).
+      await tx.$queryRaw`SELECT id FROM jade_club_memberships WHERE id = ${membership.id} FOR UPDATE`
+      const preCheckNow = new Date()
+      const conflictingUnexpiredTerms = await tx.jadeClubMembershipTerms.findFirst({
+        where: { membershipId: membership.id, expiresAt: { gt: preCheckNow } },
+        orderBy: { activatedAt: 'desc' },
+      })
+
+      if (conflictingUnexpiredTerms) {
+        // ── LOSER — branch, not exception (Correction 3, unchanged). Membership
+        // tier/status is NEVER touched on this path — the fix. ──
+        const reason: JadePurchaseFailureReason = conflictingUnexpiredTerms.purchaseId ? 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' : 'DUPLICATE_ACTIVE_TERMS'
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', failureReason: reason } })
+        await writeAuditLog(
+          tx, 'JADE_CLUB_PURCHASE_REQUIRES_RECONCILIATION', purchase.id,
+          conflictingUnexpiredTerms.purchaseId
+            ? `A different, distinct, already-SUCCEEDED purchase (${conflictingUnexpiredTerms.purchaseId}) activated this membership's terms first — this purchase was also paid but could not be activated. Requires financial reconciliation (normally a refund). This purchase's membership tier was NEVER mutated.`
+            : `This membership already has an unexpired commercial terms period from a non-purchase source — this purchase was paid but could not be activated. Requires reconciliation. This purchase's membership tier was NEVER mutated.`,
+          { winningPurchaseId: conflictingUnexpiredTerms.purchaseId, winningTermsId: conflictingUnexpiredTerms.id, reason },
+        )
+        await raiseDuplicatePaidPurchaseAlert(tx, purchase.id, conflictingUnexpiredTerms.purchaseId)
+        return { outcome: 'REQUIRES_RECONCILIATION', reason } as const
       }
 
+      // ── WINNER — confirmed. Only NOW does canonical membership state change. ──
+      await applyPurchaseTierBump(tx, { userId: purchase.userId, tier: purchase.tier as JadeClubTier, durationMonths: policy.durationMonths })
+
       // ── Steps 6-11: shared core — same lock discipline, same validation
-      // order, same guard behavior as 2A's activateMembershipTerms. ──
+      // order, same guard behavior as 2A's activateMembershipTerms. Its own
+      // internal collision check is now provably redundant (we already
+      // proved "no collision" above, under the SAME still-held lock) but
+      // is deliberately left completely unmodified — it remains the sole
+      // authoritative creator of JadeClubMembershipTerms, exactly as
+      // accepted. ──
       const core = await createMembershipTermsCore(tx, {
         membershipId: membership.id, policyId: purchase.policyId, source: 'PURCHASE', purchaseId: purchase.id,
       })
 
       if (!core.ok) {
-        // ── Step 8 (Correction 3): explicit branch — NO throw, commits normally. ──
+        // Structurally should be unreachable (see comment above) — kept as
+        // a defensive fallback, same branch-not-exception shape, same
+        // reconciliation state. If this ever fires in practice it means
+        // the "no other transaction can race in" reasoning above was
+        // wrong somewhere, which independent review should treat as a
+        // finding in its own right.
         const reason: JadePurchaseFailureReason = core.existingTerms.purchaseId ? 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' : 'DUPLICATE_ACTIVE_TERMS'
         await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', failureReason: reason } })
         await writeAuditLog(
           tx, 'JADE_CLUB_PURCHASE_REQUIRES_RECONCILIATION', purchase.id,
-          core.existingTerms.purchaseId
-            ? `A different, distinct, already-SUCCEEDED purchase (${core.existingTerms.purchaseId}) activated this membership's terms first — this purchase was also paid but could not be activated. Requires financial reconciliation (normally a refund).`
-            : `This membership already has an unexpired commercial terms period from a non-purchase source — this purchase was paid but could not be activated. Requires reconciliation.`,
+          'Unreachable-in-theory fallback: the shared core detected a collision even though this transaction\'s own pre-check found none under the same lock. Requires reconciliation.',
           { winningPurchaseId: core.existingTerms.purchaseId, winningTermsId: core.existingTerms.id, reason },
         )
         await raiseDuplicatePaidPurchaseAlert(tx, purchase.id, core.existingTerms.purchaseId)
