@@ -209,6 +209,38 @@ describe('activatePolicy — atomic supersession + the single-active-policy inva
     expect(mockPrisma.activityLog.create).toHaveBeenCalledTimes(1)
     expect(mockPrisma.activityLog.create.mock.calls[0][0].data.action).toBe('JADE_CLUB_POLICY_ACTIVATED')
   })
+
+  // GATE A CLOSURE: no update-policy-scalar-fields function exists anywhere
+  // in this codebase (createDraftPolicy/activatePolicy/addPolicyBenefit/
+  // updatePolicyBenefit/deletePolicyBenefit are the entire exported surface
+  // — none of them accept or write tier/market/currency/annualPriceMinor/
+  // durationMonths/serviceFeeDiscountPercent/version/createdBy on an
+  // existing row). This proves that invariant precisely, at the write-
+  // payload level, for the two updateMany calls activation actually issues
+  // — rather than merely inferring immutability from "no such function
+  // exists". If a future change ever adds a scalar field to either data
+  // object here, this test fails immediately.
+  it('GATE A: activation writes ONLY status (+ effectiveTo on the superseded row) — every other scalar field is provably untouched', async () => {
+    mockPrisma.jadeClubCommercialPolicy.findUnique.mockResolvedValue(fakePolicy({ status: 'DRAFT' }))
+    mockTx.jadeClubCommercialPolicy.updateMany
+      .mockResolvedValueOnce({ count: 1 }) // supersede old ACTIVE
+      .mockResolvedValueOnce({ count: 1 }) // claim DRAFT -> ACTIVE
+    mockTx.jadeClubCommercialPolicy.findUniqueOrThrow.mockResolvedValue(fakePolicy({ status: 'ACTIVE' }))
+
+    await activatePolicy(MANAGER, 'pol_1', 'go live')
+
+    const supersedeCall = mockTx.jadeClubCommercialPolicy.updateMany.mock.calls[0][0]
+    const claimCall = mockTx.jadeClubCommercialPolicy.updateMany.mock.calls[1][0]
+
+    // The superseded (previously-ACTIVE) row: only status and effectiveTo
+    // are ever written — never tier/market/currency/annualPriceMinor/
+    // durationMonths/serviceFeeDiscountPercent/version/createdBy.
+    expect(Object.keys(supersedeCall.data).sort()).toEqual(['effectiveTo', 'status'])
+    // The newly-activated (DRAFT -> ACTIVE) row: only status is ever
+    // written — its own commercial fields (set once at createDraftPolicy
+    // time) are never rewritten by activation.
+    expect(Object.keys(claimCall.data)).toEqual(['status'])
+  })
 })
 
 describe('policy-benefit rows — DRAFT-only mutability, immutable once ever ACTIVE', () => {

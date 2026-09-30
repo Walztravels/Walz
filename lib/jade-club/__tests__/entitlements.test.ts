@@ -308,6 +308,31 @@ describe('activateMembershipTerms — pre-issues exact slot counts in one transa
     await expect(activateMembershipTerms(UNAUTHORIZED, 'mem_1', 'pol_1', 'x')).rejects.toThrow(/FORBIDDEN/)
   })
 
+  // GATE A CLOSURE: the real production controlled acceptance benefit
+  // ("acceptance-test-benefit") is configured at countPerPeriod = 2, not 3.
+  // Every other test in this describe block uses a 3-slot fixture (pol_1
+  // above) — this test proves the exact same code path at the actual
+  // acceptance-test count so "activation at exactly count=2" is genuinely
+  // demonstrated, not merely assumed to generalize from 3.
+  it('GATE A: issues exactly 2 slots for a countPerPeriod=2 benefit (matches the real controlled acceptance-test-benefit configuration)', async () => {
+    state.policies.set('pol_2_count', {
+      id: 'pol_2_count', tier: 'CLUB', market: 'CA', currency: 'CAD', annualPriceMinor: 9900,
+      durationMonths: 12, serviceFeeDiscountPercent: 20, status: 'ACTIVE', version: 1,
+      benefits: [
+        { benefitKey: 'acceptance-test-benefit', entitlementType: 'COUNT_PER_PERIOD', countPerPeriod: 2, costCapMinorUsd: null, booleanEligible: null },
+      ],
+    })
+    const result = await activateMembershipTerms(MANAGER, 'mem_1', 'pol_2_count', 'GATE A closure: verify exact count=2 activation')
+    expect(result.slotsIssued).toBe(2)
+    const slots = [...state.slots.values()].filter((s) => s.membershipTermsId === result.termsId)
+    expect(slots).toHaveLength(2)
+    expect(slots.map((s) => s.slotNumber).sort()).toEqual([1, 2])
+    expect(slots.every((s) => s.status === 'AVAILABLE')).toBe(true)
+    expect(new Set(slots.map((s) => s.id)).size).toBe(2) // no duplicate slot identity
+    const issuedEvents = state.events.filter((e) => e.eventType === 'ISSUED' && slots.some((s) => s.id === e.slotId))
+    expect(issuedEvents).toHaveLength(2) // exactly one ISSUED event per slot, no more
+  })
+
   it('rejects activating against a non-ACTIVE policy', async () => {
     state.policies.get('pol_1').status = 'DRAFT'
     await expect(activateMembershipTerms(MANAGER, 'mem_1', 'pol_1', 'x')).rejects.toThrow(/must be ACTIVE/)
@@ -579,6 +604,28 @@ describe('reverseConsumedSlot — admin-only, audited, terminal', () => {
   it('rejects reversing a slot that is not CONSUMED', async () => {
     const { slotIds } = seedCountBenefit(1) // AVAILABLE
     await expect(reverseConsumedSlot(MANAGER, slotIds[0], 'x')).rejects.toThrow(/Only a CONSUMED slot/)
+  })
+
+  // GATE A CLOSURE: the authoritative entitlement state machine
+  // (AVAILABLE→RESERVED→CONSUMED; RESERVED→AVAILABLE via TTL; CONSUMED→
+  // REVERSED) does NOT include a RESERVED→REVERSED transition at all — only
+  // a CONSUMED slot may ever be reversed. The prior test above only proved
+  // rejection from AVAILABLE; this proves the same rejection holds for the
+  // other non-CONSUMED status specifically (RESERVED), closing the exact
+  // gap flagged in Gate A discovery. This is a real, live RESERVED slot
+  // (reserved via the actual reserveEntitlementSlot CAS path), not a
+  // hand-set status — proving the real reservation code produces a state
+  // this function correctly refuses to reverse.
+  it('GATE A: rejects reversing a RESERVED (not yet consumed) slot — RESERVED→REVERSED is not a valid transition', async () => {
+    const { snapshotId, slotIds } = seedCountBenefit(1)
+    const snap = [...state.snapshots.values()].find((s) => s.id === snapshotId)!
+    const reservation = await reserveEntitlementSlot({
+      membershipTermsId: snap.membershipTermsId, benefitKey: snap.benefitKey, reservedBy: 'gate-a-caller',
+    })
+    expect(reservation.ok).toBe(true)
+    expect(state.slots.get(slotIds[0])!.status).toBe('RESERVED') // confirm the real precondition, not assumed
+    await expect(reverseConsumedSlot(MANAGER, slotIds[0], 'attempted reversal of a merely-reserved slot')).rejects.toThrow(/Only a CONSUMED slot/)
+    expect(state.slots.get(slotIds[0])!.status).toBe('RESERVED') // unchanged — rejection did not mutate the row
   })
 
   it('a REVERSED slot cannot be reserved again', async () => {

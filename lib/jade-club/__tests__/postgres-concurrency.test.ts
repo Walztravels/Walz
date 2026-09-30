@@ -71,7 +71,11 @@ let policyId: string
 let benefitSnapshotSlotCount: number
 const createdUserIds: string[] = []
 
-const SLOTS_PER_MEMBERSHIP = 3 // arbitrary, concrete, easy-to-assert COUNT_PER_PERIOD grant
+// GATE A CLOSURE: matches the real production controlled acceptance benefit
+// ("acceptance-test-benefit", COUNT_PER_PERIOD, 2 per period) exactly, so
+// this real-Postgres test closes the "activation at exactly count=2" Gate A
+// item with the strongest available evidence (a real database, not a fake).
+const SLOTS_PER_MEMBERSHIP = 2
 
 beforeAll(async () => {
   // ── Prove this is a real PostgreSQL connection, not a mock ────────────
@@ -94,7 +98,7 @@ beforeAll(async () => {
   staffId = staff.id
 
   // ── Fixture: one ACTIVE commercial policy with one COUNT_PER_PERIOD
-  //    benefit (countPerPeriod = 3) — created and activated through the
+  //    benefit (countPerPeriod = 2, matching the real acceptance-test-benefit) — created and activated through the
   //    REAL commercial-policy.ts functions, not a raw insert, so the
   //    fixture itself is only ever in a state the real application can
   //    actually produce. ──────────────────────────────────────────────
