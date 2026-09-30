@@ -152,4 +152,44 @@ describe('CONTENT VIEW/DOWNLOAD route (new surface): gated by the UNCHANGED asse
     const res = await contentGet(getReq(), { params })
     expect(res.status).toBe(404)
   })
+
+  describe('REGRESSION (HIGH, independent-review finding): REFERRAL_PARTNER must never receive content, full stop', () => {
+    it('REFERRAL_PARTNER + OWNER role -> denied (role alone must not bypass the org-type gate)', async () => {
+      mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'REFERRAL_PARTNER' })
+      mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('OWNER'))
+      const res = await contentGet(getReq(), { params })
+      expect(res.status).toBe(404)
+      expect(signedDocumentUrl).not.toHaveBeenCalled()
+    })
+
+    it('REFERRAL_PARTNER + ADMIN role -> denied', async () => {
+      mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'REFERRAL_PARTNER' })
+      mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('ADMIN'))
+      const res = await contentGet(getReq(), { params })
+      expect(res.status).toBe(404)
+      expect(signedDocumentUrl).not.toHaveBeenCalled()
+    })
+
+    it('REFERRAL_PARTNER + an EXISTING/HISTORICAL VISA_DOCUMENTS_VIEW grant on this exact membership -> still denied (a stale grant can never bypass the org-type gate)', async () => {
+      mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'REFERRAL_PARTNER' })
+      mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('TRAVEL_MANAGER'))
+      mockPrisma.organizationMembershipCapability.findFirst.mockResolvedValue({ id: 'cap_historical' })
+      const res = await contentGet(getReq(), { params })
+      expect(res.status).toBe(404)
+      expect(signedDocumentUrl).not.toHaveBeenCalled()
+      // The org-type gate short-circuits BEFORE the capability table is
+      // ever consulted — the historical grant is never even looked up.
+      expect(mockPrisma.organizationMembershipCapability.findFirst).not.toHaveBeenCalled()
+    })
+
+    it('the who-uploaded-it relationship is irrelevant: REFERRAL_PARTNER denies content regardless of uploadedBy on the document row', async () => {
+      mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'REFERRAL_PARTNER' })
+      mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('ADMIN'))
+      mockPrisma.visaCaseDocument.findUnique.mockResolvedValue({
+        id: 'doc_1', applicationId: 'visa_1', storagePath: 'intel/visa_1/1.pdf', fileName: 'passport.pdf', mimeType: 'application/pdf', scanStatus: 'SCAN_UNAVAILABLE', uploadedBy: 'u@x.com',
+      })
+      const res = await contentGet(getReq(), { params })
+      expect(res.status).toBe(404)
+    })
+  })
 })

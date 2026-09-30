@@ -21,6 +21,7 @@ import prisma from '@/lib/db'
 import { assertAgencyOrCorporateAccess } from '@/lib/business/org-type-gate'
 import { recordBusinessAudit } from '@/lib/business/audit'
 import { parseTravellerKind, VALID_TRAVELLER_KINDS } from '@/lib/business/traveller-kind'
+import { checkLength, FIELD_LIMITS } from '@/lib/business/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,6 +85,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (!travellerKind) {
     return NextResponse.json({ error: `travellerKind must be one of: ${VALID_TRAVELLER_KINDS.join(', ')}` }, { status: 400 })
+  }
+  // B6 remediation: real server-side length caps, REJECTING an over-length
+  // value rather than silently truncating a name/email/phone.
+  for (const [label, value, max, min] of [
+    ['firstName', firstName, FIELD_LIMITS.PERSON_NAME, 1],
+    ['lastName', lastName, FIELD_LIMITS.PERSON_NAME, 1],
+    ['email', email, FIELD_LIMITS.EMAIL, 3],
+    ...(phone ? [['phone', phone, FIELD_LIMITS.PHONE, 1]] as const : []),
+  ] as const) {
+    const check = checkLength(value, label, max, min)
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
   }
 
   const traveller = await prisma.businessTraveller.create({

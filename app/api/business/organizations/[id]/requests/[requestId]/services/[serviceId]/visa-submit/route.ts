@@ -39,6 +39,7 @@ import { assertCanSubmitVisaDocuments } from '@/lib/business/document-authz'
 import { recordServiceAttestation, extractRequestIp } from '@/lib/business/attestation'
 import { recordBusinessAudit } from '@/lib/business/audit'
 import { storeCaseDocument } from '@/lib/intelligence/document-store'
+import { checkLength, FIELD_LIMITS, isValidIso2 } from '@/lib/business/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -104,21 +105,44 @@ export async function POST(
       try { formFields = JSON.parse(formFieldsRaw) } catch { /* ignore malformed JSON, fall back to traveller defaults */ }
     }
 
-    const destinationIso2 = typeof formFields.destinationIso2 === 'string' && formFields.destinationIso2.trim()
-      ? formFields.destinationIso2.trim().toUpperCase().slice(0, 2)
-      : null
-    if (!destinationIso2) {
+    // B6 remediation: destinationIso2 is validated strictly as a real
+    // ISO-3166-1 alpha-2 code — a 3-letter code (or anything else
+    // malformed) is REJECTED, never silently truncated down to 2 chars
+    // (which would silently change the destination to a wrong country).
+    const destinationIso2Raw = typeof formFields.destinationIso2 === 'string' ? formFields.destinationIso2.trim().toUpperCase() : ''
+    if (!destinationIso2Raw) {
       return NextResponse.json({ error: 'destinationIso2 is required to start a new visa case' }, { status: 400 })
+    }
+    if (!isValidIso2(destinationIso2Raw)) {
+      return NextResponse.json({ error: 'destinationIso2 must be a 2-letter ISO-3166-1 country code' }, { status: 400 })
+    }
+    const destinationIso2 = destinationIso2Raw
+
+    const visaType = typeof formFields.visaType === 'string' && formFields.visaType.trim() ? formFields.visaType.trim() : 'tourist'
+    const firstName = typeof formFields.firstName === 'string' ? formFields.firstName.trim() : (travellerLink?.businessTraveller.firstName ?? null)
+    const lastName = typeof formFields.lastName === 'string' ? formFields.lastName.trim() : (travellerLink?.businessTraveller.lastName ?? null)
+    const email = typeof formFields.email === 'string' ? formFields.email.trim().toLowerCase() : (travellerLink?.businessTraveller.email ?? null)
+
+    // B6 remediation: real server-side length caps on every agency-
+    // submitted field — REJECT, never silently truncate.
+    for (const [label, value, max] of [
+      ['visaType', visaType, FIELD_LIMITS.VISA_TYPE],
+      ...(firstName ? [['firstName', firstName, FIELD_LIMITS.PERSON_NAME]] as const : []),
+      ...(lastName ? [['lastName', lastName, FIELD_LIMITS.PERSON_NAME]] as const : []),
+      ...(email ? [['email', email, FIELD_LIMITS.EMAIL]] as const : []),
+    ] as const) {
+      const check = checkLength(value, label, max)
+      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
     }
 
     const created = await prisma.visaApplication.create({
       data: {
         referenceNumber: generateVisaReference(),
         destinationIso2,
-        visaType: typeof formFields.visaType === 'string' && formFields.visaType.trim() ? formFields.visaType.trim() : 'tourist',
-        firstName: typeof formFields.firstName === 'string' ? formFields.firstName.trim() : travellerLink?.businessTraveller.firstName ?? null,
-        lastName: typeof formFields.lastName === 'string' ? formFields.lastName.trim() : travellerLink?.businessTraveller.lastName ?? null,
-        email: typeof formFields.email === 'string' ? formFields.email.trim().toLowerCase() : travellerLink?.businessTraveller.email ?? null,
+        visaType,
+        firstName,
+        lastName,
+        email,
         userId: travellerLink?.businessTraveller.userId ?? null,
         status: 'draft',
       },

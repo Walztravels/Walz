@@ -194,7 +194,7 @@ describe('staff capability grant/revoke route', () => {
   })
 })
 
-describe('GET visa-documents (R2.1: metadata is broad ACTIVE-member visibility, NOT capability-gated + two-pronged tenant check + referral-partner deny)', () => {
+describe('GET visa-documents (RESTORED to pre-R2.1 capability-gated boundary + two-pronged tenant check + referral-partner deny layered in front)', () => {
   const params = { id: ORG_A, requestId: 'req_a', serviceId: 'svc_a' }
   function visaService(over: Record<string, unknown> = {}) {
     return { id: 'svc_a', travelRequestId: 'req_a', serviceType: 'VISA', linkedVisaApplicationId: 'visa_1', linkedQuoteId: null, linkedItineraryId: null, linkedTripId: null, travelRequest: { id: 'req_a', organizationId: ORG_A }, ...over }
@@ -212,14 +212,18 @@ describe('GET visa-documents (R2.1: metadata is broad ACTIVE-member visibility, 
     expect(mockPrisma.visaCaseDocument.findMany).not.toHaveBeenCalled()
   })
 
-  it('R2.1: TRAVEL_MANAGER WITHOUT a VISA_DOCUMENTS_VIEW grant is now ADMITTED to metadata (metadata visibility is broad-ACTIVE-member, not capability-gated — content view/download is the capability-gated surface instead)', async () => {
+  it('RESTORED: TRAVEL_MANAGER WITHOUT a VISA_DOCUMENTS_VIEW grant is denied (404) — the R2.1 broadening to any ACTIVE member was rejected by independent review and reverted', async () => {
     mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('TRAVEL_MANAGER'))
-    mockPrisma.travelRequestService.findUnique.mockResolvedValue(visaService())
     const res = await visaDocs({} as any, { params })
-    expect(res.status).toBe(200)
-    // Still never leaks storage path / bytes via the metadata route.
-    const body = await res.json()
-    expect(JSON.stringify(body)).not.toMatch(/storagePath|bucket/)
+    expect(res.status).toBe(404)
+    expect(mockPrisma.travelRequestService.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('RESTORED: the floor TRAVELLER role is denied metadata visibility (never gets applicant identity/destination/visa type/status/passport expiry)', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('TRAVELLER'))
+    const res = await visaDocs({} as any, { params })
+    expect(res.status).toBe(404)
+    expect(mockPrisma.travelRequestService.findUnique).not.toHaveBeenCalled()
   })
 
   it('R2.1: REFERRAL_PARTNER-type organization is denied metadata visibility outright, regardless of role', async () => {

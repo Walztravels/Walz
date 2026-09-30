@@ -16,10 +16,21 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { assertOrgScopedAccess } from '@/lib/business/authz'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { checkLength, FIELD_LIMITS } from '@/lib/business/validation'
 
 export const dynamic = 'force-dynamic'
 
-const STRING_FIELDS = ['displayName', 'logoUrl', 'brandColor', 'supportEmail', 'supportPhone', 'clientFacingSenderName'] as const
+// B6 remediation: each field's own generous, non-truncating length cap —
+// an over-length value is REJECTED (400) rather than silently truncated
+// (the previous behavior here, now fixed).
+const STRING_FIELDS: readonly [field: string, max: number][] = [
+  ['displayName', FIELD_LIMITS.DISPLAY_NAME],
+  ['logoUrl', FIELD_LIMITS.URL],
+  ['brandColor', FIELD_LIMITS.COLOR],
+  ['supportEmail', FIELD_LIMITS.EMAIL],
+  ['supportPhone', FIELD_LIMITS.PHONE],
+  ['clientFacingSenderName', FIELD_LIMITS.DISPLAY_NAME],
+]
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -60,13 +71,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   const data: Record<string, unknown> = {}
-  for (const field of STRING_FIELDS) {
+  for (const [field, max] of STRING_FIELDS) {
     const v = (body as Record<string, unknown>)[field]
     if (v === undefined) continue
     if (v !== null && typeof v !== 'string') {
       return NextResponse.json({ error: `${field} must be a string or null` }, { status: 400 })
     }
-    data[field] = v === null ? null : v.trim().slice(0, 500)
+    if (v === null) {
+      data[field] = null
+      continue
+    }
+    const trimmed = v.trim()
+    const check = checkLength(trimmed, field, max)
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
+    data[field] = trimmed
   }
   if ((body as Record<string, unknown>).whiteLabelEnabled !== undefined) {
     if (typeof (body as Record<string, unknown>).whiteLabelEnabled !== 'boolean') {

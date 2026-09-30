@@ -39,6 +39,7 @@ import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { isOrgRole, type OrgRole } from '@/lib/business/authz'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { checkLength, FIELD_LIMITS } from '@/lib/business/validation'
 
 export const INVITATION_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 const TOKEN_PATTERN = /^[0-9a-f]{64}$/
@@ -84,6 +85,10 @@ export async function issueOrganizationInvitation(
 ): Promise<IssueInvitationResult> {
   const email = normalizeInvitationEmail(input.email)
   if (!email) return { ok: false, status: 400, error: 'A valid email is required' }
+  // B6 remediation: REJECT an over-length email rather than silently
+  // storing a truncated (and therefore wrong) address.
+  const emailLength = checkLength(email, 'email', FIELD_LIMITS.EMAIL, 3)
+  if (!emailLength.ok) return { ok: false, status: 400, error: emailLength.error! }
   if (!isOrgRole(input.role)) return { ok: false, status: 400, error: 'Invalid role' }
   if (!input.invitedByStaffId && !input.invitedByMembershipId) {
     return { ok: false, status: 400, error: 'An issuing actor is required' }

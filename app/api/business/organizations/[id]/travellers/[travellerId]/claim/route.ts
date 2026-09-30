@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { assertOrgScopedAccess } from '@/lib/business/authz'
+import { assertAgencyOrCorporateAccess } from '@/lib/business/org-type-gate'
 import { issueTravellerClaimInvite } from '@/lib/business/claim-invite'
 
 export const dynamic = 'force-dynamic'
@@ -20,7 +20,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
+  // R2.1 remediation: REFERRAL_PARTNER organizations are denied outright —
+  // issuing a traveller claim invite is client-traveller management.
+  const access = await assertAgencyOrCorporateAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }

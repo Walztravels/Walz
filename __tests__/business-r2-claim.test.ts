@@ -11,6 +11,7 @@
 const mockPrisma = {
   businessTraveller: { update: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
   user: { findUnique: jest.fn() },
+  organization: { findUnique: jest.fn() },
   organizationMembership: { findUnique: jest.fn() },
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
@@ -57,6 +58,8 @@ beforeEach(() => {
   mockPrisma.user.findUnique.mockResolvedValue({ id: 'user_jane', email: 'jane@acme.com' })
   mockPrisma.businessTraveller.findFirst.mockResolvedValue(null)
   mockPrisma.businessTraveller.updateMany.mockResolvedValue({ count: 1 })
+  // R2.1: lib/business/org-type-gate.ts consults organization.organizationType.
+  mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'CORPORATE' })
 })
 
 describe('initiateBusinessTravellerClaim — generation + expiry', () => {

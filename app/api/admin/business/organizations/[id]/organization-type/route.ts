@@ -18,6 +18,7 @@ import { hasPermission } from '@/lib/admin/permissions'
 import prisma from '@/lib/db'
 import { recordBusinessAudit } from '@/lib/business/audit'
 import { parseOrganizationType, VALID_ORGANIZATION_TYPES } from '@/lib/business/organization-type'
+import { checkLength, FIELD_LIMITS } from '@/lib/business/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (typeof reason !== 'string' || !reason.trim()) {
     return NextResponse.json({ error: 'A reason is required for an organization-type change' }, { status: 400 })
+  }
+  const trimmedReason = reason.trim()
+  // B6 remediation: REJECT an over-length reason rather than silently
+  // truncating it in the audit trail (a truncated audit reason is a
+  // half-true record).
+  const reasonLength = checkLength(trimmedReason, 'reason', FIELD_LIMITS.REASON, 1)
+  if (!reasonLength.ok) {
+    return NextResponse.json({ error: reasonLength.error }, { status: 400 })
   }
 
   const existing = await prisma.organization.findUnique({
@@ -77,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     entityType: 'Organization',
     entityId: params.id,
     before: { organizationType: existing.organizationType },
-    after: { organizationType, reason: reason.trim().slice(0, 2000) },
+    after: { organizationType, reason: trimmedReason },
   })
 
   return NextResponse.json({ organization: { id: params.id, organizationType } })
