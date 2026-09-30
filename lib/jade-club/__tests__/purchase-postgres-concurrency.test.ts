@@ -89,6 +89,20 @@
  * down for the complete trace of every non-Jade model reachable by the 12
  * scenarios in this file.
  *
+ * CORRECTION 2 (post-second-real-external-run): the first corrected run
+ * against the same persistent Neon test database then failed all 12
+ * scenarios with `duplicate key value violates unique constraint
+ * "User_pkey"` (key user_s1). Root cause: Docker mode always gets a
+ * brand-new, empty container per run, so this file's fixed literal fixture
+ * ids never collide — but external mode connects to a database that KEEPS
+ * its rows between runs, and the first run's rows were never cleaned up, so
+ * the second run's plain (non-idempotent) fixture INSERTs collided with
+ * leftovers. Also a harness state-hygiene gap, not a business-logic
+ * finding. Fixed by an external-mode-only reset that TRUNCATEs every table
+ * this harness owns immediately before any fixture SQL runs on every run —
+ * see the "EXTERNAL-MODE RESET" block in `beforeAll` below for the exact
+ * mechanism and why it is safe even on a database's very first run.
+ *
  * ── EXTERNAL MODE SAFETY (non-negotiable) ────────────────────────────────
  * - The connection string is read ONLY from `JADE_TEST_DATABASE_URL` —
  *   this file never reads or falls back to `DATABASE_URL`.
@@ -402,6 +416,45 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     ]
     for (const file of migrations) {
       runSqlFile(path.join(__dirname, '..', '..', '..', 'prisma', 'migrations', file), file)
+    }
+
+    // ── EXTERNAL-MODE RESET (fixes a real bug found on the actual Neon run) ──
+    // Docker mode gets a brand-new, empty container every run, so the fixed
+    // literal fixture ids below (user_s1, purchase_s7_club, etc.) never
+    // collide. External mode connects to a PERSISTENT database that keeps
+    // its rows between runs — the first real external run left fixture rows
+    // behind, and the second run's plain (non-idempotent) INSERTs into
+    // "User" and the jade_club_* tables then hit real unique-constraint
+    // violations ("duplicate key value violates unique constraint
+    // User_pkey", key user_s1), which is a harness state-hygiene gap, not a
+    // business-logic finding. Fixed by truncating every table this harness
+    // itself owns — created either by the prerequisite schema above or by
+    // the four Jade migrations just run — back to empty, every run, before
+    // any fixture SQL executes. This runs ONLY in external mode (gated
+    // behind the same ALLOW_REAL_POSTGRES + looksLikeTest/looksLikeProd
+    // checks already enforced by assertExternalModeSafetyOrThrow at the top
+    // of this beforeAll — nothing new is added here that bypasses them) and
+    // ONLY after the prerequisite schema + migrations above have run, so
+    // the TRUNCATEs below are valid even against a genuinely brand-new,
+    // never-before-seen external database on its very first run (the
+    // tables are guaranteed to exist by this point either way). CASCADE is
+    // used so FK ordering between these tables doesn't matter; it is safe
+    // here specifically because this database is required (by the safety
+    // guard above) to be a dedicated, name-tagged "test" database for this
+    // harness — never a shared database with unrelated tables outside this
+    // list. This never touches any table outside the ones this harness
+    // itself creates.
+    if (MODE === 'external') {
+      psqlOrThrow(
+        `TRUNCATE TABLE ` +
+        `jade_club_entitlement_events, jade_club_entitlement_slots, ` +
+        `jade_club_membership_benefit_snapshots, jade_club_service_fee_discount_applications, ` +
+        `jade_club_membership_terms, jade_physical_cards, jade_club_purchases, ` +
+        `jade_club_memberships, jade_club_policy_benefits, jade_club_benefits, ` +
+        `jade_club_commercial_policies, "ActivityLog", "StaffNotification", "Staff", "User" ` +
+        `CASCADE`,
+        'external-mode reset (pre-fixture cleanup)',
+      )
     }
 
     psqlOrThrow(
