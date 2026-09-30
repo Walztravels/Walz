@@ -155,14 +155,32 @@ export async function loadLinkTargetOwnership(db: Db, kind: LinkKind, id: string
   }
 }
 
+// Exact status values that count as "belongs to the org" for the ownership
+// gate. See ownerBelongsToOrganization() doc comment. Note the differing case:
+// OrganizationMembership uses 'ACTIVE' (INVITED|ACTIVE|SUSPENDED|REMOVED, DB
+// CHECK constraint); BusinessTraveller uses free-text, default 'active'.
+export const OWNERSHIP_MEMBERSHIP_STATUS = 'ACTIVE'
+export const OWNERSHIP_TRAVELLER_STATUS = 'active'
+
 /**
  * Does the record's owner belong to `organizationId`?
- *   userId path: an OrganizationMembership (not REMOVED) or a
+ *   userId path: an ACTIVE OrganizationMembership or an 'active'
  *                BusinessTraveller of that org carries this userId.
- *   email path:  the normalized email equals (normalized) a BusinessTraveller
- *                email of that org, or the User.email of a user holding a
- *                (not REMOVED) membership in that org.
+ *   email path:  the normalized email equals (normalized) an 'active'
+ *                BusinessTraveller email of that org, or the User.email of a
+ *                user holding an ACTIVE membership in that org.
  * No signal at all -> false (fail closed; staff override path only).
+ *
+ * Status filters are EXACT-MATCH allow-lists, never deny-lists:
+ *   - OrganizationMembership: only 'ACTIVE' (the same rule as
+ *     lib/business/authz.ts::assertOrgScopedAccess). INVITED rows are created
+ *     by an org admin with ZERO consent from the invitee (members POST route),
+ *     so an INVITED/SUSPENDED/REMOVED row must never count as ownership —
+ *     otherwise an admin could "invite" any Walz customer and pull their
+ *     records through this gate without the override + audit trail.
+ *   - BusinessTraveller: only the literal lowercase 'active' (schema default;
+ *     the only value ever written). Any future status value is rejected
+ *     until this gate is deliberately taught about it.
  * Emails are compared after trim+lowercase on BOTH sides in application
  * code, so legacy rows stored with stray whitespace/case still match.
  */
@@ -171,19 +189,22 @@ export async function ownerBelongsToOrganization(db: Db, owner: LinkTargetOwners
   if (owner.userId) {
     const [member, traveller] = await Promise.all([
       db.organizationMembership.findFirst({
-        where: { organizationId, userId: owner.userId, status: { not: 'REMOVED' } },
+        where: { organizationId, userId: owner.userId, status: OWNERSHIP_MEMBERSHIP_STATUS },
         select: { id: true },
       }),
-      db.businessTraveller.findFirst({ where: { organizationId, userId: owner.userId }, select: { id: true } }),
+      db.businessTraveller.findFirst({
+        where: { organizationId, userId: owner.userId, status: OWNERSHIP_TRAVELLER_STATUS },
+        select: { id: true },
+      }),
     ])
     return !!member || !!traveller
   }
   const email = normalizeEmail(owner.email)
   if (!email) return false
   const [travellers, members] = await Promise.all([
-    db.businessTraveller.findMany({ where: { organizationId }, select: { email: true } }),
+    db.businessTraveller.findMany({ where: { organizationId, status: OWNERSHIP_TRAVELLER_STATUS }, select: { email: true } }),
     db.organizationMembership.findMany({
-      where: { organizationId, status: { not: 'REMOVED' } },
+      where: { organizationId, status: OWNERSHIP_MEMBERSHIP_STATUS },
       select: { user: { select: { email: true } } },
     }),
   ])

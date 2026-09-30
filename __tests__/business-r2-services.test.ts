@@ -629,3 +629,193 @@ describe('Finding A — link ownership verification + staff override', () => {
     expect(recordBusinessAudit).not.toHaveBeenCalled()
   })
 })
+
+describe('Finding A2 — ownership gate counts only ACTIVE memberships / active travellers', () => {
+  // Status-aware simulated directory. The mocks below evaluate the `status`
+  // clause of each Prisma `where` with real Prisma semantics (exact string,
+  // { not }, { in }, or absent = any), so these tests FAIL against the old
+  // `status: { not: 'REMOVED' }` / unfiltered queries and pass only when the
+  // gate uses exact ACTIVE / 'active' allow-lists.
+  type Row = { userId: string | null; email: string; status: string }
+  const MEMBERS: Record<string, Row[]> = {
+    [ORG_A]: [
+      { userId: 'u_active', email: 'active@orga.com', status: 'ACTIVE' },
+      { userId: 'u_invited', email: 'invited@victim.com', status: 'INVITED' },
+      { userId: 'u_suspended', email: 'suspended@orga.com', status: 'SUSPENDED' },
+      { userId: 'u_removed', email: 'removed@orga.com', status: 'REMOVED' },
+    ],
+    [ORG_B]: [{ userId: 'u_b_active', email: 'active@orgb.com', status: 'ACTIVE' }],
+  }
+  const TRAVELLERS: Record<string, Row[]> = {
+    [ORG_A]: [
+      { userId: 'u_trav_active', email: 'trav.active@orga.com', status: 'active' },
+      { userId: 'u_trav_inactive', email: 'trav.inactive@orga.com', status: 'inactive' },
+      { userId: 'u_trav_upper', email: 'trav.upper@orga.com', status: 'ACTIVE' },
+    ],
+    [ORG_B]: [{ userId: 'u_b_trav', email: 'trav@orgb.com', status: 'active' }],
+  }
+  const statusMatches = (status: string, clause: unknown) => {
+    if (clause === undefined) return true
+    if (typeof clause === 'string') return status === clause
+    const c = clause as { not?: string; in?: string[]; equals?: string }
+    if (c.equals !== undefined) return status === c.equals
+    if (c.in) return c.in.includes(status)
+    if (c.not !== undefined) return status !== c.not
+    return false
+  }
+  const rows = (dir: Record<string, Row[]>, where: any) =>
+    (dir[where.organizationId] ?? []).filter(r => statusMatches(r.status, where.status))
+
+  beforeEach(() => {
+    mockTx.organizationMembership.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(rows(MEMBERS, where).some(m => m.userId === where.userId) ? { id: 'm' } : null))
+    mockTx.businessTraveller.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(rows(TRAVELLERS, where).some(t => t.userId && t.userId === where.userId) ? { id: 't' } : null))
+    mockTx.organizationMembership.findMany.mockImplementation(({ where }: any) =>
+      Promise.resolve(rows(MEMBERS, where).map(m => ({ user: { email: m.email } }))))
+    mockTx.businessTraveller.findMany.mockImplementation(({ where }: any) =>
+      Promise.resolve(rows(TRAVELLERS, where).map(t => ({ email: t.email }))))
+  })
+
+  const link = (body: Record<string, unknown>, svc = service()) => {
+    mockPrisma.travelRequestService.findUnique.mockResolvedValue(svc)
+    return linkRoute(postReq({ action: 'link', reason: 'Booked for client', ...body }), LINK_PARAMS)
+  }
+  const MODEL = () => ({ QUOTE: mockTx.quote, VISA_APPLICATION: mockTx.visaApplication, ITINERARY: mockTx.itinerary, TRIP: mockTx.trip })
+  const expectRejected = async (res: Response) => {
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    // Unchanged generic response shape: no identity, no status, no enumeration.
+    expect(body.error).toBe('OWNERSHIP_UNVERIFIED')
+    expect(body.overrideAvailable).toBe(true)
+    expect(JSON.stringify(body)).not.toMatch(/INVITED|SUSPENDED|REMOVED|inactive|@|u_/)
+    expect(mockTx.travelRequestService.updateMany).not.toHaveBeenCalled()
+    expect(recordBusinessAudit).not.toHaveBeenCalled()
+  }
+
+  it('A2.1 ACTIVE member owner links normally (userId path + email path)', async () => {
+    mockTx.trip.findUnique.mockResolvedValue({ id: 't1', userId: 'u_active' })
+    let res = await link({ kind: 'TRIP', targetId: 't1' }, service({ serviceType: 'HOTEL' }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).override).toBeUndefined()
+
+    jest.clearAllMocks()
+    mockTx.quote.findUnique.mockResolvedValue({ id: 'q1', clientEmail: ' Active@OrgA.com ' })
+    res = await link({ kind: 'QUOTE', targetId: 'q1' })
+    expect(res.status).toBe(200)
+    expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'travel_request_service.linked' }))
+  })
+
+  it.each([
+    ['INVITED', 'u_invited', 'invited@victim.com'],
+    ['SUSPENDED', 'u_suspended', 'suspended@orga.com'],
+    ['REMOVED', 'u_removed', 'removed@orga.com'],
+  ] as const)('A2.2 %s member owner is rejected with OWNERSHIP_UNVERIFIED on every record kind', async (_s, userId, email) => {
+    const cases = [
+      ['QUOTE', 'FLIGHT', { clientEmail: email }],
+      ['ITINERARY', 'ITINERARY', { clientEmail: email.toUpperCase() }],
+      ['VISA_APPLICATION', 'VISA', { userId, email: null }],
+      ['VISA_APPLICATION', 'VISA', { userId: null, email }],
+      ['TRIP', 'HOTEL', { userId }],
+    ] as const
+    for (const [kind, serviceType, row] of cases) {
+      jest.clearAllMocks()
+      MODEL()[kind].findUnique.mockResolvedValue({ id: 'rec_x', ...row })
+      await expectRejected(await link({ kind, targetId: 'rec_x' }, service({ serviceType })))
+    }
+  })
+
+  it('A2.2b the gate queries membership with the exact ACTIVE allow-list, never a deny-list', async () => {
+    mockTx.trip.findUnique.mockResolvedValue({ id: 't1', userId: 'u_invited' })
+    await link({ kind: 'TRIP', targetId: 't1' }, service({ serviceType: 'HOTEL' }))
+    expect(mockTx.organizationMembership.findFirst.mock.calls[0][0].where.status).toBe('ACTIVE')
+    expect(mockTx.businessTraveller.findFirst.mock.calls[0][0].where.status).toBe('active')
+    mockTx.quote.findUnique.mockResolvedValue({ id: 'q1', clientEmail: 'invited@victim.com' })
+    await link({ kind: 'QUOTE', targetId: 'q1' })
+    expect(mockTx.organizationMembership.findMany.mock.calls[0][0].where.status).toBe('ACTIVE')
+    expect(mockTx.businessTraveller.findMany.mock.calls[0][0].where.status).toBe('active')
+  })
+
+  it('A2.3 active traveller owner links normally (email path + userId path)', async () => {
+    mockTx.itinerary.findUnique.mockResolvedValue({ id: 'i1', clientEmail: 'TRAV.active@orga.com' })
+    let res = await link({ kind: 'ITINERARY', targetId: 'i1' }, service({ serviceType: 'ITINERARY' }))
+    expect(res.status).toBe(200)
+    expect((await res.json()).override).toBeUndefined()
+
+    jest.clearAllMocks()
+    mockTx.trip.findUnique.mockResolvedValue({ id: 't1', userId: 'u_trav_active' })
+    res = await link({ kind: 'TRIP', targetId: 't1' }, service({ serviceType: 'HOTEL' }))
+    expect(res.status).toBe(200)
+  })
+
+  it.each([
+    ['inactive', 'u_trav_inactive', 'trav.inactive@orga.com'],
+    ['ACTIVE (wrong case — not the literal "active")', 'u_trav_upper', 'trav.upper@orga.com'],
+  ] as const)('A2.4 traveller with status %s is rejected with OWNERSHIP_UNVERIFIED', async (_s, userId, email) => {
+    for (const [kind, serviceType, row] of [
+      ['QUOTE', 'FLIGHT', { clientEmail: email }],
+      ['TRIP', 'HOTEL', { userId }],
+    ] as const) {
+      jest.clearAllMocks()
+      MODEL()[kind].findUnique.mockResolvedValue({ id: 'rec_t', ...row })
+      await expectRejected(await link({ kind, targetId: 'rec_t' }, service({ serviceType })))
+    }
+  })
+
+  it('A2.5 another organization\'s ACTIVE member / active traveller is still rejected', async () => {
+    for (const row of [{ clientEmail: 'active@orgb.com' }, { clientEmail: 'trav@orgb.com' }]) {
+      jest.clearAllMocks()
+      mockTx.quote.findUnique.mockResolvedValue({ id: 'q_b', ...row })
+      await expectRejected(await link({ kind: 'QUOTE', targetId: 'q_b' }))
+    }
+  })
+
+  it.each([
+    ['INVITED member (QUOTE by email)', 'QUOTE', 'FLIGHT', { clientEmail: 'invited@victim.com' }, { detectedUserId: null, detectedEmail: 'invited@victim.com' }],
+    ['SUSPENDED member (TRIP by userId)', 'TRIP', 'HOTEL', { userId: 'u_suspended' }, { detectedUserId: 'u_suspended', detectedEmail: null }],
+    ['non-active traveller (QUOTE by email)', 'QUOTE', 'FLIGHT', { clientEmail: 'trav.inactive@orga.com' }, { detectedUserId: null, detectedEmail: 'trav.inactive@orga.com' }],
+  ] as const)('A2.6 staff override (confirmOverride:true + b2b.manage + reason) still links a %s record and audits it AS AN OVERRIDE', async (_n, kind, serviceType, row, detectedOwner) => {
+    MODEL()[kind].findUnique.mockResolvedValue({ id: 'rec_o', ...row })
+    const res = await link({ kind, targetId: 'rec_o', confirmOverride: true, overrideReason: 'Invitee confirmed by phone' }, service({ serviceType }))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.override).toBe(true)
+    expect(recordBusinessAudit).toHaveBeenCalledTimes(1)
+    expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'travel_request_service.link_override',
+      actorStaffId: 's1',
+      after: expect.objectContaining({ overrideReason: 'Invitee confirmed by phone', detectedOwner }),
+    }))
+    expect(recordBusinessAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'travel_request_service.linked' }))
+  })
+
+  it('A2.7 a same-org INVITED/SUSPENDED owner never gets override treatment for free — explicit confirmOverride + reason are still required', async () => {
+    mockTx.quote.findUnique.mockResolvedValue({ id: 'q_inv', clientEmail: 'invited@victim.com' })
+    mockTx.trip.findUnique.mockResolvedValue({ id: 't_sus', userId: 'u_suspended' })
+
+    // No override fields at all -> gated.
+    await expectRejected(await link({ kind: 'QUOTE', targetId: 'q_inv' }))
+    jest.clearAllMocks()
+    await expectRejected(await link({ kind: 'TRIP', targetId: 't_sus' }, service({ serviceType: 'HOTEL' })))
+
+    // A reason without the strict boolean intent -> still gated.
+    for (const confirmOverride of [undefined, 'true', 1, false]) {
+      jest.clearAllMocks()
+      await expectRejected(await link({ kind: 'QUOTE', targetId: 'q_inv', confirmOverride, overrideReason: 'member of org' }))
+    }
+
+    // Intent without a valid reason -> 400 before any DB work.
+    jest.clearAllMocks()
+    const res = await link({ kind: 'QUOTE', targetId: 'q_inv', confirmOverride: true })
+    expect(res.status).toBe(400)
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+
+    // Intent + reason but view-only staff (no b2b.manage) -> base 403.
+    jest.clearAllMocks()
+    ;(getAdminSession as jest.Mock).mockResolvedValue(VIEW)
+    const res2 = await link({ kind: 'QUOTE', targetId: 'q_inv', confirmOverride: true, overrideReason: 'member of org' })
+    expect(res2.status).toBe(403)
+    expect(mockTx.travelRequestService.updateMany).not.toHaveBeenCalled()
+    expect(recordBusinessAudit).not.toHaveBeenCalled()
+  })
+})
