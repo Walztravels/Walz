@@ -14,6 +14,12 @@
 // invite can only target an email address that already has a Walz User
 // account. Inviting someone with no account yet (self-service signup-esque
 // flow) is out of scope here.
+//
+// Release 2: the invitee now receives a customer portal notification
+// (lib/portal/notifications.ts — the customer-facing channel, never the
+// staff-only lib/notifications/) linking to /business, where they can
+// accept via POST .../[id]/invitation/accept. Non-fatal: a notification
+// failure never fails the already-committed invite.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -21,6 +27,7 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { assertOrgScopedAccess, type OrgRole } from '@/lib/business/authz'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { createCustomerNotification } from '@/lib/portal/notifications'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,6 +113,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     entityId: membership.id,
     after: { userId: invitee.id, role, status: 'INVITED' },
   })
+
+  let orgName = 'an organization'
+  try {
+    const org = await prisma.organization.findUnique({ where: { id: params.id }, select: { legalName: true, tradingName: true } })
+    orgName = org?.tradingName ?? org?.legalName ?? orgName
+  } catch { /* non-fatal: fall back to a generic name */ }
+  await createCustomerNotification({
+    userId: invitee.id,
+    category: 'ACCOUNT',
+    type: 'b2b_member_invited',
+    title: `You've been invited to ${orgName} on Walz Business`,
+    body: `You've been invited to join as ${role.replace('_', ' ').toLowerCase()}. Open Walz Business to accept.`,
+    href: '/business',
+    entityType: 'OrganizationMembership',
+    entityId: membership.id,
+    dedupeKey: `b2b-member-invite:${membership.id}`,
+  }).catch(() => {})
 
   return NextResponse.json({ member: { id: membership.id, userId: membership.userId, role: membership.role, status: membership.status } }, { status: 201 })
 }

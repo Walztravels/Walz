@@ -123,6 +123,31 @@ export async function assertOrgScopedAccess(
   return { ok: true, membership }
 }
 
+// RELEASE 2 — the invite-accept gate. The ONLY sanctioned way to read an
+// INVITED membership for an authorization decision (assertOrgScopedAccess
+// deliberately denies anything not ACTIVE). Same fail-closed contract:
+//   - keyed ONLY on the (organizationId, session userId) pair — a caller can
+//     only ever reach their OWN invitation, never someone else's, and never
+//     one in a different organization;
+//   - fresh DB read every call;
+//   - no row / any status other than INVITED -> the identical GENERIC_DENIAL.
+export async function assertPendingInvitation(
+  userId: string,
+  organizationId: string,
+): Promise<OrgAccessResult> {
+  if (!userId || !organizationId) return GENERIC_DENIAL
+
+  const membership = await prisma.organizationMembership.findUnique({
+    where: { organizationId_userId: { organizationId, userId } },
+  })
+
+  if (!membership) return GENERIC_DENIAL
+  if (membership.userId !== userId || membership.organizationId !== organizationId) return GENERIC_DENIAL
+  if (membership.status !== 'INVITED') return GENERIC_DENIAL
+
+  return { ok: true, membership }
+}
+
 // Hardcoded to ADMIN/OWNER — see "SENSITIVE DOCUMENTS" above. Do not add a
 // minRole/role parameter to this function; that would make the locked
 // product decision configurable, which it must never be.
