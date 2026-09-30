@@ -47,7 +47,9 @@ export async function loadTravelRequestDetail(requestId: string, organizationId:
   const isFloorRole = viewer.kind === 'member' && viewer.role === 'TRAVELLER'
   if (isFloorRole) {
     const isSubmitter = request.submittedByMembershipId === viewer.membershipId
-    const isNamedTraveller = request.travellers.some(t => t.businessTraveller?.userId === viewer.userId)
+    const isNamedTraveller = request.travellers.some(
+      t => t.businessTraveller?.organizationId === organizationId && t.businessTraveller?.userId === viewer.userId,
+    )
     if (!isSubmitter && !isNamedTraveller) return null
   }
 

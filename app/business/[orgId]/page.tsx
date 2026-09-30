@@ -103,7 +103,11 @@ export default async function BusinessOrganizationPage({ params }: { params: { o
   if (!organization) notFound()
 
   const now = new Date()
-  const travellerRows = travellers.map(t => ({ ...t, state: claimState(t, now) }))
+  // Derive the display state server-side and drop the token immediately —
+  // it never leaves this function.
+  const travellerRows = travellers.map(t => ({
+    id: t.id, firstName: t.firstName, lastName: t.lastName, email: t.email, state: claimState(t, now),
+  }))
   const unlinkedCount = travellerRows.filter(t => t.state !== 'claimed').length
   const myDrafts = requests.filter(r => r.status === 'DRAFT' && r.submittedByMembershipId === access.membership.id).length
 
