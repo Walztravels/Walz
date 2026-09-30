@@ -7,8 +7,11 @@
 // paste a raw record id. The link route re-verifies everything server-side:
 // the service belongs to this request, the request to this organization,
 // the record exists, and the record is not already linked to ANOTHER
-// organization (serializable transaction). Every link/unlink needs a reason
-// and is audited.
+// organization (serializable transaction), and the record's owner is a
+// member/traveller of this organization. Every link/unlink needs a reason
+// and is audited. If ownership cannot be verified the server answers
+// OWNERSHIP_UNVERIFIED and this page offers an explicit, separately-reasoned
+// staff override (never an automatic retry).
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -140,11 +143,15 @@ function ServiceCard({ orgBase, requestId, service, onChange }: {
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [unlinking, setUnlinking] = useState<string | null>(null)
+  // Set only when the server returned OWNERSHIP_UNVERIFIED for this exact
+  // selection; holds the original link reason so the override resends it.
+  const [overrideFor, setOverrideFor] = useState<{ targetId: string; kind: string; reason: string } | null>(null)
   const linkUrl = `${orgBase}/requests/${encodeURIComponent(requestId)}/services/${encodeURIComponent(service.id)}/link`
   const linkedKinds = new Set(service.links.map(l => l.kind))
 
   useEffect(() => {
     setSelected(null)
+    setOverrideFor(null)
     if (q.trim().length < 2) { setCandidates([]); return }
     const ctrl = new AbortController()
     const t = setTimeout(async () => {
@@ -224,14 +231,41 @@ function ServiceCard({ orgBase, requestId, service, onChange }: {
               submitLabel="Link"
               onSubmit={async reason => {
                 setMsg(null); setErr(null)
+                setOverrideFor(null)
                 const r = await postJson(linkUrl, { action: 'link', kind, targetId: selected.id, reason })
-                if (!r.ok) return r.data.error ?? 'Failed'
+                if (!r.ok) {
+                  if (r.data.error === 'OWNERSHIP_UNVERIFIED') {
+                    setOverrideFor({ targetId: selected.id, kind, reason })
+                    return r.data.message ?? 'Ownership could not be verified'
+                  }
+                  return r.data.error ?? 'Failed'
+                }
                 setSelected(null); setQ(''); setMsg('Linked.'); onChange(); return null
               }}
             >
               <span className="text-white text-sm">{selected.label}</span>
-              <button type="button" className={ghostButtonCls} onClick={() => setSelected(null)}>Change</button>
+              <button type="button" className={ghostButtonCls} onClick={() => { setSelected(null); setOverrideFor(null) }}>Change</button>
             </ReasonForm>
+          )}
+          {selected && overrideFor && overrideFor.targetId === selected.id && overrideFor.kind === kind && (
+            <div className="border border-amber-400/30 rounded-xl p-3 flex flex-col gap-2">
+              <p className="text-amber-200/80 text-xs">
+                Override the ownership check: link this record even though its owner is not a verified member or traveller of this organization. Requires a separate override reason and is audited.
+              </p>
+              <ReasonForm
+                label="Override ownership check"
+                submitLabel="Override and link"
+                onSubmit={async overrideReason => {
+                  setMsg(null); setErr(null)
+                  const r = await postJson(linkUrl, {
+                    action: 'link', kind: overrideFor.kind, targetId: overrideFor.targetId, reason: overrideFor.reason,
+                    confirmOverride: true, overrideReason,
+                  })
+                  if (!r.ok) return r.data.error ?? 'Failed'
+                  setOverrideFor(null); setSelected(null); setQ(''); setMsg('Linked (override).'); onChange(); return null
+                }}
+              />
+            </div>
           )}
         </div>
       )}

@@ -143,6 +143,20 @@ describe('GET request detail — role scoping', () => {
     expect(body.timeline[0].actor).toBe('Walz Travels')
     expect(JSON.stringify(body)).not.toContain('ops@walztravels.com')
   })
+
+  it('Finding A: a staff ownership override appears to the organization as an ordinary link, with no detected owner data', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('ADMIN'))
+    mockPrisma.travelRequest.findUnique.mockResolvedValue(requestRow())
+    mockPrisma.businessAuditLog.findMany.mockResolvedValue([
+      {
+        id: 'a2', action: 'travel_request_service.link_override', createdAt: new Date(), actorUserId: null, actorStaffId: 's1',
+        after: { overrideReason: 'x', detectedOwner: { detectedUserId: 'u_applicant', detectedEmail: 'applicant@private.com' } },
+      },
+    ])
+    const body = await (await getDetail({} as any, ctx())).json()
+    expect(body.timeline[0].action).toBe('travel_request_service.linked')
+    expect(JSON.stringify(body)).not.toMatch(/override|u_applicant|applicant@private\.com/)
+  })
 })
 
 describe('approval CAS race (reusing the R1 pattern) — the loser gets 409', () => {

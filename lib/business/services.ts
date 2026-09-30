@@ -25,6 +25,16 @@
 //   can never be linked to a record that already belongs to org B — even if
 //   the caller supplies org B's real record id.
 //
+// OWNERSHIP GATE (security-review remediation, Finding A)
+//   Exclusivity alone is not enough: an unlinked retail customer's record
+//   could otherwise be attached to any organization. Before the CAS, the
+//   link transaction loads the record's OWN ownership signal (never anything
+//   from the request body — see loadLinkTargetOwnership) and requires it to
+//   match a member or traveller of the TARGET organization
+//   (ownerBelongsToOrganization). No match — including a Trip with no userId
+//   or a record with no checkable signal at all — is OWNERSHIP_UNVERIFIED,
+//   resolvable only by an explicit, reasoned, audited staff override.
+//
 // WHO MAY LINK: staff only (b2b.manage). A customer org member can never
 // search the global Quote/Visa/Itinerary/Trip tables, so the customer API
 // only ever creates UNLINKED service rows (serviceType only) and ignores any
@@ -64,7 +74,7 @@ export function isLinkKind(v: unknown): v is LinkKind {
   return typeof v === 'string' && (LINK_KINDS as readonly string[]).includes(v)
 }
 
-type Db = Pick<typeof prisma, 'travelRequestService' | 'quote' | 'visaApplication' | 'itinerary' | 'trip'>
+type Db = Pick<typeof prisma, 'travelRequestService' | 'quote' | 'visaApplication' | 'itinerary' | 'trip' | 'organizationMembership' | 'businessTraveller'>
 
 /**
  * Prong (2) for single-service routes. Returns the service row only if it
@@ -92,6 +102,93 @@ export async function linkTargetExists(db: Db, kind: LinkKind, id: string): Prom
     case 'ITINERARY': return !!(await db.itinerary.findUnique({ where: { id }, select: { id: true } }))
     case 'TRIP': return !!(await db.trip.findUnique({ where: { id }, select: { id: true } }))
   }
+}
+
+/**
+ * The ownership signal of a mature record, read from the record row itself.
+ * Authoritative fields (prisma/schema.prisma):
+ *   QUOTE            clientEmail (required; Quote has no userId)
+ *   VISA_APPLICATION userId (preferred) — email ONLY when userId is null
+ *   ITINERARY        clientEmail (required)
+ *   TRIP             userId (nullable; Trip has no email) — a null userId
+ *                    (anonymous/session trip) can never be auto-verified.
+ */
+// Error code for a link whose ownership could not be verified. Distinct from
+// the generic tenant-isolation 404 ('Not found') and from the other 409s: a
+// legitimate staff decision point, not a security denial. The response
+// never carries any detected identity (in particular no visa applicant data).
+export const OWNERSHIP_UNVERIFIED_ERROR = 'OWNERSHIP_UNVERIFIED'
+
+export interface LinkTargetOwnership { userId: string | null; email: string | null }
+
+export function normalizeEmail(v: string | null | undefined): string | null {
+  if (typeof v !== 'string') return null
+  const n = v.trim().toLowerCase()
+  return n || null
+}
+
+/**
+ * Loads the record and its ownership signal. Returns null when the record
+ * does not exist (callers keep the existing generic 'missing' path).
+ * Identity is ALWAYS derived from the stored row — never from the request.
+ */
+export async function loadLinkTargetOwnership(db: Db, kind: LinkKind, id: string): Promise<LinkTargetOwnership | null> {
+  switch (kind) {
+    case 'QUOTE': {
+      const r = await db.quote.findUnique({ where: { id }, select: { id: true, clientEmail: true } })
+      return r ? { userId: null, email: normalizeEmail(r.clientEmail) } : null
+    }
+    case 'VISA_APPLICATION': {
+      const r = await db.visaApplication.findUnique({ where: { id }, select: { id: true, userId: true, email: true } })
+      if (!r) return null
+      // Prefer the stronger userId signal; email is a fallback only.
+      return r.userId ? { userId: r.userId, email: null } : { userId: null, email: normalizeEmail(r.email) }
+    }
+    case 'ITINERARY': {
+      const r = await db.itinerary.findUnique({ where: { id }, select: { id: true, clientEmail: true } })
+      return r ? { userId: null, email: normalizeEmail(r.clientEmail) } : null
+    }
+    case 'TRIP': {
+      const r = await db.trip.findUnique({ where: { id }, select: { id: true, userId: true } })
+      return r ? { userId: r.userId ?? null, email: null } : null
+    }
+  }
+}
+
+/**
+ * Does the record's owner belong to `organizationId`?
+ *   userId path: an OrganizationMembership (not REMOVED) or a
+ *                BusinessTraveller of that org carries this userId.
+ *   email path:  the normalized email equals (normalized) a BusinessTraveller
+ *                email of that org, or the User.email of a user holding a
+ *                (not REMOVED) membership in that org.
+ * No signal at all -> false (fail closed; staff override path only).
+ * Emails are compared after trim+lowercase on BOTH sides in application
+ * code, so legacy rows stored with stray whitespace/case still match.
+ */
+export async function ownerBelongsToOrganization(db: Db, owner: LinkTargetOwnership, organizationId: string): Promise<boolean> {
+  if (!organizationId) return false
+  if (owner.userId) {
+    const [member, traveller] = await Promise.all([
+      db.organizationMembership.findFirst({
+        where: { organizationId, userId: owner.userId, status: { not: 'REMOVED' } },
+        select: { id: true },
+      }),
+      db.businessTraveller.findFirst({ where: { organizationId, userId: owner.userId }, select: { id: true } }),
+    ])
+    return !!member || !!traveller
+  }
+  const email = normalizeEmail(owner.email)
+  if (!email) return false
+  const [travellers, members] = await Promise.all([
+    db.businessTraveller.findMany({ where: { organizationId }, select: { email: true } }),
+    db.organizationMembership.findMany({
+      where: { organizationId, status: { not: 'REMOVED' } },
+      select: { user: { select: { email: true } } },
+    }),
+  ])
+  if (travellers.some(t => normalizeEmail(t.email) === email)) return true
+  return members.some(m => normalizeEmail(m.user?.email) === email)
 }
 
 /**

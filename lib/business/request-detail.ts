@@ -94,7 +94,13 @@ export async function loadTravelRequestDetail(requestId: string, organizationId:
 
   const timeline = auditRows.map(r => ({
     id: r.id,
-    action: r.action,
+    // A staff ownership override is a staff-internal decision: organization
+    // viewers see it as an ordinary link and never learn that ownership
+    // could not be verified (nor any detected identity — before/after are
+    // never mapped into the timeline for anyone).
+    action: viewer.kind !== 'staff' && r.action === 'travel_request_service.link_override'
+      ? 'travel_request_service.linked'
+      : r.action,
     at: r.createdAt,
     // Customers see "Walz Travels" for staff actions, never a staff identity.
     actor: r.actorUserId

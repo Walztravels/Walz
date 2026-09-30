@@ -3,6 +3,8 @@
 //
 // POST { action: 'link',   kind, targetId, reason }
 // POST { action: 'unlink', kind, reason }
+// POST { action: 'link', kind, targetId, reason,
+//        confirmOverride: true, overrideReason }        (staff override)
 //
 // Requires 'b2b.manage' + reason; every change is audited before/after.
 // `targetId` comes from the staff search/select picker
@@ -18,24 +20,45 @@
 //           organization (findForeignOrganizationLink) — this is what makes
 //           an org-A request un-linkable to an org-B Quote/Visa/Itinerary/
 //           Trip even when the caller supplies org B's real record id;
-//        c. compare-and-swap: the service's link column must still be NULL
+//        c. OWNERSHIP GATE: the record's own ownership signal (userId /
+//           email read from the record row — NEVER from the request body)
+//           must match a member or traveller of THIS organization
+//           (ownerBelongsToOrganization). No match -> 409
+//           { error: 'OWNERSHIP_UNVERIFIED' } — deliberately distinct from
+//           the generic tenant-isolation 404 so the admin UI can offer the
+//           override. Trips with no userId and records with no checkable
+//           signal always land here.
+//        d. compare-and-swap: the service's link column must still be NULL
 //           (never silently overwrite an existing link — unlink first).
 //      Serializable isolation closes the check-then-write race between two
 //      staff linking the same record to two different organizations.
+//
+// STAFF OVERRIDE (only way past OWNERSHIP_UNVERIFIED)
+//   Requires the caller to send `confirmOverride: true` (strict boolean) AND
+//   a separate non-blank `overrideReason` — a plain retry of the normal
+//   request can never override. Re-verifies 'b2b.manage' explicitly (defense
+//   in depth, independent of the base guard); a failure returns exactly the
+//   base route's 403 with no side effects. The override skips ONLY the
+//   ownership gate: existence, cross-org exclusivity and the CAS still run.
+//   Audited as 'travel_request_service.link_override' with the detected
+//   owner context (forensics only — staff-side audit log, never echoed in
+//   any response). This route is admin-only; no customer route can reach it.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/db'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { hasPermission } from '@/lib/admin/permissions'
 import { requireB2bStaff, NOT_FOUND, readJsonBody, requiredReason, staffActorId } from '@/lib/business/admin-guard'
 import {
   ALLOWED_LINKS, LINK_COLUMN, findForeignOrganizationLink, isLinkKind, isServiceType,
-  linkTargetExists, loadServiceInRequestInOrg,
+  OWNERSHIP_UNVERIFIED_ERROR, loadLinkTargetOwnership, loadServiceInRequestInOrg, ownerBelongsToOrganization,
+  type LinkTargetOwnership,
 } from '@/lib/business/services'
 
 export const dynamic = 'force-dynamic'
 
-type LinkOutcome = 'linked' | 'missing' | 'foreign' | 'occupied'
+type LinkOutcome = 'linked' | 'missing' | 'foreign' | 'occupied' | 'unverified'
 
 export async function POST(
   req: NextRequest,
@@ -91,11 +114,30 @@ export async function POST(
     return NextResponse.json({ error: `A ${service.serviceType} service cannot link a ${kind}` }, { status: 400 })
   }
 
+  // ── explicit staff override intent (validated BEFORE any DB work) ──────
+  const override = body.confirmOverride === true
+  let overrideReason: string | null = null
+  if (override) {
+    // Defense in depth: re-check the stricter permission for this distinct
+    // action even though the base guard already required it. Same denial.
+    if (!hasPermission(guard.session, 'b2b.manage')) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    overrideReason = requiredReason(body.overrideReason)
+    if (!overrideReason) return NextResponse.json({ error: 'An override reason is required' }, { status: 400 })
+  }
+
   let outcome: LinkOutcome
+  let detectedOwner: LinkTargetOwnership | null = null
+  let ownershipVerified = false
   try {
     outcome = await prisma.$transaction(async tx => {
-      if (!(await linkTargetExists(tx, kind, targetId))) return 'missing' as const
+      const owner = await loadLinkTargetOwnership(tx, kind, targetId)
+      if (!owner) return 'missing' as const
+      detectedOwner = owner
       if (await findForeignOrganizationLink(tx, kind, targetId, params.id)) return 'foreign' as const
+      ownershipVerified = await ownerBelongsToOrganization(tx, owner, params.id)
+      if (!ownershipVerified && !override) return 'unverified' as const
       const cas = await tx.travelRequestService.updateMany({
         where: { id: service.id, travelRequestId: params.requestId, [column]: null },
         data: { [column]: targetId },
@@ -113,6 +155,37 @@ export async function POST(
   }
   if (outcome === 'occupied') {
     return NextResponse.json({ error: 'This service already has a linked record of that kind — unlink it first' }, { status: 409 })
+  }
+  if (outcome === 'unverified') {
+    return NextResponse.json({
+      error: OWNERSHIP_UNVERIFIED_ERROR,
+      message: 'This record could not be verified as belonging to a member or traveller of this organization. '
+        + 'A staff override with a reason is required to link it.',
+      overrideAvailable: true,
+    }, { status: 409 })
+  }
+
+  if (!ownershipVerified) {
+    // Reached only with an authorized, reasoned override.
+    const owner = detectedOwner as LinkTargetOwnership | null
+    await recordBusinessAudit({
+      organizationId: params.id,
+      actorStaffId: actor,
+      action: 'travel_request_service.link_override',
+      entityType: 'TravelRequestService',
+      entityId: service.id,
+      before: { kind, targetId: null },
+      after: {
+        kind,
+        targetId,
+        resourceType: kind,
+        resourceId: targetId,
+        reason,
+        overrideReason,
+        detectedOwner: { detectedUserId: owner?.userId ?? null, detectedEmail: owner?.email ?? null },
+      },
+    })
+    return NextResponse.json({ service: { id: service.id, [column]: targetId }, override: true })
   }
 
   await recordBusinessAudit({

@@ -1,6 +1,6 @@
 /**
  * Walz Business (Release 1) — /api/business/organizations/[id]/travellers
- * GET (list, no minRole) / POST (create, minRole TRAVEL_MANAGER).
+ * GET (list, minRole COORDINATOR) / POST (create, minRole TRAVEL_MANAGER).
  */
 const mockPrisma = {
   organizationMembership: { findUnique: jest.fn() },
@@ -43,16 +43,34 @@ describe('GET travellers', () => {
     expect(res.status).toBe(404)
   })
 
-  it('lists travellers for any ACTIVE member and never leaks a raw userId', async () => {
+  it('denies the floor TRAVELLER role with the generic 404 (minRole COORDINATOR) and runs no roster query', async () => {
     mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'TRAVELLER' }))
+    const res = await GET(getReq(), { params: { id: ORG_A } })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Not found' })
+    expect(mockPrisma.businessTraveller.findMany).not.toHaveBeenCalled()
+  })
+
+  it('allows a COORDINATOR: 200 with the full list, never leaking a raw userId', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'COORDINATOR' }))
     mockPrisma.businessTraveller.findMany.mockResolvedValue([
       { id: 't1', firstName: 'A', lastName: 'B', email: 'a@x.com', phone: null, status: 'active', userId: 'user_99', createdAt: new Date() },
+      { id: 't2', firstName: 'C', lastName: 'D', email: 'c@x.com', phone: '1', status: 'active', userId: null, createdAt: new Date() },
     ])
     const res = await GET(getReq(), { params: { id: ORG_A } })
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.travellers).toHaveLength(2)
     expect(body.travellers[0].linked).toBe(true)
+    expect(body.travellers[1].linked).toBe(false)
     expect(body.travellers[0].userId).toBeUndefined()
+  })
+
+  it.each(['TRAVEL_MANAGER', 'APPROVER', 'FINANCE', 'ADMIN', 'OWNER'])('roles above COORDINATOR retain access (%s -> 200)', async role => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role }))
+    mockPrisma.businessTraveller.findMany.mockResolvedValue([])
+    const res = await GET(getReq(), { params: { id: ORG_A } })
+    expect(res.status).toBe(200)
   })
 })
 
