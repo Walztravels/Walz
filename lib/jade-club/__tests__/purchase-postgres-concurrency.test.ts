@@ -196,6 +196,66 @@
  *   threw first) — whether they needed it is genuinely unknown from this
  *   run's evidence.
  *
+ * CORRECTION 4 (post-fourth-real-external-run, 5/12 genuinely passed — 5,
+ * 6, 9, 11, 12, including Scenario 10, the round-4 fail-closed invariant
+ * fix, empirically proven for real): two more issues, both harness-only:
+ *
+ *   (v) `Transaction API error ... The timeout for this transaction was
+ *   5000 ms, however 7408ms/7664ms/etc. passed` for scenarios 1, 2, 3, 4,
+ *   7, 8 — a pure test-harness side effect of CORRECTION 3(iii)'s own
+ *   1s->3s widening-delay increase, confirmed NOT a flaw in the detection
+ *   technique itself (that run's own pg_stat_activity samples show real
+ *   blocked backends on real FOR UPDATE/UPDATE statements). Root cause,
+ *   reasoned from the LOCK ORDER INVARIANT: the widened UPDATE's row lock
+ *   is not newly acquired at that statement — it was already held from
+ *   that same transaction's EARLIER `SELECT ... FOR UPDATE` on that same
+ *   row, all the way through to COMMIT. So for scenarios racing the SAME
+ *   row (1, 3, 4), the LOSING worker blocks from its OWN very first
+ *   statement for the WINNER's entire transaction span (all its other real
+ *   Neon round-trips, plus the full widening sleep) — and Prisma's default
+ *   5000ms interactive-transaction timeout is measured from the LOSER's
+ *   OWN `BEGIN`, so a long enough winner span force-closes the loser's
+ *   transaction client-side. Fixed by reducing the widening delay from 3s
+ *   to 1.5s for exactly the six scenarios that failed this way (1, 2, 3,
+ *   4, 7, 8) — scenario 5 was left at 3s, deliberately, since it already
+ *   passed for real this run and was not reported as failing; changing it
+ *   risks losing that evidence for no reported benefit. This is reported
+ *   as a reasoned, documented choice within the requested 1.2-1.8s range,
+ *   NOT a guaranteed fix: back-of-envelope arithmetic from this run's own
+ *   reported numbers (7408-7664ms observed at a 3s delay) suggests the
+ *   non-sleep portion of a full winning transaction's real Neon round-trip
+ *   overhead may itself already be several seconds — meaning scenarios 1,
+ *   3, and 4 (same-row races, where the loser waits the winner's FULL
+ *   span) could plausibly still land close to or over the 5000ms ceiling
+ *   even at 1.5s. This cannot be resolved further from this harness alone
+ *   (Prisma's transaction timeout is a production `purchase-activation.ts`
+ *   $transaction() call, out of scope to change here) and cannot be
+ *   confirmed or ruled out without another real run.
+ *
+ *   (vi) `The column StaffNotification.data does not exist` (P2022) — a
+ *   full column-by-column diff was done this round (not just the reported
+ *   column) specifically to avoid a repeat one-at-a-time discovery cycle:
+ *   every other column already matched prisma/schema.prisma's real
+ *   StaffNotification model exactly (id/staffId/category/title/body/read/
+ *   important/archived/sourceId/sourceType/createdAt); only `data Json?`
+ *   was missing, now added as nullable `jsonb`. While investigating why a
+ *   column the exercised code never explicitly reads or writes could still
+ *   throw, confirmed the mechanism: `raiseJadeClubOperationalAlert`'s
+ *   `staffNotification.create()` call has no explicit `select`, so Prisma
+ *   implicitly reads back EVERY column of the real model immediately after
+ *   insert to construct the returned object — meaning a table needs its
+ *   FULL real column set the moment any exercised code does a select-less
+ *   create/update/findMany against it, not just the columns that call
+ *   explicitly names. Used this to re-verify the other three prerequisite
+ *   tables are not exposed to the same risk: `User` is never queried by
+ *   any exercised code path at all (grep-confirmed, FK-only); `Staff`'s
+ *   one query (`raiseJadeClubOperationalAlert`'s `findMany`) already uses
+ *   an explicit `select: { id, role, permissions }` plus `isActive` in its
+ *   WHERE clause, all four already present; `ActivityLog`'s `create()`
+ *   calls are select-less like StaffNotification's, but CORRECTION 3(i)'s
+ *   audit already gave it the real model's complete column set. No further
+ *   gap found.
+ *
  *   (iv) Scenario 11's dedicated policy insert collided with
  *   `idx_jade_club_commercial_policies_one_active` — confirmed by reading
  *   the actual migration (`jade_travel_club_commercial_v2a.sql`) that this
@@ -483,12 +543,25 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
           CREATE TYPE "StaffNotificationCategory" AS ENUM ('JADE_BRIEF', 'SYSTEM', 'VISA', 'TRAVEL', 'BOOKING', 'SUPPLIER', 'MANAGEMENT');
         END IF;
       END $$;
+      -- FULL COLUMN-BY-COLUMN DIFF against prisma/schema.prisma's real
+      -- StaffNotification model (CORRECTION 4, done this round to avoid a
+      -- third missing-column discovery next run): id/staffId/category/
+      -- title/body/read/important/archived/sourceId/sourceType/createdAt
+      -- all already matched exactly (name, nullability, and — for
+      -- category — the real enum type as of CORRECTION 3(ii)). The ONLY
+      -- gap was the data Json? field (nullable) — never added here before,
+      -- causing a real Prisma P2022 "column does not exist" on a genuine
+      -- external run once an alert-raising call attempted to write it. The
+      -- 'staff' relation on the real model is a Prisma relation, not a
+      -- column, so it has no table counterpart. Added below as nullable
+      -- jsonb, matching the real model's Json? type exactly.
       CREATE TABLE IF NOT EXISTS "StaffNotification" (
         id text PRIMARY KEY,
         "staffId" text NOT NULL REFERENCES "Staff"(id),
         category "StaffNotificationCategory" NOT NULL DEFAULT 'SYSTEM',
         title text NOT NULL,
         body text NOT NULL,
+        data jsonb,
         important boolean NOT NULL DEFAULT false,
         "sourceId" text,
         "sourceType" text,
@@ -767,7 +840,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
 
   it('SCENARIO 1 [TRUE CONCURRENT RACE] — two workers race the SAME purchase: exactly one terms period, exactly one 3-slot benefit-issuance set, ACTIVATED with membershipTermsId populated, NO FAILED_PERMANENTLY anywhere, genuine lock contention proven', async () => {
     insertPurchaseFixture(`('purchase_s1', 'user_s1', 'membership_s1', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s1', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 1 purchase fixture')
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's1')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1.5, 's1')
     try {
       const { resultA, resultB, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_purchases',
@@ -800,7 +873,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       `('purchase_s2b', 'user_s2', 'membership_s2', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s2b', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
       'scenario 2 purchase fixtures',
     )
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 3, 's2')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1.5, 's2')
     try {
       const { resultA, resultB, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_memberships',
@@ -834,7 +907,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     // because scenarios 4-11's own purchase fixtures no longer exist yet at
     // this point (each is inserted lazily inside its own `it()` body).
     insertPurchaseFixture(`('purchase_s3', 'user_s3', 'membership_s3', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s3', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 3 purchase fixture')
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's3')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1.5, 's3')
     try {
       const { resultA, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_purchases',
@@ -854,7 +927,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
 
   it('SCENARIO 4 [TRUE CONCURRENT RACE] — refund vs activation racing the SAME purchase row lock: the purchase never ends ACTIVATED with a REFUNDED payment silently ignored, genuine lock contention proven', async () => {
     insertPurchaseFixture(`('purchase_s4', 'user_s4', 'membership_s4', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s4', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 4 purchase fixture')
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's4')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1.5, 's4')
     try {
       const { resultA, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_purchases',
@@ -945,7 +1018,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       `('purchase_s7_plus', 'user_s7', 'membership_s7', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s7_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
       'scenario 7 purchase fixtures',
     )
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 3, 's7')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1.5, 's7')
     try {
       const startedAt = Date.now()
       const order: string[] = []
@@ -1008,7 +1081,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       `('purchase_s8_club', 'user_s8', 'membership_s8', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s8_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
       'scenario 8 purchase fixtures',
     )
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 3, 's8')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1.5, 's8')
     try {
       const startedAt = Date.now()
       const order: string[] = []
