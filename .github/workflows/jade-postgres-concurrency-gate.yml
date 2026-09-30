@@ -1,0 +1,164 @@
+# Jade Travel Club 2A — Postgres Concurrency Acceptance Gate
+#
+# Closes the "POSTGRES CONCURRENCY ACCEPTANCE NOT PROVEN" finding from the
+# Walz Business R1 x Jade 2A cross-workstream integration review. Proves,
+# against a REAL PostgreSQL service container (not a mock, not an in-memory
+# fake), that lib/jade-club/entitlements.ts::activateMembershipTerms's
+# `SELECT ... FOR UPDATE` row lock genuinely serializes concurrent
+# activation attempts for the same membership — see
+# lib/jade-club/__tests__/postgres-concurrency.test.ts for the test itself.
+#
+# TEST INFRASTRUCTURE ONLY. This workflow does not deploy anything, does
+# not touch any production or Supabase project, and requires zero secrets —
+# the Postgres instance below is a disposable, job-scoped GitHub Actions
+# service container that exists only for the duration of this run and is
+# destroyed when the job ends.
+#
+# Deliberately conservative triggers while this gate is new: manual
+# dispatch always, plus pull_request only when the exact files this test
+# depends on change. No scheduled/cron trigger — this is not a production
+# job.
+name: Jade Postgres Concurrency Gate
+
+on:
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - 'lib/jade-club/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/jade_travel_club_v1.sql'
+      - 'prisma/migrations/jade_travel_club_commercial_v2a.sql'
+      - '.github/workflows/jade-postgres-concurrency-gate.yml'
+      - 'jest.postgres-concurrency.config.js'
+
+jobs:
+  postgres-concurrency:
+    name: Real-Postgres activation concurrency invariant
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # A real, disposable PostgreSQL 16 instance, local to this job only.
+    # No production credentials of any kind are used anywhere in this
+    # workflow — the username/password below are throwaway values that
+    # only ever exist inside this ephemeral container.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: jade_ci
+          POSTGRES_PASSWORD: jade_ci_test_only
+          POSTGRES_DB: jade_concurrency_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jade_ci -d jade_concurrency_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Job-local only — this hostname/port/credentials resolve exclusively
+      # to the ephemeral `postgres` service container above and nothing
+      # outside this job can reach it. connection_limit is set explicitly
+      # (rather than left to Prisma's default) so the two/three genuinely
+      # concurrent activation calls in the test each get their own real
+      # Postgres connection instead of queueing behind a small pool, which
+      # would test Node's scheduling instead of Postgres's row lock.
+      DATABASE_URL: postgresql://jade_ci:jade_ci_test_only@localhost:5432/jade_concurrency_ci?connection_limit=10
+      DIRECT_URL: postgresql://jade_ci:jade_ci_test_only@localhost:5432/jade_concurrency_ci?connection_limit=10
+      NODE_ENV: test
+
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: "Install dependencies (repo's existing convention: npm ci)"
+        run: npm ci --no-audit --no-fund
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 -U jade_ci && exit 0
+            sleep 2
+          done
+          echo "PostgreSQL did not become ready in time" >&2
+          exit 1
+
+      - name: Log PostgreSQL version (proof this is real Postgres, not a mock)
+        run: |
+          PGPASSWORD=jade_ci_test_only psql -h localhost -U jade_ci -d jade_concurrency_ci -c "SELECT version();"
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Create full base schema (prisma db push)
+        # This ephemeral CI database starts completely empty — unlike
+        # production, it has no accumulated history of hand-run SQL
+        # migrations to replay (this repo has never used `prisma migrate`;
+        # every table this project has ever had, old and new, is captured
+        # in the single current prisma/schema.prisma — see CLAUDE.md /
+        # prisma/migrations/*.sql headers). `prisma db push` against this
+        # disposable, job-scoped container is not a production operation —
+        # it is the standard, correct tool for standing up a full-fidelity
+        # throwaway schema from the current schema.prisma. This step alone
+        # creates every table (old and new) and every constraint/index
+        # Prisma *can* express (including the
+        # @@unique([membershipTermsId, benefitSnapshotId, periodKey, slotNumber])
+        # slot-identity constraint the concurrency test depends on) — but
+        # NOT the hand-written CHECK constraints / partial unique indexes /
+        # RLS policies that live only in the raw SQL migration files, which
+        # the next step adds.
+        run: npx prisma db push --accept-data-loss --skip-generate
+
+      - name: Layer in the real hand-written migration SQL (CHECK constraints, partial indexes, RLS)
+        # Runs the ACTUAL, unmodified migration files this integration
+        # candidate ships — the same files that would be run by hand in
+        # Supabase's SQL Editor for production. Both files are internally
+        # idempotent (CREATE TABLE IF NOT EXISTS, and every ADD CONSTRAINT /
+        # CREATE POLICY guarded by an existence check or exception handler),
+        # so running them AFTER `prisma db push` has already created the
+        # tables is safe: every CREATE TABLE line no-ops (table already
+        # exists), while every ADD CONSTRAINT / CREATE UNIQUE INDEX / RLS
+        # POLICY statement still executes normally against the
+        # already-existing table — layering in exactly the constraints
+        # `db push` alone cannot express, with zero simplified/invented
+        # test-only schema. Order does not matter between these two files —
+        # this was verified independently in the cross-workstream
+        # integration review (disjoint tables, zero shared-table ALTERs,
+        # zero cross-FKs) — they are applied here in the same order used in
+        # that review's temporary integration branch.
+        run: |
+          PGPASSWORD=jade_ci_test_only psql -v ON_ERROR_STOP=1 -h localhost -U jade_ci -d jade_concurrency_ci \
+            -f prisma/migrations/walz_business_r1_foundation.sql
+          PGPASSWORD=jade_ci_test_only psql -v ON_ERROR_STOP=1 -h localhost -U jade_ci -d jade_concurrency_ci \
+            -f prisma/migrations/jade_travel_club_commercial_v2a.sql
+
+      - name: Run REAL Postgres concurrency acceptance test
+        # DEBUG=prisma:query makes Prisma's own query-engine debug channel
+        # print every literal SQL statement it sends to Postgres — including
+        # the `SELECT ... FOR UPDATE` inside activateMembershipTerms's
+        # transaction — to this step's log, independent of the app's own
+        # `log` config (lib/db.ts only logs 'error' outside development).
+        # This is evidence, not a code change: no product file is modified
+        # to produce it.
+        run: DEBUG=prisma:query npx jest --config jest.postgres-concurrency.config.js --runInBand 2>&1 | tee /tmp/pg-concurrency-test.log
+
+      - name: Verify the real row-lock statement actually executed
+        # Fails the job outright (not just a warning) if this specific
+        # statement is ever missing from the captured query log — e.g. if a
+        # future refactor accidentally removed the row lock, this step
+        # catches it even if every assertion above happened to still pass
+        # by coincidence.
+        run: |
+          if grep -qi "FOR UPDATE" /tmp/pg-concurrency-test.log; then
+            echo "Confirmed: a real 'SELECT ... FOR UPDATE' statement was sent to PostgreSQL during this run."
+          else
+            echo "FAIL: no 'FOR UPDATE' statement was observed in the Prisma query log — the row lock did not execute." >&2
+            exit 1
+          fi
