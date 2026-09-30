@@ -403,6 +403,31 @@
  *   throws otherwise. There is no way to reach this file's destructive
  *   DDL/DML against an untagged or ordinary connection string.
  *
+ * ── CORRECTION 6 (harness-only): deterministic cross-tier protocol ──────
+ *   Scenarios 7 and 8 no longer use `raceWithLockContentionProof()`,
+ *   `pollForLockContention()`, a 15ms JS head start, a RowShareLock check,
+ *   or any `pg_sleep` widening trigger. Root cause of their real-Neon
+ *   timeouts: `psql()` is `spawnSync`, which BLOCKS the Node event loop for
+ *   each poll (new process + new TLS/SCRAM connection to Neon, ~330ms), so
+ *   the application's own await-chained Prisma statements advanced ~1 per
+ *   poll cycle while Prisma's 5000ms interactive-transaction timer kept
+ *   running in the query engine. See `runGatedCrossTierRace()` for the
+ *   replacement protocol: an async coordinator PrismaClient (no child
+ *   processes during the race), a pre-transaction advisory-lock gate on the
+ *   intended loser, an xmax/backend_xid proof that the intended winner's
+ *   own transaction holds the membership row lock, and a pg_blocking_pids()
+ *   proof that the loser then genuinely blocks behind it. Scenarios 1-5
+ *   still use the spawnSync-based poller (they pass because contention is
+ *   observed early); converting them is a deferred harness item.
+ *
+ *   DEFERRED PRODUCTION NOTE (LOW, non-blocking, record only — not part of
+ *   this release's scope): attemptActivation()'s interactive transaction
+ *   issues ~20 + 3×(total entitlement slots) + 3 sequential DB round trips
+ *   (issueSlotsForSnapshot does findUnique + slot create + event create per
+ *   slot). Measure production activation duration / round-trip count
+ *   before any future policy introduces materially larger slot counts
+ *   relative to Prisma's 5000ms interactive-transaction timeout.
+ *
  * ── SCENARIO INVENTORY (honest classification — see each `it()` too) ────
  *   1  TRUE CONCURRENT RACE     — two workers, same purchase
  *   2  TRUE CONCURRENT RACE     — two distinct same-tier purchases, same membership
@@ -410,20 +435,22 @@
  *   4  TRUE CONCURRENT RACE     — refund vs activation, same purchase
  *   5  TRUE CONCURRENT RACE     — activation vs refund, same purchase (reverse ordering pressure)
  *   6  ROLLBACK TEST            — forced DB-level failure during issuance (single-threaded, no race)
- *   7  TRUE CONCURRENT RACE     — cross-tier CLUB vs CLUB_PLUS, CLUB pressured to win
- *   8  TRUE CONCURRENT RACE     — cross-tier CLUB vs CLUB_PLUS, CLUB_PLUS pressured to win
+ *   7  TRUE CONCURRENT RACE     — cross-tier CLUB vs CLUB_PLUS, CLUB deterministically wins (CORRECTION 6 gated protocol)
+ *   8  TRUE CONCURRENT RACE     — cross-tier CLUB vs CLUB_PLUS, CLUB_PLUS deterministically wins (CORRECTION 6 gated protocol)
  *   9  FK-INTEGRITY TEST        — single DELETE, no concurrency involved
  *   10 ROLLBACK TEST            — forced invariant failure (single-threaded, no race)
  *   11 SEQUENTIAL STATE-TRANSITION TEST — POLICY_NO_LONGER_ACTIVE, real DB, no concurrency
  *   12 SEQUENTIAL STATE-TRANSITION TEST — purchaseIdHint crash-recovery self-heal, real DB, no concurrency
- * Scenarios 1-5, 7, 8 use `raceWithLockContentionProof()` and report
- * actual timing/contention evidence. Scenarios 6, 9, 10, 11, 12 were never
+ * Scenarios 1-5 use `raceWithLockContentionProof()`/`pollForLockContention()`
+ * and report actual timing/contention evidence; scenarios 7, 8 use
+ * `runGatedCrossTierRace()` (CORRECTION 6). Scenarios 6, 9, 10, 11, 12 were never
  * mislabeled as races in the prior version and remain single-threaded —
  * they are listed here for completeness of the honest inventory, not
  * because their classification changed.
  */
 
 import { execSync, spawnSync } from 'child_process'
+import type { PrismaClient } from '@prisma/client'
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
@@ -485,6 +512,12 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   let realPrisma: { $disconnect: () => Promise<void> }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let entitlementsModule: any
+  // CORRECTION 6: a SEPARATE, harness-only PrismaClient used exclusively for
+  // race-time coordination/observation in scenarios 7 and 8 (async, never a
+  // child process). It is NOT lib/db's client — application code never sees
+  // it — and its own options (pool size, its gate transaction's timeout) are
+  // test-infrastructure settings only, never the production configuration.
+  let coordinator: PrismaClient | undefined
 
   // ── Mode-aware psql helpers — EVERY invocation uses -v ON_ERROR_STOP=1 ──
   function psql(sql: string) {
@@ -926,9 +959,22 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     reconcilePendingActivations = require('../purchase-reconciliation').reconcilePendingActivations
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     realPrisma = require('@/lib/db').default
+
+    // CORRECTION 6 coordinator: same test database, its own small pool
+    // (one connection pinned by the gate transaction + observers).
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { PrismaClient: CoordinatorPrismaClient } = require('@prisma/client')
+    const coordinatorUrl = new URL(DB_URL)
+    coordinatorUrl.searchParams.set('connection_limit', '4')
+    coordinator = new CoordinatorPrismaClient({ datasources: { db: { url: coordinatorUrl.toString() } }, log: ['error'] }) as PrismaClient
   })
 
   afterAll(async () => {
+    // Disconnecting ends every coordinator session, which also releases any
+    // advisory lock it could still hold (transaction-scoped locks end with
+    // their transaction/session) — a final backstop behind the per-scenario
+    // try/finally release in runGatedCrossTierRace().
+    await coordinator?.$disconnect().catch(() => {})
     await realPrisma?.$disconnect().catch(() => {})
     if (MODE === 'docker') spawnSync('docker', ['rm', '-f', CONTAINER_NAME])
     try { fs.rmSync(logDir, { recursive: true, force: true }) } catch { /* best-effort cleanup */ }
@@ -1225,212 +1271,377 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     }
   })
 
-  it('SCENARIO 7 [TRUE CONCURRENT RACE] — CROSS-TIER: CLUB vs CLUB_PLUS genuinely racing, CLUB pressured to win by a head start — membership.tier ends CLUB, never mutated by the CLUB_PLUS loser, genuine lock contention proven', async () => {
+  // ─── CORRECTION 6: deterministic, non-blocking cross-tier race protocol ──
+  //
+  // Used ONLY by scenarios 7 and 8. Synchronization protocol:
+  //
+  //   0. (Pre-race, psql allowed — no worker exists yet.) Assert no
+  //      `test_slow_update_*` pg_sleep trigger is present on the two
+  //      contended tables, then install a test-only BEFORE UPDATE trigger on
+  //      jade_club_purchases that fires ONLY for the intended LOSER's row and
+  //      ONLY when activation_attempts changes — i.e. only for
+  //      attemptActivation()'s out-of-transaction attempt-counter UPDATE
+  //      (purchase-activation.ts line ~408), which runs BEFORE its 5000ms
+  //      interactive transaction is opened. The trigger calls
+  //      pg_advisory_xact_lock(<gateKey>).
+  //   1. The coordinator opens its OWN interactive transaction and takes
+  //      pg_advisory_xact_lock(<gateKey>) — the gate is now closed.
+  //   2. RACE WINDOW OPENS. Both real, unmodified attemptActivation() calls
+  //      are launched together. From here until both have settled NOTHING
+  //      in this protocol calls psql()/spawnSync/execSync — every
+  //      observation is an async coordinator query, so the Node event loop
+  //      (and therefore the application's own await-chained Prisma
+  //      statements) is never blocked.
+  //   3. The loser's attempt-counter UPDATE blocks in the trigger on the
+  //      advisory lock — BEFORE its interactive transaction exists, costing
+  //      none of its 5000ms budget. Observed as an ungranted advisory lock
+  //      with this gate's key in pg_locks.
+  //   4. The winner runs freely (no artificial sleep, no stall). The
+  //      coordinator proves the WINNER'S OWN transaction holds the
+  //      membership row lock (xmax/backend_xid identity — see
+  //      proveWinnerHoldsMembershipRow()).
+  //   5. Only when BOTH (3) and (4) are observed does the coordinator commit
+  //      its gate transaction, releasing the loser.
+  //   6. The loser proceeds through its real transaction and reaches the
+  //      membership `SELECT ... FOR UPDATE` while the winner still holds the
+  //      row. The coordinator proves the blocking edge loser -> winner via
+  //      pg_blocking_pids() (see proveLoserBlockedOnWinner()).
+  //   7. Both workers complete normally. The loser can only obtain the row
+  //      after the winner commits, so it deterministically observes the
+  //      winner's committed terms and loses. RACE WINDOW CLOSES.
+  //   8. (psql allowed again.) Gate trigger dropped in `finally`.
+  //
+  // Failure safety: everything after trigger installation runs inside
+  // try/finally. `finally` always (a) resolves the gate-release promise, (b)
+  // awaits the gate transaction's COMMIT/ROLLBACK — which is what releases
+  // the transaction-scoped advisory lock — (c) awaits BOTH workers settling
+  // (so no worker transaction is active before any psql call), and only
+  // then (d) drops the trigger/function. Backstops: the gate transaction
+  // has its own harness-local 60s timeout (Prisma rolls it back, releasing
+  // the xact lock), afterAll() disconnects the coordinator, and every
+  // install is preceded by DROP ... IF EXISTS so a crashed run cannot leave
+  // a gate behind for the next one. The gate objects only ever exist in
+  // this dedicated, name-tagged disposable test database.
+
+  type CrossTierSide = { purchaseId: string; label: string; tier: 'CLUB' | 'CLUB_PLUS' }
+  type WinnerProofRow = { pid: number; xid: string; state: string | null }
+  type ContentionRow = { loser_pid: number; winner_pid: number; loser_xid: string; winner_xid: string; wait_event_type: string | null; wait_event: string | null; loser_query: string | null }
+  type ActivationOutcome = { outcome: string; error?: string; reason?: string; termsId?: string }
+
+  function coord(): PrismaClient {
+    if (!coordinator) throw new Error('CORRECTION 6 coordinator PrismaClient was not initialized in beforeAll')
+    return coordinator
+  }
+
+  async function sleepAsync(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  /** Non-blocking poll: `probe` is always an async coordinator query — never psql(). */
+  async function pollAsync<T>(probe: () => Promise<T | null>, timeoutMs: number, stop?: () => boolean): Promise<{ value: T | null; elapsedMs: number; polls: number }> {
+    const t0 = Date.now()
+    let polls = 0
+    while (Date.now() - t0 < timeoutMs) {
+      polls++
+      const value = await probe()
+      if (value !== null) return { value, elapsedMs: Date.now() - t0, polls }
+      if (stop && stop()) break
+      await sleepAsync(10)
+    }
+    return { value: null, elapsedMs: Date.now() - t0, polls }
+  }
+
+  /**
+   * WINNER PROOF. Returns the backend whose CURRENT, still-open transaction
+   * holds the lock on BOTH the membership row and the winner's own purchase
+   * row, or null.
+   *
+   * What Postgres actually proves here: a row locked by SELECT ... FOR
+   * UPDATE (or updated) carries the locking transaction's xid in its `xmax`
+   * system column until that transaction ends; pg_stat_activity.backend_xid
+   * is non-null only for a live backend whose transaction currently has
+   * that xid assigned. Equality of all three therefore proves ONE live
+   * transaction currently holds a lock (or pending update) on BOTH rows.
+   * Only attemptActivation(<winner purchase>) ever locks the winner's
+   * purchase row in this test (line ~417, FOR UPDATE), so that transaction
+   * is the intended winner's own.
+   *
+   * Caveats (stated, not hidden):
+   *   - xmax alone does not encode lock STRENGTH. That the membership lock
+   *     is exclusive rests on code knowledge: the winner's only operations
+   *     on that row are SELECT ... FOR UPDATE (line ~518 and
+   *     createMembershipTermsCore) and the tier-bump UPDATE — all exclusive.
+   *   - If several transactions held SHARE-class locks on a row, xmax would
+   *     be a MultiXactId and this equality would FAIL (a false NEGATIVE ->
+   *     the test fails loudly), never a false positive. No share-lock path
+   *     reaches either row during this window.
+   *   - A stale xmax from an already-finished transaction can never match,
+   *     because no live backend carries a finished transaction's xid.
+   */
+  async function proveWinnerHoldsMembershipRow(membershipId: string, winnerPurchaseId: string): Promise<WinnerProofRow | null> {
+    const rows = await coord().$queryRawUnsafe<WinnerProofRow[]>(
+      `SELECT a.pid::int AS pid, a.backend_xid::text AS xid, a.state AS state ` +
+      `FROM pg_stat_activity a ` +
+      `WHERE a.backend_xid IS NOT NULL ` +
+      `AND a.backend_xid = (SELECT m.xmax FROM jade_club_memberships m WHERE m.id = $1) ` +
+      `AND a.backend_xid = (SELECT pu.xmax FROM jade_club_purchases pu WHERE pu.id = $2)`,
+      membershipId, winnerPurchaseId,
+    )
+    return rows.length === 1 ? rows[0] : null
+  }
+
+  /** LOSER GATE ENGAGED: an ungranted advisory lock on this gate's key (bigint key < 2^31 => classid 0, objid = key, objsubid 1). */
+  async function observeLoserGated(gateKey: number): Promise<{ pid: number } | null> {
+    const rows = await coord().$queryRawUnsafe<Array<{ pid: number }>>(
+      `SELECT pid::int AS pid FROM pg_locks WHERE locktype = 'advisory' AND NOT granted ` +
+      `AND classid = 0 AND objid::bigint = ${gateKey} AND objsubid = 1`,
+    )
+    return rows.length > 0 ? rows[0] : null
+  }
+
+  /**
+   * CONTENTION PROOF. The loser's transaction (identified by the xmax its
+   * own line-~417 FOR UPDATE stamps on the loser's purchase row) is waiting
+   * on a heavyweight lock while executing the membership SELECT ... FOR
+   * UPDATE, and pg_blocking_pids() names the winner's transaction (which
+   * still holds the membership row, per the same xmax/backend_xid identity
+   * as the winner proof). This is an edge in Postgres's own lock-wait
+   * graph — genuine contention, observed, not inferred from timing.
+   */
+  async function proveLoserBlockedOnWinner(membershipId: string, winnerPurchaseId: string, loserPurchaseId: string): Promise<ContentionRow | null> {
+    const rows = await coord().$queryRawUnsafe<ContentionRow[]>(
+      `SELECT l.pid::int AS loser_pid, w.pid::int AS winner_pid, l.backend_xid::text AS loser_xid, w.backend_xid::text AS winner_xid, ` +
+      `l.wait_event_type AS wait_event_type, l.wait_event AS wait_event, left(l.query, 200) AS loser_query ` +
+      `FROM pg_stat_activity l JOIN pg_stat_activity w ON w.pid = ANY(pg_blocking_pids(l.pid)) ` +
+      `WHERE l.backend_xid IS NOT NULL AND w.backend_xid IS NOT NULL ` +
+      `AND l.backend_xid = (SELECT pl.xmax FROM jade_club_purchases pl WHERE pl.id = $3) ` +
+      `AND w.backend_xid = (SELECT pw.xmax FROM jade_club_purchases pw WHERE pw.id = $2) ` +
+      `AND w.backend_xid = (SELECT m.xmax FROM jade_club_memberships m WHERE m.id = $1) ` +
+      `AND l.wait_event_type = 'Lock' ` +
+      `AND l.query ILIKE '%jade_club_memberships%' AND l.query ILIKE '%FOR UPDATE%'`,
+      membershipId, winnerPurchaseId, loserPurchaseId,
+    )
+    return rows.length > 0 ? rows[0] : null
+  }
+
+  async function readCrossTierFinalState(membershipId: string, winnerPurchaseId: string, loserPurchaseId: string) {
+    const c = coord()
+    const membership = await c.$queryRawUnsafe<Array<{ tier: string; status: string; source: string }>>(
+      `SELECT tier, status, source FROM jade_club_memberships WHERE id = $1`, membershipId)
+    const terms = await c.$queryRawUnsafe<Array<{ id: string; tier: string; purchase_id: string | null }>>(
+      `SELECT id, tier, purchase_id FROM jade_club_membership_terms WHERE membership_id = $1`, membershipId)
+    const purchases = await c.$queryRawUnsafe<Array<{ id: string; tier: string; payment_status: string; activation_status: string; failure_reason: string | null; membership_terms_id: string | null; activation_attempts: number }>>(
+      `SELECT id, tier, payment_status, activation_status, failure_reason, membership_terms_id, activation_attempts::int AS activation_attempts ` +
+      `FROM jade_club_purchases WHERE id IN ($1, $2)`, winnerPurchaseId, loserPurchaseId)
+    const count = async (sql: string, ...params: string[]) => (await c.$queryRawUnsafe<Array<{ n: number }>>(sql, ...params))[0].n
+    const loserOriginatedTerms = await count(`SELECT count(*)::int AS n FROM jade_club_membership_terms WHERE purchase_id = $1`, loserPurchaseId)
+    const snapshotCount = await count(`SELECT count(*)::int AS n FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id IN (SELECT id FROM jade_club_membership_terms WHERE membership_id = $1)`, membershipId)
+    const slotCount = await count(`SELECT count(*)::int AS n FROM jade_club_entitlement_slots WHERE membership_terms_id IN (SELECT id FROM jade_club_membership_terms WHERE membership_id = $1)`, membershipId)
+    const eventCount = await count(`SELECT count(*)::int AS n FROM jade_club_entitlement_events WHERE slot_id IN (SELECT s.id FROM jade_club_entitlement_slots s WHERE s.membership_terms_id IN (SELECT id FROM jade_club_membership_terms WHERE membership_id = $1))`, membershipId)
+    return {
+      membership: membership[0] ?? null,
+      terms,
+      winnerPurchase: purchases.find((p) => p.id === winnerPurchaseId) ?? null,
+      loserPurchase: purchases.find((p) => p.id === loserPurchaseId) ?? null,
+      loserOriginatedTerms, snapshotCount, slotCount, eventCount,
+    }
+  }
+
+  async function runGatedCrossTierRace(p: { label: string; membershipId: string; winner: CrossTierSide; loser: CrossTierSide; gateKey: number }) {
+    const c = coord()
+    const gateFn = `test_gate_${p.label}_fn`
+    const gateTrigger = `test_gate_${p.label}_trigger`
+    const removeGate = () => {
+      psql(`DROP TRIGGER IF EXISTS ${gateTrigger} ON jade_club_purchases;`)
+      psql(`DROP FUNCTION IF EXISTS ${gateFn}();`)
+    }
+
+    // ── Step 0 (pre-race; psql allowed — no worker has been launched) ──
+    removeGate() // clears any gate a previously crashed run could have left
+    const slowTriggers = psql(
+      `SELECT count(*) FROM pg_trigger t JOIN pg_class r ON r.oid = t.tgrelid ` +
+      `WHERE r.relname IN ('jade_club_memberships', 'jade_club_purchases') AND t.tgname LIKE 'test_slow_update_%'`,
+    )
+    if (slowTriggers.status !== 0 || slowTriggers.stdout.trim() !== '0') {
+      throw new Error(`[${p.label}] refusing to race: artificial pg_sleep trigger(s) still present on contended tables (${slowTriggers.stdout.trim()} ${slowTriggers.stderr})`)
+    }
+
+    let releaseGate: () => void = () => {}
+    const gateReleased = new Promise<void>((resolve) => { releaseGate = resolve })
+    let winnerP: Promise<ActivationOutcome> | undefined
+    let loserP: Promise<ActivationOutcome> | undefined
+    let gateTxSettled: Promise<{ ok: boolean; error?: string }> = Promise.resolve({ ok: true })
+
+    try {
+      psqlOrThrow(
+        `CREATE OR REPLACE FUNCTION ${gateFn}() RETURNS trigger AS $$ BEGIN PERFORM pg_advisory_xact_lock(${p.gateKey}::bigint); RETURN NEW; END; $$ LANGUAGE plpgsql;`,
+        `install loser gate fn (${p.label})`,
+      )
+      psqlOrThrow(
+        `DROP TRIGGER IF EXISTS ${gateTrigger} ON jade_club_purchases; ` +
+        `CREATE TRIGGER ${gateTrigger} BEFORE UPDATE ON jade_club_purchases FOR EACH ROW ` +
+        `WHEN (NEW.id = '${p.loser.purchaseId}' AND NEW.activation_attempts IS DISTINCT FROM OLD.activation_attempts) ` +
+        `EXECUTE FUNCTION ${gateFn}();`,
+        `install loser gate trigger (${p.label})`,
+      )
+
+      // ── Step 1: close the gate (coordinator's own transaction; harness-local timeout) ──
+      let signalGateHeld: () => void = () => {}
+      const gateHeld = new Promise<void>((resolve) => { signalGateHeld = resolve })
+      gateTxSettled = c.$transaction(async (gtx) => {
+        await gtx.$queryRawUnsafe(`SELECT 1::int AS ok FROM (SELECT pg_advisory_xact_lock(${p.gateKey}::bigint)) AS g`)
+        signalGateHeld()
+        await gateReleased
+      }, { maxWait: 10_000, timeout: 60_000 }).then(
+        () => ({ ok: true }),
+        (e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }),
+      )
+      const gateEndedEarly = gateTxSettled.then((r) => { throw new Error(`[${p.label}] gate transaction ended before the advisory lock was held: ${JSON.stringify(r)}`) })
+      gateEndedEarly.catch(() => {}) // handled: only meaningful if it wins the race below; otherwise it rejects harmlessly after the gate's normal COMMIT
+      await Promise.race([gateHeld, gateEndedEarly])
+      const gateGranted = await c.$queryRawUnsafe<Array<{ n: number }>>(
+        `SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND granted AND classid = 0 AND objid::bigint = ${p.gateKey} AND objsubid = 1`,
+      )
+
+      // ════ RACE WINDOW OPENS — no psql()/spawnSync/execSync until both workers settle ════
+      const startedAt = Date.now()
+      const order: string[] = []
+      let winnerSettled = false
+      let loserSettled = false
+      winnerP = attemptActivation(p.winner.purchaseId)
+        .then((r) => { order.push(p.winner.label); return r as ActivationOutcome })
+        .finally(() => { winnerSettled = true })
+      loserP = attemptActivation(p.loser.purchaseId)
+        .then((r) => { order.push(p.loser.label); return r as ActivationOutcome })
+        .finally(() => { loserSettled = true })
+
+      // Steps 3 + 4: loser provably held pre-transaction AND winner provably holds the membership row.
+      // Declared with `as` so TypeScript does not narrow them to `null` (they are assigned inside the poll closure).
+      let loserGated = null as { pid: number } | null
+      let loserGatedAtMs = null as number | null
+      let winnerProof = null as WinnerProofRow | null
+      let winnerProofAtMs = null as number | null
+      const preRelease = await pollAsync(async () => {
+        if (!loserGated) {
+          loserGated = await observeLoserGated(p.gateKey)
+          if (loserGated) loserGatedAtMs = Date.now() - startedAt
+        }
+        if (!winnerProof) {
+          winnerProof = await proveWinnerHoldsMembershipRow(p.membershipId, p.winner.purchaseId)
+          if (winnerProof) winnerProofAtMs = Date.now() - startedAt
+        }
+        return loserGated && winnerProof ? true : null
+      }, 20_000, () => winnerSettled)
+
+      // Step 5: release the loser ONLY with both proofs; otherwise `finally` releases it and assertions fail loudly.
+      let releasedAtMs = null as number | null
+      let contention: { value: ContentionRow | null; elapsedMs: number; polls: number } = { value: null, elapsedMs: 0, polls: 0 }
+      if (preRelease.value) {
+        releaseGate()
+        const gateResult = await gateTxSettled
+        releasedAtMs = Date.now() - startedAt
+        if (!gateResult.ok) throw new Error(`[${p.label}] gate transaction failed to commit: ${gateResult.error}`)
+        // Step 6: prove the loser genuinely blocks behind the winner.
+        contention = await pollAsync(
+          () => proveLoserBlockedOnWinner(p.membershipId, p.winner.purchaseId, p.loser.purchaseId),
+          20_000,
+          () => winnerSettled || loserSettled,
+        )
+      }
+
+      // Step 7: both real attemptActivation() calls complete normally.
+      const [winnerOutcome, loserOutcome] = await Promise.all([winnerP, loserP])
+      const settledAtMs = Date.now() - startedAt
+      // ════ RACE WINDOW CLOSES ════
+
+      const finalState = await readCrossTierFinalState(p.membershipId, p.winner.purchaseId, p.loser.purchaseId)
+      const evidence = {
+        gateGrantedToCoordinator: gateGranted[0]?.n === 1,
+        loserGated, loserGatedAtMs,
+        winnerProof, winnerProofAtMs,
+        preReleasePolls: preRelease.polls, releasedAtMs,
+        contention: contention.value, contentionPolls: contention.polls,
+        order, settledAtMs, winnerOutcome, loserOutcome,
+      }
+      // Evidence + persisted state are logged BEFORE any assertion runs.
+      // eslint-disable-next-line no-console
+      console.log(`[${p.label} gated race evidence]`, JSON.stringify(evidence))
+      // eslint-disable-next-line no-console
+      console.log(`[${p.label} final DB state]`, JSON.stringify(finalState))
+      return { evidence, finalState }
+    } finally {
+      releaseGate()                     // idempotent — opens the gate even if the test threw mid-race
+      await gateTxSettled               // gate COMMIT/ROLLBACK => transaction-scoped advisory lock released
+      await Promise.allSettled([winnerP, loserP].filter((x): x is Promise<ActivationOutcome> => x !== undefined))
+      // ════ No worker transaction can be active past this point — psql allowed again ════
+      removeGate()
+    }
+  }
+
+  function assertGatedCrossTierResult(
+    result: Awaited<ReturnType<typeof runGatedCrossTierRace>>,
+    p: { membershipId: string; winner: CrossTierSide; loser: CrossTierSide; expectedSlots: number },
+  ) {
+    const { evidence, finalState } = result
+
+    // Synchronization proofs — deterministic ordering and genuine contention, observed in Postgres.
+    expect(evidence.gateGrantedToCoordinator).toBe(true)
+    expect(evidence.loserGated).not.toBeNull()          // loser held BEFORE its interactive transaction
+    expect(evidence.winnerProof).not.toBeNull()         // winner's own live transaction held the membership row
+    expect(evidence.releasedAtMs).not.toBeNull()        // loser released only after both proofs
+    expect(evidence.contention).not.toBeNull()          // pg_blocking_pids(): loser blocked on the winner
+    expect(evidence.contention?.winner_pid).toBe(evidence.winnerProof?.pid)
+    expect(evidence.contention?.wait_event_type).toBe('Lock')
+
+    // Outcomes of the real attemptActivation() path.
+    expect(evidence.winnerOutcome.outcome).toBe('ACTIVATED')
+    expect(evidence.loserOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    // Canonical membership state follows the winner only — the loser never mutated it.
+    expect(finalState.membership).toEqual({ tier: p.winner.tier, status: 'ACTIVE', source: 'PURCHASE' })
+
+    // Exactly one terms period, authoritatively originated by the winner.
+    expect(finalState.terms).toHaveLength(1)
+    expect(finalState.terms[0].purchase_id).toBe(p.winner.purchaseId)
+    expect(finalState.terms[0].tier).toBe(p.winner.tier)
+    expect(finalState.winnerPurchase?.activation_status).toBe('ACTIVATED')
+    expect(finalState.winnerPurchase?.membership_terms_id).toBe(finalState.terms[0].id)
+
+    // The loser reconciled on its OWN row only.
+    expect(finalState.loserPurchase?.activation_status).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(finalState.loserPurchase?.failure_reason).toBe('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+    expect(finalState.loserPurchase?.membership_terms_id).toBeNull()
+    expect(finalState.loserPurchase?.tier).toBe(p.loser.tier)
+    expect(finalState.loserOriginatedTerms).toBe(0)
+
+    // Winner policy: one COUNT_PER_PERIOD benefit -> 1 snapshot, N slots, one ISSUED event per slot.
+    expect(finalState.snapshotCount).toBe(1)
+    expect(finalState.slotCount).toBe(p.expectedSlots)
+    expect(finalState.eventCount).toBe(p.expectedSlots)
+  }
+
+  it('SCENARIO 7 [TRUE CONCURRENT RACE — CORRECTION 6 gated protocol] — CROSS-TIER: CLUB vs CLUB_PLUS, CLUB deterministically wins via a pre-transaction advisory gate on the CLUB_PLUS loser — membership ends CLUB/ACTIVE, terms belong to purchase_s7_club, CLUB_PLUS loser reconciles without mutating canonical state, genuine lock contention proven via pg_blocking_pids()', async () => {
     insertPurchaseFixture(
       `('purchase_s7_club', 'user_s7', 'membership_s7', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s7_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()), ` +
       `('purchase_s7_plus', 'user_s7', 'membership_s7', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s7_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
       'scenario 7 purchase fixtures',
     )
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1.5, 's7')
-    try {
-      const startedAt = Date.now()
-      const order: string[] = []
-      // ⚠️ DEFERRED HARNESS-HARDENING ITEM (future round — deliberately NOT
-      // changed in the CORRECTION 5 patch): this scenario has the same
-      // latent weakness diagnosed in scenario 8. The 15ms JS head start
-      // below does NOT guarantee CLUB acquires the jade_club_memberships
-      // row lock first — each worker performs ~8 sequential remote round
-      // trips before reaching that lock, so actual lock order is
-      // effectively a coin flip under real network variance. It passes when
-      // the flip lands CLUB-first. The business logic is correct either way
-      // (the winner is always whoever really takes the lock), but the
-      // predetermined-winner assertions are not enforced. Future fix: the
-      // same DB-observed lock barrier scenario 8 now uses (launch CLUB
-      // alone, observe its granted RowShareLock on jade_club_memberships
-      // via pg_locks, only then launch CLUB_PLUS).
-      //
-      // A small, explicit head start for CLUB (rather than a bare
-      // Promise.all with identical start times) — this is what makes the
-      // OUTCOME deterministic (CLUB pressured to win) while the actual
-      // CONTENTION is still genuine: CLUB_PLUS's own attempt fires while
-      // CLUB's transaction is still inside its slowed membership UPDATE,
-      // holding the row lock — proven by the poller below, not assumed.
-      const clubPromise = attemptActivation('purchase_s7_club').then((r) => { order.push('club'); return r })
-      const plusPromise = new Promise<void>((resolve) => setTimeout(resolve, 15))
-        .then(() => attemptActivation('purchase_s7_plus'))
-        .then((r) => { order.push('club_plus'); return r })
-      // See CORRECTION 3(iii): same "second lock, after separate per-worker
-      // processing" structure as scenario 2, so the same 8000ms margin is
-      // applied pre-emptively, even though this scenario's own contention
-      // assertion was never actually reached in the failing run.
-      const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 8000)
-
-      const [clubOutcome, plusOutcome, contention] = await Promise.all([clubPromise, plusPromise, pollPromise])
-      // eslint-disable-next-line no-console
-      console.log('[race proof] SCENARIO 7 CLUB vs CLUB_PLUS on jade_club_memberships:', { startedAt, order, contention })
-
-      expect(clubOutcome.outcome).toBe('ACTIVATED')
-      expect(plusOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
-      expect(contention.observed).toBe(true)
-
-      const membershipTier = psql(`SELECT tier, status FROM jade_club_memberships WHERE id = 'membership_s7'`)
-      const activeTerms = psql(`SELECT id, tier, purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7'`)
-      const winningPurchase = psql(`SELECT activation_status, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s7_club'`)
-      const losingPurchase = psql(`SELECT activation_status, failure_reason, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s7_plus'`)
-      const snapshotCount = psql(`SELECT count(*) FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7')`)
-      const slotCount = psql(`SELECT count(*) FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7')`)
-      const eventCount = psql(`SELECT count(*) FROM jade_club_entitlement_events WHERE slot_id IN (SELECT id FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s7'))`)
-
-      // eslint-disable-next-line no-console
-      console.log('[SCENARIO 7 final DB state]', {
-        membershipTier: membershipTier.stdout.trim(), activeTerms: activeTerms.stdout.trim(),
-        winningPurchase: winningPurchase.stdout.trim(), losingPurchase: losingPurchase.stdout.trim(),
-        snapshotCount: snapshotCount.stdout.trim(), slotCount: slotCount.stdout.trim(), eventCount: eventCount.stdout.trim(),
-      })
-
-      expect(membershipTier.stdout).toContain('CLUB')
-      expect(membershipTier.stdout).not.toContain('CLUB_PLUS')
-      expect(activeTerms.stdout).toContain('purchase_s7_club')
-      expect(winningPurchase.stdout).toContain('ACTIVATED')
-      expect(losingPurchase.stdout).toContain('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
-      expect(losingPurchase.stdout).toContain('CLUB_PLUS') // retained on ITS OWN record only
-      expect(snapshotCount.stdout.trim()).toBe('1')
-      expect(slotCount.stdout.trim()).toBe('3')
-      expect(Number(eventCount.stdout.trim())).toBeGreaterThan(0)
-    } finally {
-      removeTrigger()
-    }
+    const winner: CrossTierSide = { purchaseId: 'purchase_s7_club', label: 'club', tier: 'CLUB' }
+    const loser: CrossTierSide = { purchaseId: 'purchase_s7_plus', label: 'club_plus', tier: 'CLUB_PLUS' }
+    const result = await runGatedCrossTierRace({ label: 's7', membershipId: 'membership_s7', winner, loser, gateKey: 20250707 })
+    assertGatedCrossTierResult(result, { membershipId: 'membership_s7', winner, loser, expectedSlots: 3 })
   })
 
-  it('SCENARIO 8 [TRUE CONCURRENT RACE] — CROSS-TIER reverse: CLUB vs CLUB_PLUS genuinely racing, CLUB_PLUS pressured to win by a head start — membership.tier ends CLUB_PLUS, never downgraded by the CLUB loser, genuine lock contention proven', async () => {
+  it('SCENARIO 8 [TRUE CONCURRENT RACE — CORRECTION 6 gated protocol] — CROSS-TIER reverse: CLUB vs CLUB_PLUS, CLUB_PLUS deterministically wins via a pre-transaction advisory gate on the CLUB loser — membership ends CLUB_PLUS/ACTIVE, terms belong to purchase_s8_plus, CLUB loser reconciles without mutating canonical state, genuine lock contention proven via pg_blocking_pids()', async () => {
     insertPurchaseFixture(
       `('purchase_s8_plus', 'user_s8', 'membership_s8', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s8_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()), ` +
       `('purchase_s8_club', 'user_s8', 'membership_s8', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s8_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
       'scenario 8 purchase fixtures',
     )
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1.5, 's8')
-    try {
-      // CORRECTION 5 (harness-only) — DETERMINISTIC, DB-OBSERVED LOCK BARRIER.
-      // The previous 15ms JS head start only started CLUB_PLUS's Promise
-      // first; it never controlled which worker actually acquired the
-      // jade_club_memberships row lock (each worker does ~8 sequential
-      // remote round trips before attemptActivation's membership
-      // `SELECT ... FOR UPDATE`), so on real Neon CLUB could — and in one
-      // real run did — take the lock first and legitimately win. Persisted
-      // state from that run confirmed the business logic followed the real
-      // lock winner correctly (classification A, not a production defect).
-      //
-      // Now: launch CLUB_PLUS ALONE, then poll pg_locks until a backend is
-      // observed holding a GRANTED RowShareLock on jade_club_memberships.
-      // RowShareLock on that table is taken ONLY by SELECT ... FOR UPDATE/
-      // FOR SHARE (plain SELECTs take AccessShareLock; UPDATE/INSERT take
-      // RowExclusiveLock), and before attemptActivation's membership
-      // FOR UPDATE the only statements touching that table are plain
-      // findUnique reads (membership_s8 already exists, so
-      // ensureMembershipInTx never inserts). A table-level lock taken by
-      // FOR UPDATE is held until that transaction ends, alongside the row
-      // lock. And CLUB_PLUS is the ONLY worker running at this point. So
-      // observing it proves CLUB_PLUS already holds the membership row
-      // lock, which it keeps until COMMIT (through the 1.5s widened
-      // tier-bump UPDATE plus terms/1 snapshot/6 slots/6 events). Only
-      // THEN is CLUB launched: it must block on that same row lock (proven
-      // by the unchanged Lock-wait poller), and once CLUB_PLUS commits it
-      // must observe CLUB_PLUS's committed terms and lose. The winner is
-      // now determined by observed Postgres lock state, not JS scheduling.
-      const startedAt = Date.now()
-      const order: string[] = []
-      const plusPromise = attemptActivation('purchase_s8_plus').then((r) => { order.push('club_plus'); return r })
-
-      const barrierDeadline = Date.now() + 8000
-      let winnerLockHeld: { observed: boolean; elapsedMs: number | null; sample?: string } = { observed: false, elapsedMs: null }
-      while (Date.now() < barrierDeadline) {
-        const res = psql(
-          `SELECT l.pid, l.mode, l.granted FROM pg_locks l ` +
-          `WHERE l.relation = 'jade_club_memberships'::regclass AND l.mode = 'RowShareLock' ` +
-          `AND l.granted AND l.pid <> pg_backend_pid()`,
-        )
-        if (res.stdout && res.stdout.trim().length > 0) {
-          winnerLockHeld = { observed: true, elapsedMs: Date.now() - startedAt, sample: res.stdout.trim() }
-          break
-        }
-        await new Promise((resolve) => setTimeout(resolve, 15))
-      }
-      // eslint-disable-next-line no-console
-      console.log('[lock barrier] SCENARIO 8 CLUB_PLUS membership row lock observed before launching CLUB:', winnerLockHeld)
-      if (!winnerLockHeld.observed) {
-        // Never launch CLUB without proof — drain CLUB_PLUS so no
-        // transaction is left running, then fail loudly.
-        await plusPromise.catch(() => {})
-        expect(winnerLockHeld.observed).toBe(true)
-      }
-
-      const clubLaunchedAt = Date.now()
-      const clubPromise = attemptActivation('purchase_s8_club').then((r) => { order.push('club'); return r })
-      // Unchanged genuine-contention proof: CLUB must visibly block on the
-      // jade_club_memberships row lock CLUB_PLUS holds.
-      const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 8000)
-
-      const [plusOutcome, clubOutcome, contention] = await Promise.all([plusPromise, clubPromise, pollPromise])
-      // eslint-disable-next-line no-console
-      console.log('[race proof] SCENARIO 8 CLUB_PLUS vs CLUB on jade_club_memberships:', {
-        startedAt, clubLaunchedAtOffsetMs: clubLaunchedAt - startedAt, order, winnerLockHeld, contention, plusOutcome, clubOutcome,
-      })
-
-      // Persisted-state evidence is captured and logged BEFORE any outcome
-      // assertion, so a future failure always preserves it.
-      const membershipTier = psql(`SELECT tier, status FROM jade_club_memberships WHERE id = 'membership_s8'`)
-      const activeTerms = psql(`SELECT id, tier, purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'`)
-      const termsCount = psql(`SELECT count(*) FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'`)
-      const winningPurchase = psql(`SELECT activation_status, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s8_plus'`)
-      const losingPurchase = psql(`SELECT activation_status, failure_reason, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s8_club'`)
-      const winnerTermsLinked = psql(`SELECT count(*) FROM jade_club_purchases p JOIN jade_club_membership_terms t ON t.id = p.membership_terms_id WHERE p.id = 'purchase_s8_plus' AND t.purchase_id = 'purchase_s8_plus'`)
-      const loserTermsLinked = psql(`SELECT count(*) FROM jade_club_purchases WHERE id = 'purchase_s8_club' AND membership_terms_id IS NOT NULL`)
-      const loserOriginatedTerms = psql(`SELECT count(*) FROM jade_club_membership_terms WHERE purchase_id = 'purchase_s8_club'`)
-      const snapshotCount = psql(`SELECT count(*) FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8')`)
-      const slotCount = psql(`SELECT count(*) FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8')`)
-      const eventCount = psql(`SELECT count(*) FROM jade_club_entitlement_events WHERE slot_id IN (SELECT id FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'))`)
-
-      // eslint-disable-next-line no-console
-      console.log('[SCENARIO 8 final DB state]', {
-        membershipTier: membershipTier.stdout.trim(), activeTerms: activeTerms.stdout.trim(), termsCount: termsCount.stdout.trim(),
-        winningPurchase: winningPurchase.stdout.trim(), losingPurchase: losingPurchase.stdout.trim(),
-        winnerTermsLinked: winnerTermsLinked.stdout.trim(), loserTermsLinked: loserTermsLinked.stdout.trim(), loserOriginatedTerms: loserOriginatedTerms.stdout.trim(),
-        snapshotCount: snapshotCount.stdout.trim(), slotCount: slotCount.stdout.trim(), eventCount: eventCount.stdout.trim(),
-      })
-
-      // ── Outcome assertions (after evidence is logged) ──
-      expect(winnerLockHeld.observed).toBe(true) // CLUB_PLUS provably held the lock before CLUB started
-      expect(plusOutcome.outcome).toBe('ACTIVATED')
-      expect(clubOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
-      expect(contention.observed).toBe(true) // CLUB genuinely blocked on the membership row lock
-
-      // Canonical membership state follows the winner — never the CLUB loser.
-      const membershipTierOnly = psql(`SELECT tier FROM jade_club_memberships WHERE id = 'membership_s8'`)
-      expect(membershipTierOnly.stdout.trim()).toBe('CLUB_PLUS')
-      expect(membershipTier.stdout).toContain('ACTIVE')
-
-      // Exactly one terms period, authoritatively originated by the winner.
-      expect(termsCount.stdout.trim()).toBe('1')
-      expect(activeTerms.stdout).toContain('purchase_s8_plus')
-      expect(activeTerms.stdout).toContain('CLUB_PLUS')
-      expect(activeTerms.stdout).not.toContain('purchase_s8_club')
-      expect(winningPurchase.stdout).toContain('ACTIVATED')
-      expect(winnerTermsLinked.stdout.trim()).toBe('1')
-
-      // The CLUB loser reconciled on ITS OWN row only.
-      expect(losingPurchase.stdout).toContain('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
-      expect(losingPurchase.stdout).toContain('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
-      expect(loserTermsLinked.stdout.trim()).toBe('0')
-      expect(loserOriginatedTerms.stdout.trim()).toBe('0')
-
-      // CLUB_PLUS policy (policy_concurrency_plus): 1 COUNT_PER_PERIOD benefit
-      // with count 6 -> 1 snapshot, 6 slots, 1 issuance event per slot.
-      expect(snapshotCount.stdout.trim()).toBe('1')
-      expect(slotCount.stdout.trim()).toBe('6')
-      expect(eventCount.stdout.trim()).toBe('6')
-    } finally {
-      removeTrigger()
-    }
+    const winner: CrossTierSide = { purchaseId: 'purchase_s8_plus', label: 'club_plus', tier: 'CLUB_PLUS' }
+    const loser: CrossTierSide = { purchaseId: 'purchase_s8_club', label: 'club', tier: 'CLUB' }
+    const result = await runGatedCrossTierRace({ label: 's8', membershipId: 'membership_s8', winner, loser, gateKey: 20250808 })
+    assertGatedCrossTierResult(result, { membershipId: 'membership_s8', winner, loser, expectedSlots: 6 })
   })
 
   it('SCENARIO 9 [FK-INTEGRITY TEST — no concurrency] — a real DELETE against a purchase backing an active terms row is rejected by Postgres (ON DELETE RESTRICT), never silently nulling the provenance', async () => {
