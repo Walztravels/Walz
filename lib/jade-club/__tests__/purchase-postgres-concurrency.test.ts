@@ -1150,7 +1150,20 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
 
   it('SCENARIO 5 [TRUE CONCURRENT RACE] — activation vs refund with the opposite start ordering pressure (activation fires first): the purchase ends REFUNDED, at most one terms row, alert raised if activation completed first, genuine lock contention proven', async () => {
     insertPurchaseFixture(`('purchase_s5', 'user_s5', 'membership_s5', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s5', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 5 purchase fixture')
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's5')
+    // CORRECTION 5 (harness-only): 3s -> 1.5s. This trigger fires on EVERY
+    // jade_club_purchases UPDATE, including attemptActivation()'s
+    // out-of-transaction attempt-counter UPDATE. When the refund's
+    // FOR UPDATE lands behind that sleeping UPDATE, the refund's own
+    // interactive transaction then serially absorbs TWO widened sleeps
+    // (wait + its own REFUNDED UPDATE): at 3s that is >= 6s by pure
+    // arithmetic, guaranteed to exceed Prisma's 5000ms interactive-
+    // transaction timeout in that race ordering regardless of network
+    // speed (observed: ~6539ms refund, ~5989ms activation). 1.5s is the
+    // exact value scenario 4 — the structurally identical activation-vs-
+    // refund same-row race — already passes with on real Neon, with
+    // pg_stat_activity contention still observed. The contention
+    // assertion below is unchanged.
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1.5, 's5')
     try {
       const startedAt = Date.now()
       const order: string[] = []
@@ -1222,6 +1235,20 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     try {
       const startedAt = Date.now()
       const order: string[] = []
+      // ⚠️ DEFERRED HARNESS-HARDENING ITEM (future round — deliberately NOT
+      // changed in the CORRECTION 5 patch): this scenario has the same
+      // latent weakness diagnosed in scenario 8. The 15ms JS head start
+      // below does NOT guarantee CLUB acquires the jade_club_memberships
+      // row lock first — each worker performs ~8 sequential remote round
+      // trips before reaching that lock, so actual lock order is
+      // effectively a coin flip under real network variance. It passes when
+      // the flip lands CLUB-first. The business logic is correct either way
+      // (the winner is always whoever really takes the lock), but the
+      // predetermined-winner assertions are not enforced. Future fix: the
+      // same DB-observed lock barrier scenario 8 now uses (launch CLUB
+      // alone, observe its granted RowShareLock on jade_club_memberships
+      // via pg_locks, only then launch CLUB_PLUS).
+      //
       // A small, explicit head start for CLUB (rather than a bare
       // Promise.all with identical start times) — this is what makes the
       // OUTCOME deterministic (CLUB pressured to win) while the actual
@@ -1283,47 +1310,124 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     )
     const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1.5, 's8')
     try {
+      // CORRECTION 5 (harness-only) — DETERMINISTIC, DB-OBSERVED LOCK BARRIER.
+      // The previous 15ms JS head start only started CLUB_PLUS's Promise
+      // first; it never controlled which worker actually acquired the
+      // jade_club_memberships row lock (each worker does ~8 sequential
+      // remote round trips before attemptActivation's membership
+      // `SELECT ... FOR UPDATE`), so on real Neon CLUB could — and in one
+      // real run did — take the lock first and legitimately win. Persisted
+      // state from that run confirmed the business logic followed the real
+      // lock winner correctly (classification A, not a production defect).
+      //
+      // Now: launch CLUB_PLUS ALONE, then poll pg_locks until a backend is
+      // observed holding a GRANTED RowShareLock on jade_club_memberships.
+      // RowShareLock on that table is taken ONLY by SELECT ... FOR UPDATE/
+      // FOR SHARE (plain SELECTs take AccessShareLock; UPDATE/INSERT take
+      // RowExclusiveLock), and before attemptActivation's membership
+      // FOR UPDATE the only statements touching that table are plain
+      // findUnique reads (membership_s8 already exists, so
+      // ensureMembershipInTx never inserts). A table-level lock taken by
+      // FOR UPDATE is held until that transaction ends, alongside the row
+      // lock. And CLUB_PLUS is the ONLY worker running at this point. So
+      // observing it proves CLUB_PLUS already holds the membership row
+      // lock, which it keeps until COMMIT (through the 1.5s widened
+      // tier-bump UPDATE plus terms/1 snapshot/6 slots/6 events). Only
+      // THEN is CLUB launched: it must block on that same row lock (proven
+      // by the unchanged Lock-wait poller), and once CLUB_PLUS commits it
+      // must observe CLUB_PLUS's committed terms and lose. The winner is
+      // now determined by observed Postgres lock state, not JS scheduling.
       const startedAt = Date.now()
       const order: string[] = []
       const plusPromise = attemptActivation('purchase_s8_plus').then((r) => { order.push('club_plus'); return r })
-      const clubPromise = new Promise<void>((resolve) => setTimeout(resolve, 15))
-        .then(() => attemptActivation('purchase_s8_club'))
-        .then((r) => { order.push('club'); return r })
-      // See CORRECTION 3(iii) — same margin as scenario 7, same rationale.
+
+      const barrierDeadline = Date.now() + 8000
+      let winnerLockHeld: { observed: boolean; elapsedMs: number | null; sample?: string } = { observed: false, elapsedMs: null }
+      while (Date.now() < barrierDeadline) {
+        const res = psql(
+          `SELECT l.pid, l.mode, l.granted FROM pg_locks l ` +
+          `WHERE l.relation = 'jade_club_memberships'::regclass AND l.mode = 'RowShareLock' ` +
+          `AND l.granted AND l.pid <> pg_backend_pid()`,
+        )
+        if (res.stdout && res.stdout.trim().length > 0) {
+          winnerLockHeld = { observed: true, elapsedMs: Date.now() - startedAt, sample: res.stdout.trim() }
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 15))
+      }
+      // eslint-disable-next-line no-console
+      console.log('[lock barrier] SCENARIO 8 CLUB_PLUS membership row lock observed before launching CLUB:', winnerLockHeld)
+      if (!winnerLockHeld.observed) {
+        // Never launch CLUB without proof — drain CLUB_PLUS so no
+        // transaction is left running, then fail loudly.
+        await plusPromise.catch(() => {})
+        expect(winnerLockHeld.observed).toBe(true)
+      }
+
+      const clubLaunchedAt = Date.now()
+      const clubPromise = attemptActivation('purchase_s8_club').then((r) => { order.push('club'); return r })
+      // Unchanged genuine-contention proof: CLUB must visibly block on the
+      // jade_club_memberships row lock CLUB_PLUS holds.
       const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 8000)
 
       const [plusOutcome, clubOutcome, contention] = await Promise.all([plusPromise, clubPromise, pollPromise])
       // eslint-disable-next-line no-console
-      console.log('[race proof] SCENARIO 8 CLUB_PLUS vs CLUB on jade_club_memberships:', { startedAt, order, contention })
+      console.log('[race proof] SCENARIO 8 CLUB_PLUS vs CLUB on jade_club_memberships:', {
+        startedAt, clubLaunchedAtOffsetMs: clubLaunchedAt - startedAt, order, winnerLockHeld, contention, plusOutcome, clubOutcome,
+      })
 
-      expect(plusOutcome.outcome).toBe('ACTIVATED')
-      expect(clubOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
-      expect(contention.observed).toBe(true)
-
+      // Persisted-state evidence is captured and logged BEFORE any outcome
+      // assertion, so a future failure always preserves it.
       const membershipTier = psql(`SELECT tier, status FROM jade_club_memberships WHERE id = 'membership_s8'`)
       const activeTerms = psql(`SELECT id, tier, purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'`)
+      const termsCount = psql(`SELECT count(*) FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'`)
       const winningPurchase = psql(`SELECT activation_status, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s8_plus'`)
       const losingPurchase = psql(`SELECT activation_status, failure_reason, tier, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s8_club'`)
+      const winnerTermsLinked = psql(`SELECT count(*) FROM jade_club_purchases p JOIN jade_club_membership_terms t ON t.id = p.membership_terms_id WHERE p.id = 'purchase_s8_plus' AND t.purchase_id = 'purchase_s8_plus'`)
+      const loserTermsLinked = psql(`SELECT count(*) FROM jade_club_purchases WHERE id = 'purchase_s8_club' AND membership_terms_id IS NOT NULL`)
+      const loserOriginatedTerms = psql(`SELECT count(*) FROM jade_club_membership_terms WHERE purchase_id = 'purchase_s8_club'`)
       const snapshotCount = psql(`SELECT count(*) FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8')`)
       const slotCount = psql(`SELECT count(*) FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8')`)
       const eventCount = psql(`SELECT count(*) FROM jade_club_entitlement_events WHERE slot_id IN (SELECT id FROM jade_club_entitlement_slots WHERE membership_terms_id = (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s8'))`)
 
       // eslint-disable-next-line no-console
       console.log('[SCENARIO 8 final DB state]', {
-        membershipTier: membershipTier.stdout.trim(), activeTerms: activeTerms.stdout.trim(),
+        membershipTier: membershipTier.stdout.trim(), activeTerms: activeTerms.stdout.trim(), termsCount: termsCount.stdout.trim(),
         winningPurchase: winningPurchase.stdout.trim(), losingPurchase: losingPurchase.stdout.trim(),
+        winnerTermsLinked: winnerTermsLinked.stdout.trim(), loserTermsLinked: loserTermsLinked.stdout.trim(), loserOriginatedTerms: loserOriginatedTerms.stdout.trim(),
         snapshotCount: snapshotCount.stdout.trim(), slotCount: slotCount.stdout.trim(), eventCount: eventCount.stdout.trim(),
       })
 
-      expect(membershipTier.stdout).toContain('CLUB_PLUS')
-      expect(activeTerms.stdout).toContain('purchase_s8_plus')
-      expect(winningPurchase.stdout).toContain('ACTIVATED')
-      expect(losingPurchase.stdout).toContain('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
-      expect(snapshotCount.stdout.trim()).toBe('1')
-      expect(slotCount.stdout.trim()).toBe('6')
+      // ── Outcome assertions (after evidence is logged) ──
+      expect(winnerLockHeld.observed).toBe(true) // CLUB_PLUS provably held the lock before CLUB started
+      expect(plusOutcome.outcome).toBe('ACTIVATED')
+      expect(clubOutcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+      expect(contention.observed).toBe(true) // CLUB genuinely blocked on the membership row lock
 
+      // Canonical membership state follows the winner — never the CLUB loser.
       const membershipTierOnly = psql(`SELECT tier FROM jade_club_memberships WHERE id = 'membership_s8'`)
       expect(membershipTierOnly.stdout.trim()).toBe('CLUB_PLUS')
+      expect(membershipTier.stdout).toContain('ACTIVE')
+
+      // Exactly one terms period, authoritatively originated by the winner.
+      expect(termsCount.stdout.trim()).toBe('1')
+      expect(activeTerms.stdout).toContain('purchase_s8_plus')
+      expect(activeTerms.stdout).toContain('CLUB_PLUS')
+      expect(activeTerms.stdout).not.toContain('purchase_s8_club')
+      expect(winningPurchase.stdout).toContain('ACTIVATED')
+      expect(winnerTermsLinked.stdout.trim()).toBe('1')
+
+      // The CLUB loser reconciled on ITS OWN row only.
+      expect(losingPurchase.stdout).toContain('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+      expect(losingPurchase.stdout).toContain('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+      expect(loserTermsLinked.stdout.trim()).toBe('0')
+      expect(loserOriginatedTerms.stdout.trim()).toBe('0')
+
+      // CLUB_PLUS policy (policy_concurrency_plus): 1 COUNT_PER_PERIOD benefit
+      // with count 6 -> 1 snapshot, 6 slots, 1 issuance event per slot.
+      expect(snapshotCount.stdout.trim()).toBe('1')
+      expect(slotCount.stdout.trim()).toBe('6')
+      expect(eventCount.stdout.trim()).toBe('6')
     } finally {
       removeTrigger()
     }
