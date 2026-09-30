@@ -30,8 +30,9 @@
 //   could otherwise be attached to any organization. Before the CAS, the
 //   link transaction loads the record's OWN ownership signal (never anything
 //   from the request body — see loadLinkTargetOwnership) and requires it to
-//   match a member or traveller of the TARGET organization
-//   (ownerBelongsToOrganization). No match — including a Trip with no userId
+//   match an ACTIVE member or a CLAIMED (claim-verified) traveller of the
+//   TARGET organization (ownerBelongsToOrganization — see its evidence
+//   hierarchy; an unclaimed roster traveller is never evidence). No match — including a Trip with no userId
 //   or a record with no checkable signal at all — is OWNERSHIP_UNVERIFIED,
 //   resolvable only by an explicit, reasoned, audited staff override.
 //
@@ -159,28 +160,60 @@ export async function loadLinkTargetOwnership(db: Db, kind: LinkKind, id: string
 // gate. See ownerBelongsToOrganization() doc comment. Note the differing case:
 // OrganizationMembership uses 'ACTIVE' (INVITED|ACTIVE|SUSPENDED|REMOVED, DB
 // CHECK constraint); BusinessTraveller uses free-text, default 'active'.
+// NOTE: traveller `status` is LIFECYCLE state only — it is the schema default
+// at creation and says NOTHING about identity. It is never ownership evidence
+// on its own; see OWNERSHIP_CLAIMED_TRAVELLER below.
 export const OWNERSHIP_MEMBERSHIP_STATUS = 'ACTIVE'
 export const OWNERSHIP_TRAVELLER_STATUS = 'active'
 
+// Prisma `where` fragment selecting ONLY BusinessTraveller rows whose identity
+// has been independently verified by the actual person through the explicit
+// claim flow (lib/business/claim.ts::consumeBusinessTravellerClaim, which is
+// the ONLY writer of claimVerifiedAt/userId and sets them together, atomically,
+// once). An unclaimed roster row — which any TRAVEL_MANAGER can create for any
+// email with zero consent from that person — never matches this fragment.
+//   claimVerifiedAt NOT NULL : the claim was consumed (verified inbox + signed-in
+//                              account registered to that inbox).
+//   userId NOT NULL          : the verified account link still exists (a User
+//                              deletion SetNulls userId; a re-issued claim token
+//                              nulls claimVerifiedAt) — both must hold.
+// The lifecycle `status` allow-list is applied IN ADDITION (defense in depth:
+// a claimed row that is later deactivated must stop counting), never instead.
+export const OWNERSHIP_CLAIMED_TRAVELLER = {
+  status: OWNERSHIP_TRAVELLER_STATUS,
+  claimVerifiedAt: { not: null },
+  userId: { not: null },
+} as const
+
 /**
- * Does the record's owner belong to `organizationId`?
- *   userId path: an ACTIVE OrganizationMembership or an 'active'
- *                BusinessTraveller of that org carries this userId.
- *   email path:  the normalized email equals (normalized) an 'active'
- *                BusinessTraveller email of that org, or the User.email of a
- *                user holding an ACTIVE membership in that org.
- * No signal at all -> false (fail closed; staff override path only).
+ * Does the record's owner belong to `organizationId`? Explicit ownership
+ * EVIDENCE HIERARCHY — every query is scoped to the TARGET organization only:
+ *
+ *   1. Authoritative User linkage (record carries a real userId — TRIP, or
+ *      VISA_APPLICATION with userId set). Passes iff that userId holds
+ *        (a) an OrganizationMembership with status 'ACTIVE' in the org, OR
+ *        (b) a CLAIMED BusinessTraveller of the org whose userId matches
+ *            (OWNERSHIP_CLAIMED_TRAVELLER).
+ *      A userId that does not match is never rescued by an email.
+ *   2. Email linkage (record has no userId — QUOTE, ITINERARY, or
+ *      VISA_APPLICATION with null userId; normalized stored email). Passes iff
+ *      the email equals (normalized) either
+ *        (a) the email of a CLAIMED BusinessTraveller of the org
+ *            (OWNERSHIP_CLAIMED_TRAVELLER) — an unclaimed traveller row,
+ *            whatever its status, is NOT ownership evidence, OR
+ *        (b) the User.email of a user holding an ACTIVE membership in the org.
+ *   3. Anything else — unclaimed traveller match, no match, no signal at all
+ *      (e.g. TRIP with null userId, which has no email field) — false
+ *      (OWNERSHIP_UNVERIFIED; resolvable only by the audited staff override).
  *
  * Status filters are EXACT-MATCH allow-lists, never deny-lists:
  *   - OrganizationMembership: only 'ACTIVE' (the same rule as
  *     lib/business/authz.ts::assertOrgScopedAccess). INVITED rows are created
  *     by an org admin with ZERO consent from the invitee (members POST route),
- *     so an INVITED/SUSPENDED/REMOVED row must never count as ownership —
- *     otherwise an admin could "invite" any Walz customer and pull their
- *     records through this gate without the override + audit trail.
- *   - BusinessTraveller: only the literal lowercase 'active' (schema default;
- *     the only value ever written). Any future status value is rejected
- *     until this gate is deliberately taught about it.
+ *     so an INVITED/SUSPENDED/REMOVED row must never count as ownership.
+ *   - BusinessTraveller: only the literal lowercase 'active', AND claimed.
+ *     Status alone is never sufficient: the travellers POST route
+ *     (TRAVEL_MANAGER) creates 'active' rows for any email without consent.
  * Emails are compared after trim+lowercase on BOTH sides in application
  * code, so legacy rows stored with stray whitespace/case still match.
  */
@@ -193,7 +226,7 @@ export async function ownerBelongsToOrganization(db: Db, owner: LinkTargetOwners
         select: { id: true },
       }),
       db.businessTraveller.findFirst({
-        where: { organizationId, userId: owner.userId, status: OWNERSHIP_TRAVELLER_STATUS },
+        where: { ...OWNERSHIP_CLAIMED_TRAVELLER, organizationId, userId: owner.userId },
         select: { id: true },
       }),
     ])
@@ -202,7 +235,7 @@ export async function ownerBelongsToOrganization(db: Db, owner: LinkTargetOwners
   const email = normalizeEmail(owner.email)
   if (!email) return false
   const [travellers, members] = await Promise.all([
-    db.businessTraveller.findMany({ where: { organizationId, status: OWNERSHIP_TRAVELLER_STATUS }, select: { email: true } }),
+    db.businessTraveller.findMany({ where: { ...OWNERSHIP_CLAIMED_TRAVELLER, organizationId }, select: { email: true } }),
     db.organizationMembership.findMany({
       where: { organizationId, status: OWNERSHIP_MEMBERSHIP_STATUS },
       select: { user: { select: { email: true } } },

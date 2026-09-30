@@ -21,7 +21,7 @@ const mockPrisma = {
   organizationMembership: { findUnique: jest.fn() },
   travelRequest: { findUnique: jest.fn() },
   travelRequestService: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
-  businessTraveller: { findUnique: jest.fn() },
+  businessTraveller: { findUnique: jest.fn(), create: jest.fn() },
   travelRequestTraveller: { create: jest.fn() },
   quote: { findMany: jest.fn() },
   visaApplication: { findMany: jest.fn() },
@@ -44,6 +44,7 @@ import { POST as adminCreateService } from '@/app/api/admin/business/organizatio
 import { GET as candidates } from '@/app/api/admin/business/organizations/[id]/link-candidates/route'
 import { POST as customerCreateService } from '@/app/api/business/organizations/[id]/requests/[requestId]/services/route'
 import { POST as attachTraveller } from '@/app/api/business/organizations/[id]/requests/[requestId]/travellers/route'
+import { POST as createRosterTraveller } from '@/app/api/business/organizations/[id]/travellers/route'
 import { ALLOWED_LINKS, LINK_COLUMN } from '@/lib/business/services'
 
 const ORG_A = 'org_a'
@@ -61,6 +62,26 @@ function service(over: Record<string, unknown> = {}) {
   }
 }
 const LINK_PARAMS = { params: { id: ORG_A, requestId: 'req_a', serviceId: 'svc_a' } }
+
+// Evaluates a BusinessTraveller Prisma `where` against a simulated row with
+// real Prisma semantics for the fields the ownership gate may filter on
+// (status / claimVerifiedAt / userId: exact value, { not }, { in }, or absent
+// = any). Rows that omit claimVerifiedAt are treated as UNCLAIMED.
+type SimTraveller = { userId: string | null; email: string; status?: string; claimVerifiedAt?: Date | null }
+const fieldMatches = (value: unknown, clause: unknown) => {
+  if (clause === undefined) return true
+  if (clause === null || typeof clause !== 'object' || clause instanceof Date) return value === clause
+  const c = clause as { not?: unknown; in?: unknown[]; equals?: unknown }
+  if ('equals' in c) return value === c.equals
+  if (c.in) return c.in.includes(value)
+  if ('not' in c) return c.not === null ? value !== null && value !== undefined : value !== c.not
+  return false
+}
+const travellerMatches = (t: SimTraveller, where: any) =>
+  fieldMatches(t.status ?? 'active', where.status) &&
+  fieldMatches(t.claimVerifiedAt ?? null, where.claimVerifiedAt) &&
+  fieldMatches(t.userId, where.userId)
+const CLAIMED_AT = new Date('2026-09-01T10:00:00Z')
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -360,8 +381,8 @@ describe('Finding A — link ownership verification + staff override', () => {
     [ORG_A]: [{ userId: 'u_a_member', email: 'member@orga.com' }],
     [ORG_B]: [{ userId: 'u_b_member', email: 'member@orgb.com' }],
   }
-  const TRAVELLERS: Record<string, { userId: string | null; email: string }[]> = {
-    [ORG_A]: [{ userId: 'u_a_trav', email: '  Traveller@OrgA.com ' }],
+  const TRAVELLERS: Record<string, SimTraveller[]> = {
+    [ORG_A]: [{ userId: 'u_a_trav', email: '  Traveller@OrgA.com ', claimVerifiedAt: CLAIMED_AT }],
     [ORG_B]: [{ userId: null, email: 'traveller@orgb.com' }],
   }
 
@@ -369,11 +390,11 @@ describe('Finding A — link ownership verification + staff override', () => {
     mockTx.organizationMembership.findFirst.mockImplementation(({ where }: any) =>
       Promise.resolve((MEMBERS[where.organizationId] ?? []).some(m => m.userId === where.userId) ? { id: 'm' } : null))
     mockTx.businessTraveller.findFirst.mockImplementation(({ where }: any) =>
-      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).some(t => t.userId && t.userId === where.userId) ? { id: 't' } : null))
+      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).some(t => travellerMatches(t, where)) ? { id: 't' } : null))
     mockTx.organizationMembership.findMany.mockImplementation(({ where }: any) =>
       Promise.resolve((MEMBERS[where.organizationId] ?? []).map(m => ({ user: { email: m.email } }))))
     mockTx.businessTraveller.findMany.mockImplementation(({ where }: any) =>
-      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).map(t => ({ email: t.email }))))
+      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).filter(t => travellerMatches(t, where)).map(t => ({ email: t.email }))))
     mockPrisma.travelRequestService.findUnique.mockResolvedValue(service())
   })
 
@@ -636,7 +657,7 @@ describe('Finding A2 — ownership gate counts only ACTIVE memberships / active 
   // { not }, { in }, or absent = any), so these tests FAIL against the old
   // `status: { not: 'REMOVED' }` / unfiltered queries and pass only when the
   // gate uses exact ACTIVE / 'active' allow-lists.
-  type Row = { userId: string | null; email: string; status: string }
+  type Row = { userId: string | null; email: string; status: string; claimVerifiedAt?: Date | null }
   const MEMBERS: Record<string, Row[]> = {
     [ORG_A]: [
       { userId: 'u_active', email: 'active@orga.com', status: 'ACTIVE' },
@@ -648,11 +669,13 @@ describe('Finding A2 — ownership gate counts only ACTIVE memberships / active 
   }
   const TRAVELLERS: Record<string, Row[]> = {
     [ORG_A]: [
-      { userId: 'u_trav_active', email: 'trav.active@orga.com', status: 'active' },
-      { userId: 'u_trav_inactive', email: 'trav.inactive@orga.com', status: 'inactive' },
-      { userId: 'u_trav_upper', email: 'trav.upper@orga.com', status: 'ACTIVE' },
+      // All CLAIMED, so `status` is the only discriminator in this block
+      // (Finding A3 below covers the claim dimension).
+      { userId: 'u_trav_active', email: 'trav.active@orga.com', status: 'active', claimVerifiedAt: CLAIMED_AT },
+      { userId: 'u_trav_inactive', email: 'trav.inactive@orga.com', status: 'inactive', claimVerifiedAt: CLAIMED_AT },
+      { userId: 'u_trav_upper', email: 'trav.upper@orga.com', status: 'ACTIVE', claimVerifiedAt: CLAIMED_AT },
     ],
-    [ORG_B]: [{ userId: 'u_b_trav', email: 'trav@orgb.com', status: 'active' }],
+    [ORG_B]: [{ userId: 'u_b_trav', email: 'trav@orgb.com', status: 'active', claimVerifiedAt: CLAIMED_AT }],
   }
   const statusMatches = (status: string, clause: unknown) => {
     if (clause === undefined) return true
@@ -670,11 +693,11 @@ describe('Finding A2 — ownership gate counts only ACTIVE memberships / active 
     mockTx.organizationMembership.findFirst.mockImplementation(({ where }: any) =>
       Promise.resolve(rows(MEMBERS, where).some(m => m.userId === where.userId) ? { id: 'm' } : null))
     mockTx.businessTraveller.findFirst.mockImplementation(({ where }: any) =>
-      Promise.resolve(rows(TRAVELLERS, where).some(t => t.userId && t.userId === where.userId) ? { id: 't' } : null))
+      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).some(t => travellerMatches(t, where)) ? { id: 't' } : null))
     mockTx.organizationMembership.findMany.mockImplementation(({ where }: any) =>
       Promise.resolve(rows(MEMBERS, where).map(m => ({ user: { email: m.email } }))))
     mockTx.businessTraveller.findMany.mockImplementation(({ where }: any) =>
-      Promise.resolve(rows(TRAVELLERS, where).map(t => ({ email: t.email }))))
+      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).filter(t => travellerMatches(t, where)).map(t => ({ email: t.email }))))
   })
 
   const link = (body: Record<string, unknown>, svc = service()) => {
@@ -817,5 +840,269 @@ describe('Finding A2 — ownership gate counts only ACTIVE memberships / active 
     expect(res2.status).toBe(403)
     expect(mockTx.travelRequestService.updateMany).not.toHaveBeenCalled()
     expect(recordBusinessAudit).not.toHaveBeenCalled()
+  })
+})
+
+describe('Finding A3 — ownership evidence hierarchy: claim-verified travellers only (status is NOT verification)', () => {
+  // Status- AND claim-aware simulated directory. Travellers are evaluated
+  // with travellerMatches() (real Prisma semantics for status /
+  // claimVerifiedAt / userId), so these tests FAIL against the previous
+  // gate (status:'active' alone) and pass only when claim verification is
+  // required.
+  type MemberRow = { userId: string; email: string; status: string }
+  let MEMBERS: Record<string, MemberRow[]>
+  let TRAVELLERS: Record<string, SimTraveller[]>
+
+  beforeEach(() => {
+    MEMBERS = {
+      [ORG_A]: [
+        { userId: 'u_active', email: 'active@orga.com', status: 'ACTIVE' },
+        { userId: 'u_invited', email: 'invited@victim.com', status: 'INVITED' },
+        { userId: 'u_suspended', email: 'suspended@orga.com', status: 'SUSPENDED' },
+      ],
+      [ORG_B]: [],
+    }
+    TRAVELLERS = {
+      [ORG_A]: [
+        // Claimed through lib/business/claim.ts: userId + claimVerifiedAt set together.
+        { userId: 'u_claimed', email: ' Claimed@OrgA.com ', status: 'active', claimVerifiedAt: CLAIMED_AT },
+        // Roster entry never claimed: default 'active' status, no userId, no claimVerifiedAt.
+        { userId: null, email: 'unclaimed@orga.com', status: 'active', claimVerifiedAt: null },
+        // Claimed but lifecycle-deactivated (hypothetical future status).
+        { userId: 'u_claimed_inactive', email: 'claimed.inactive@orga.com', status: 'inactive', claimVerifiedAt: CLAIMED_AT },
+        // Claimed, then the linked User was deleted (onDelete: SetNull on userId).
+        { userId: null, email: 'orphaned@orga.com', status: 'active', claimVerifiedAt: CLAIMED_AT },
+      ],
+      [ORG_B]: [
+        // Legitimately claimed — but in ANOTHER organization.
+        { userId: 'u_b_claimed', email: 'claimed@orgb.com', status: 'active', claimVerifiedAt: CLAIMED_AT },
+      ],
+    }
+    const memberRows = (where: any) => (MEMBERS[where.organizationId] ?? []).filter(m => fieldMatches(m.status, where.status))
+    mockTx.organizationMembership.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve(memberRows(where).some(m => m.userId === where.userId) ? { id: 'm' } : null))
+    mockTx.organizationMembership.findMany.mockImplementation(({ where }: any) =>
+      Promise.resolve(memberRows(where).map(m => ({ user: { email: m.email } }))))
+    mockTx.businessTraveller.findFirst.mockImplementation(({ where }: any) =>
+      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).some(t => travellerMatches(t, where)) ? { id: 't' } : null))
+    mockTx.businessTraveller.findMany.mockImplementation(({ where }: any) =>
+      Promise.resolve((TRAVELLERS[where.organizationId] ?? []).filter(t => travellerMatches(t, where)).map(t => ({ email: t.email }))))
+  })
+
+  const MODEL = () => ({ QUOTE: mockTx.quote, VISA_APPLICATION: mockTx.visaApplication, ITINERARY: mockTx.itinerary, TRIP: mockTx.trip })
+  const SERVICE_FOR = { QUOTE: 'FLIGHT', VISA_APPLICATION: 'VISA', ITINERARY: 'ITINERARY', TRIP: 'HOTEL' } as const
+  type Kind = keyof typeof SERVICE_FOR
+  const linkRecord = (kind: Kind, row: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    MODEL()[kind].findUnique.mockResolvedValue({ id: 'rec_1', ...row })
+    mockPrisma.travelRequestService.findUnique.mockResolvedValue(service({ serviceType: SERVICE_FOR[kind] }))
+    return linkRoute(postReq({ action: 'link', reason: 'Booked for client', kind, targetId: 'rec_1', ...extra }), LINK_PARAMS)
+  }
+  const expectLinked = async (res: Response) => {
+    expect(res.status).toBe(200)
+    expect((await res.json()).override).toBeUndefined()
+    expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'travel_request_service.linked' }))
+  }
+  const expectUnverified = async (res: Response) => {
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body).toEqual(expect.objectContaining({ error: 'OWNERSHIP_UNVERIFIED', overrideAvailable: true }))
+    expect(JSON.stringify(body)).not.toMatch(/@|u_|claim/i)
+    expect(mockTx.travelRequestService.updateMany).not.toHaveBeenCalled()
+    expect(recordBusinessAudit).not.toHaveBeenCalled()
+  }
+  const emailRow = (kind: 'QUOTE' | 'ITINERARY' | 'VISA_APPLICATION', email: string) =>
+    kind === 'VISA_APPLICATION' ? { userId: null, email } : { clientEmail: email }
+  const EMAIL_KINDS = ['QUOTE', 'ITINERARY', 'VISA_APPLICATION'] as const
+  const USERID_KINDS = ['TRIP', 'VISA_APPLICATION'] as const
+
+  // 1
+  it.each(USERID_KINDS)('A3.1 %s: ACTIVE membership + matching authoritative userId -> PASS', async kind => {
+    await expectLinked(await linkRecord(kind, { userId: 'u_active', email: null }))
+  })
+
+  // 2
+  it.each(USERID_KINDS)('A3.2 %s: claimed traveller whose userId matches the record userId -> PASS (and the query demands claim evidence)', async kind => {
+    await expectLinked(await linkRecord(kind, { userId: 'u_claimed', email: null }))
+    const where = mockTx.businessTraveller.findFirst.mock.calls[0][0].where
+    expect(where).toEqual({ organizationId: ORG_A, userId: 'u_claimed', status: 'active', claimVerifiedAt: { not: null } })
+  })
+
+  it('A3.2b TRIP/VISA: ACTIVE member who is ALSO a claimed traveller -> PASS', async () => {
+    TRAVELLERS[ORG_A].push({ userId: 'u_active', email: 'active@orga.com', status: 'active', claimVerifiedAt: CLAIMED_AT })
+    for (const kind of USERID_KINDS) {
+      jest.clearAllMocks()
+      await expectLinked(await linkRecord(kind, { userId: 'u_active', email: null }))
+    }
+  })
+
+  // 3
+  it.each(EMAIL_KINDS)('A3.3 %s: claimed traveller + matching (normalized) email -> PASS', async kind => {
+    await expectLinked(await linkRecord(kind, emailRow(kind, 'CLAIMED@orga.com  ')))
+    const where = mockTx.businessTraveller.findMany.mock.calls[0][0].where
+    expect(where).toEqual({ organizationId: ORG_A, status: 'active', claimVerifiedAt: { not: null }, userId: { not: null } })
+  })
+
+  // 4 — the core regression for this finding
+  it.each(EMAIL_KINDS)('A3.4 %s: \'active\'-status but UNCLAIMED traveller + matching email -> OWNERSHIP_UNVERIFIED', async kind => {
+    await expectUnverified(await linkRecord(kind, emailRow(kind, 'unclaimed@orga.com')))
+  })
+
+  it.each(EMAIL_KINDS)('A3.4b %s: claimVerifiedAt set but the linked account was deleted (userId null) -> OWNERSHIP_UNVERIFIED', async kind => {
+    await expectUnverified(await linkRecord(kind, emailRow(kind, 'orphaned@orga.com')))
+  })
+
+  // 5 — the end-to-end attack through the real TRAVEL_MANAGER route
+  it.each(EMAIL_KINDS)('A3.5 %s: TRAVEL_MANAGER adds a retail customer\'s real email to the roster -> linking that customer\'s record fails OWNERSHIP_UNVERIFIED', async kind => {
+    getServerSession.mockResolvedValue({ user: { id: 'u_tm', email: 'tm@orga.com' } })
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue({ id: 'm_tm', organizationId: ORG_A, userId: 'u_tm', role: 'TRAVEL_MANAGER', status: 'ACTIVE' })
+    mockPrisma.businessTraveller.create.mockImplementation(({ data }: any) => Promise.resolve({ id: 'bt_new', status: 'active', ...data }))
+    const created = await createRosterTraveller(postReq({
+      firstName: 'Retail', lastName: 'Victim', email: ' Victim.Retail@Gmail.com ',
+      // Spoofed verification fields — the route must ignore them.
+      userId: 'u_tm', claimVerifiedAt: CLAIMED_AT.toISOString(), status: 'active',
+    }), { params: { id: ORG_A } })
+    expect(created.status).toBe(201)
+    const data = mockPrisma.businessTraveller.create.mock.calls[0][0].data
+    expect(data).not.toHaveProperty('userId')
+    expect(data).not.toHaveProperty('claimVerifiedAt')
+    // The row lands on the roster exactly as the DB would store it: default
+    // 'active' status, unclaimed.
+    TRAVELLERS[ORG_A].push({ userId: null, email: data.email, status: 'active', claimVerifiedAt: null })
+
+    jest.clearAllMocks()
+    await expectUnverified(await linkRecord(kind, emailRow(kind, 'victim.retail@gmail.com')))
+  })
+
+  // 6 + 7
+  it.each([
+    ['INVITED', 'u_invited', 'invited@victim.com'],
+    ['SUSPENDED', 'u_suspended', 'suspended@orga.com'],
+  ] as const)('A3.6/7 %s membership is still not ownership proof on any record kind', async (_s, userId, email) => {
+    const cases: [Kind, Record<string, unknown>][] = [
+      ['QUOTE', { clientEmail: email }],
+      ['ITINERARY', { clientEmail: email }],
+      ['VISA_APPLICATION', { userId, email: null }],
+      ['VISA_APPLICATION', { userId: null, email }],
+      ['TRIP', { userId }],
+    ]
+    for (const [kind, row] of cases) {
+      jest.clearAllMocks()
+      await expectUnverified(await linkRecord(kind, row))
+    }
+  })
+
+  // 8
+  it('A3.8 a CLAIMED but non-\'active\' (lifecycle-deactivated) traveller is not ownership proof on any record kind', async () => {
+    const cases: [Kind, Record<string, unknown>][] = [
+      ['QUOTE', { clientEmail: 'claimed.inactive@orga.com' }],
+      ['ITINERARY', { clientEmail: 'claimed.inactive@orga.com' }],
+      ['VISA_APPLICATION', { userId: null, email: 'claimed.inactive@orga.com' }],
+      ['VISA_APPLICATION', { userId: 'u_claimed_inactive', email: null }],
+      ['TRIP', { userId: 'u_claimed_inactive' }],
+    ]
+    for (const [kind, row] of cases) {
+      jest.clearAllMocks()
+      await expectUnverified(await linkRecord(kind, row))
+    }
+  })
+
+  // 9
+  it('A3.9 a claimed traveller of a DIFFERENT organization is not ownership proof for the target org (all kinds; every query scoped to the target org)', async () => {
+    const cases: [Kind, Record<string, unknown>][] = [
+      ['QUOTE', { clientEmail: 'claimed@orgb.com' }],
+      ['ITINERARY', { clientEmail: 'claimed@orgb.com' }],
+      ['VISA_APPLICATION', { userId: null, email: 'claimed@orgb.com' }],
+      ['VISA_APPLICATION', { userId: 'u_b_claimed', email: null }],
+      ['TRIP', { userId: 'u_b_claimed' }],
+    ]
+    for (const [kind, row] of cases) {
+      jest.clearAllMocks()
+      await expectUnverified(await linkRecord(kind, row))
+      const calls = [
+        ...mockTx.businessTraveller.findFirst.mock.calls, ...mockTx.businessTraveller.findMany.mock.calls,
+        ...mockTx.organizationMembership.findFirst.mock.calls, ...mockTx.organizationMembership.findMany.mock.calls,
+      ]
+      expect(calls.length).toBeGreaterThan(0)
+      for (const c of calls) expect(c[0].where.organizationId).toBe(ORG_A)
+    }
+  })
+
+  // 10
+  it.each(EMAIL_KINDS)('A3.10 %s: spoofed / case-manipulated emails in the request body cannot select the row checked or bypass normalization', async kind => {
+    // Stored record belongs to the UNCLAIMED email; body claims the claimed one.
+    const res = await linkRecord(kind, emailRow(kind, 'Unclaimed@OrgA.com'), {
+      clientEmail: 'claimed@orga.com', email: ' CLAIMED@ORGA.COM ', userId: 'u_claimed', claimVerifiedAt: CLAIMED_AT.toISOString(),
+      ownershipVerified: true,
+    })
+    await expectUnverified(res)
+    const selects = { QUOTE: { id: true, clientEmail: true }, ITINERARY: { id: true, clientEmail: true }, VISA_APPLICATION: { id: true, userId: true, email: true } }
+    expect(MODEL()[kind].findUnique).toHaveBeenCalledWith({ where: { id: 'rec_1' }, select: selects[kind] })
+    // Nothing from the body reaches the traveller query.
+    expect(JSON.stringify(mockTx.businessTraveller.findMany.mock.calls)).not.toMatch(/claimed@|u_claimed|2026/i)
+  })
+
+  it('A3.10b TRIP with null userId has NO automatic evidence at all (no email field) — body-supplied identity cannot rescue it', async () => {
+    const res = await linkRecord('TRIP', { userId: null }, { userId: 'u_active', email: 'active@orga.com', clientEmail: 'claimed@orga.com' })
+    await expectUnverified(res)
+    expect(mockTx.trip.findUnique).toHaveBeenCalledWith({ where: { id: 'rec_1' }, select: { id: true, userId: true } })
+    expect(mockTx.businessTraveller.findFirst).not.toHaveBeenCalled()
+    expect(mockTx.businessTraveller.findMany).not.toHaveBeenCalled()
+    expect(mockTx.organizationMembership.findFirst).not.toHaveBeenCalled()
+    expect(mockTx.organizationMembership.findMany).not.toHaveBeenCalled()
+  })
+
+  // 11 + 14
+  it.each([
+    ['QUOTE', { clientEmail: 'unclaimed@orga.com' }, { detectedUserId: null, detectedEmail: 'unclaimed@orga.com' }],
+    ['ITINERARY', { clientEmail: ' UNCLAIMED@orga.com' }, { detectedUserId: null, detectedEmail: 'unclaimed@orga.com' }],
+    ['VISA_APPLICATION', { userId: null, email: 'unclaimed@orga.com' }, { detectedUserId: null, detectedEmail: 'unclaimed@orga.com' }],
+    ['TRIP', { userId: null }, { detectedUserId: null, detectedEmail: null }],
+  ] as const)('A3.11/14 %s of an unclaimed traveller: staff override (confirmOverride + b2b.manage + reason) links and audits link_override with full evidence', async (kind, row, detectedOwner) => {
+    const res = await linkRecord(kind, row, { confirmOverride: true, overrideReason: 'Traveller confirmed identity by phone' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ service: { id: 'svc_a', [LINK_COLUMN[kind]]: 'rec_1' }, override: true })
+    expect(mockTx.travelRequestService.updateMany).toHaveBeenCalledWith({
+      where: { id: 'svc_a', travelRequestId: 'req_a', [LINK_COLUMN[kind]]: null }, data: { [LINK_COLUMN[kind]]: 'rec_1' },
+    })
+    expect(recordBusinessAudit).toHaveBeenCalledTimes(1)
+    expect(recordBusinessAudit).toHaveBeenCalledWith({
+      organizationId: ORG_A,
+      actorStaffId: 's1',
+      action: 'travel_request_service.link_override',
+      entityType: 'TravelRequestService',
+      entityId: 'svc_a',
+      before: { kind, targetId: null },
+      after: {
+        kind, targetId: 'rec_1', resourceType: kind, resourceId: 'rec_1',
+        reason: 'Booked for client',
+        overrideReason: 'Traveller confirmed identity by phone',
+        detectedOwner,
+      },
+    })
+  })
+
+  // 12
+  it.each(['QUOTE', 'ITINERARY', 'VISA_APPLICATION', 'TRIP'] as const)('A3.12 %s: override without b2b.manage (view-only staff) -> 403, no DB work', async kind => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(VIEW)
+    const row = kind === 'TRIP' ? { userId: null } : emailRow(kind, 'unclaimed@orga.com')
+    const res = await linkRecord(kind, row, { confirmOverride: true, overrideReason: 'Traveller confirmed identity by phone' })
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'Forbidden' })
+    expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+    expect(mockTx.travelRequestService.updateMany).not.toHaveBeenCalled()
+    expect(recordBusinessAudit).not.toHaveBeenCalled()
+  })
+
+  // 13
+  it.each(['QUOTE', 'ITINERARY', 'VISA_APPLICATION', 'TRIP'] as const)('A3.13 %s: override without a reason -> 400, no DB write', async kind => {
+    const row = kind === 'TRIP' ? { userId: null } : emailRow(kind, 'unclaimed@orga.com')
+    for (const overrideReason of [undefined, '', '   ']) {
+      jest.clearAllMocks()
+      const res = await linkRecord(kind, row, { confirmOverride: true, overrideReason })
+      expect(res.status).toBe(400)
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled()
+      expect(mockTx.travelRequestService.updateMany).not.toHaveBeenCalled()
+      expect(recordBusinessAudit).not.toHaveBeenCalled()
+    }
   })
 })
