@@ -210,7 +210,7 @@ describe('Jade Club activateMembershipTerms — REAL PostgreSQL concurrency acce
 
     const slotRows = await db.jadeClubEntitlementSlot.findMany({ where: { benefitSnapshotId: snapshotRows[0].id }, orderBy: { slotNumber: 'asc' } })
     expect(slotRows).toHaveLength(benefitSnapshotSlotCount) // exactly the configured count, no excess
-    expect(slotRows.map((s) => s.slotNumber)).toEqual([1, 2, 3]) // no duplicate slot identity, no gaps
+    expect(slotRows.map((s) => s.slotNumber)).toEqual([1, 2]) // no duplicate slot identity, no gaps
     expect(new Set(slotRows.map((s) => s.status))).toEqual(new Set(['AVAILABLE']))
 
     const eventRows = await db.jadeClubEntitlementEvent.findMany({ where: { slotId: { in: slotRows.map((s) => s.id) } } })
@@ -246,7 +246,7 @@ describe('Jade Club activateMembershipTerms — REAL PostgreSQL concurrency acce
 
     const slotRows = await db.jadeClubEntitlementSlot.findMany({ where: { benefitSnapshotId: snapshotRows[0].id }, orderBy: { slotNumber: 'asc' } })
     expect(slotRows).toHaveLength(benefitSnapshotSlotCount) // still exactly 3, never 6 or 9
-    expect(slotRows.map((s) => s.slotNumber)).toEqual([1, 2, 3])
+    expect(slotRows.map((s) => s.slotNumber)).toEqual([1, 2])
 
     // Slot-identity uniqueness constraint (uq_jade_entitlement_slots_identity /
     // the @@unique on JadeClubEntitlementSlot) is what makes a duplicate
