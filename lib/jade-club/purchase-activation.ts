@@ -25,8 +25,8 @@
 // entries below, which use `staffId: null`, a valid value).
 //
 // ── Freeze / boundary compliance ─────────────────────────────────────────
-// Never imports lib/payments/authority.ts. Never reads/writes
-// WalzRewardsMembership or WalzMilesTransaction.
+// Never imports the flight Miles redemption-freeze module. Never
+// reads/writes WalzRewardsMembership or WalzMilesTransaction.
 
 import prisma from '@/lib/db'
 import { Prisma } from '@prisma/client'

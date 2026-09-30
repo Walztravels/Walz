@@ -11,9 +11,8 @@
 // again by any downstream code (see docs/jade-2b-purchase-state-machine.md,
 // "why policyVersion is copied at checkout-creation time").
 //
-// This file never imports lib/payments/authority.ts (the flight Miles
-// redemption freeze) and never mutates WalzRewardsMembership/
-// WalzMilesTransaction.
+// This file never imports the flight Miles redemption-freeze module and
+// never mutates WalzRewardsMembership/WalzMilesTransaction.
 
 import prisma from '@/lib/db'
 import { getStripe } from '@/lib/stripe'

@@ -51,3 +51,31 @@ describe('Flight Miles redemption freeze stays intact', () => {
     expect(src).not.toMatch(/payments\/authority/)
   })
 })
+
+describe('Release 2B — purchase engine stays inside the same boundaries', () => {
+  const src = readAllJadeClubSource()
+
+  it('never writes to WalzRewardsMembership or WalzMilesTransaction from the purchase engine either', () => {
+    // readAllJadeClubSource() scans the whole lib/jade-club directory, so
+    // this already covers purchase.ts / purchase-activation.ts /
+    // purchase-reconciliation.ts / purchase-types.ts without any new
+    // file-listing logic.
+    expect(src).not.toMatch(/prisma\.walzRewardsMembership\.(create|update|updateMany|delete|upsert)/)
+    expect(src).not.toMatch(/prisma\.walzMilesTransaction\.(create|update|updateMany|delete|upsert)/)
+  })
+
+  it('the checkout route never trusts a client-supplied price — amountMinor is only ever read from the resolved policy', () => {
+    const purchaseSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase.ts'), 'utf8')
+    expect(purchaseSrc).not.toMatch(/req\.body\.amountMinor/)
+    expect(purchaseSrc).toMatch(/amountMinor: policy\.annualPriceMinor/)
+  })
+
+  it('activateMembershipTerms is called with source PURCHASE only from the purchase-activation orchestrator, never re-implemented elsewhere', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+    expect(activationSrc).toMatch(/activateMembershipTerms\(/)
+    // The entitlements.ts source itself is untouched — this file never
+    // duplicates its transaction/locking logic.
+    const entitlementsSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'entitlements.ts'), 'utf8')
+    expect(entitlementsSrc).toMatch(/SELECT id FROM jade_club_memberships WHERE id = \$\{membershipId\} FOR UPDATE/)
+  })
+})

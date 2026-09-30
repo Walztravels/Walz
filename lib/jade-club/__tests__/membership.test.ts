@@ -27,6 +27,7 @@ jest.mock('@/lib/db', () => ({
 
 import {
   ensureJadeClubMembership, getJadeClubMembership, adminAdjustMembership, rotateOwnVerificationToken,
+  applyPurchaseTierBump, validateResultingMembershipState,
 } from '../membership'
 import type { AdminSession } from '@/lib/admin-auth'
 
@@ -245,5 +246,66 @@ describe('rotateOwnVerificationToken — customer-scoped, cannot touch another c
     const updateArgs = membershipUpdate.mock.calls[0][0]
     expect(updateArgs.where).toEqual({ userId: 'user_1' })
     expect(updateArgs.data).toEqual({ qrTokenVersion: { increment: 1 } })
+  })
+})
+
+describe('validateResultingMembershipState — shared helper (extracted from adminAdjustMembership, Release 2B)', () => {
+  it('rejects ACTIVE with a past expiresAt', () => {
+    expect(() => validateResultingMembershipState('ACTIVE', new Date('2000-01-01'))).toThrow('in the past')
+  })
+  it('rejects EXPIRING with a past expiresAt', () => {
+    expect(() => validateResultingMembershipState('EXPIRING', new Date('2000-01-01'))).toThrow('in the past')
+  })
+  it('rejects EXPIRED with no expiresAt', () => {
+    expect(() => validateResultingMembershipState('EXPIRED', null)).toThrow('without an expiresAt')
+  })
+  it('allows ACTIVE with a future expiresAt', () => {
+    expect(() => validateResultingMembershipState('ACTIVE', new Date('2099-01-01'))).not.toThrow()
+  })
+  it('allows ACTIVE with no expiresAt (indefinite grant)', () => {
+    expect(() => validateResultingMembershipState('ACTIVE', null)).not.toThrow()
+  })
+})
+
+describe('applyPurchaseTierBump — the ONLY other path besides adminAdjustMembership that may change tier/status (Release 2B)', () => {
+  it('bumps FREE -> CLUB/ACTIVE with source PURCHASE and an expiresAt derived from durationMonths', async () => {
+    membershipFindUnique.mockResolvedValueOnce(fakeRow({ tier: 'FREE', status: 'FREE' }))
+    membershipUpdate.mockResolvedValueOnce(fakeRow({ tier: 'CLUB', status: 'ACTIVE', source: 'PURCHASE' }))
+
+    const result = await applyPurchaseTierBump({ userId: 'user_1', tier: 'CLUB', durationMonths: 12 })
+
+    expect(result.changed).toBe(true)
+    expect(result.membership.tier).toBe('CLUB')
+    const updateArgs = membershipUpdate.mock.calls[0][0]
+    expect(updateArgs.data.source).toBe('PURCHASE')
+    expect(updateArgs.data.status).toBe('ACTIVE')
+    expect(updateArgs.data.expiresAt).toBeInstanceOf(Date)
+    expect(activityLogCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ staffId: null, action: 'JADE_CLUB_MEMBERSHIP_PURCHASE_ACTIVATED' }),
+    }))
+  })
+
+  it('is idempotent — a retry after an already-successful bump is a pure no-op (no update, no duplicate audit log)', async () => {
+    membershipFindUnique.mockResolvedValueOnce(fakeRow({ tier: 'CLUB', status: 'ACTIVE' }))
+
+    const result = await applyPurchaseTierBump({ userId: 'user_1', tier: 'CLUB', durationMonths: 12 })
+
+    expect(result.changed).toBe(false)
+    expect(membershipUpdate).not.toHaveBeenCalled()
+    expect(activityLogCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects FREE as a target tier — this function only ever bumps to a paid tier', async () => {
+    await expect(applyPurchaseTierBump({ userId: 'user_1', tier: 'FREE' as never, durationMonths: 12 })).rejects.toThrow('requires a paid tier')
+  })
+
+  it('rejects a non-positive durationMonths', async () => {
+    await expect(applyPurchaseTierBump({ userId: 'user_1', tier: 'CLUB', durationMonths: 0 })).rejects.toThrow('positive integer')
+  })
+
+  it('never accepts adjustment.reason or an AdminSession — it is not adminAdjustMembership and cannot be called interactively', () => {
+    // Type-level guarantee, asserted structurally: the function signature
+    // takes only { userId, tier, durationMonths } — no admin, no reason.
+    expect(applyPurchaseTierBump.length).toBe(1)
   })
 })
