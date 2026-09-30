@@ -4,7 +4,7 @@
 // here, and no account data beyond the minimal public view is ever
 // rendered — see lib/jade-club/verify.ts for exactly what that is.
 
-import { ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, Gem } from 'lucide-react'
 import { verifyJadeClubToken } from '@/lib/jade-club/verify'
 import { privateMetadata } from '@/lib/seo'
 
@@ -20,7 +20,7 @@ export default async function VerifyJadeCardPage({ params }: { params: { token: 
     <div className="min-h-screen bg-[#060e1c] flex items-center justify-center px-5 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-6">
-          <Sparkles className="w-5 h-5 text-[#C9A84C]" />
+          <Gem className="w-5 h-5 text-[#C9A84C]" />
           <p className="text-[#C9A84C] font-bold tracking-widest text-sm uppercase">Jade Travel Club</p>
         </div>
 
