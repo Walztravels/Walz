@@ -9,6 +9,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import { ensureJadeClubMembership } from '@/lib/jade-club/membership'
 import { activateMembershipTerms, getMembershipTermsHistory } from '@/lib/jade-club/entitlements'
+import prisma from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,7 +20,18 @@ export async function GET(_req: NextRequest, { params }: { params: { userId: str
 
   const membership = await ensureJadeClubMembership(params.userId)
   const history = await getMembershipTermsHistory(membership.id)
-  return NextResponse.json({ membershipId: membership.id, terms: history })
+  // Release 2B: payment-state view sourced from JadeClubPurchase, scoped
+  // to this exact user — never cross-user.
+  const purchases = await prisma.jadeClubPurchase.findMany({
+    where: { userId: params.userId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, tier: true, market: true, currency: true, amountMinor: true,
+      provider: true, providerReference: true, paymentStatus: true, activationStatus: true,
+      activationAttempts: true, failureReason: true, createdAt: true, paidAt: true, activatedAt: true,
+    },
+  })
+  return NextResponse.json({ membershipId: membership.id, terms: history, purchases })
 }
 
 export async function POST(req: NextRequest, { params }: { params: { userId: string } }) {

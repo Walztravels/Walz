@@ -18,6 +18,7 @@ import { ArrowLeft, Sparkles, CreditCard, Plane, ShieldCheck, Gift, Award, Lock 
 import { ensureJadeClubMembership } from '@/lib/jade-club/membership'
 import { listActiveBenefits } from '@/lib/jade-club/benefits'
 import { getMilesWalletData } from '@/lib/portal/miles-data'
+import { listActivePoliciesForTier } from '@/lib/jade-club/purchase'
 import { JADE_CLUB_TIER_LABELS, JADE_CLUB_STATUS_LABELS } from '@/lib/jade-club/types'
 
 export const dynamic = 'force-dynamic'
@@ -28,11 +29,18 @@ export default async function JadeClubPage() {
 
   const userId = session.user.id
 
-  const [membership, miles] = await Promise.all([
+  const [membership, miles, clubPolicies, clubPlusPolicies] = await Promise.all([
     ensureJadeClubMembership(userId),
     getMilesWalletData(userId),
+    listActivePoliciesForTier('CLUB'),
+    listActivePoliciesForTier('CLUB_PLUS'),
   ])
   const benefits = await listActiveBenefits(membership.tier)
+  // A tier is "purchasable" only when an admin has actually activated a
+  // commercial policy for it — never assumed, never hardcoded. Zero ACTIVE
+  // policies for a tier means it stays gated, exactly as it was before 2B.
+  const clubAvailable = clubPolicies.length > 0
+  const clubPlusAvailable = clubPlusPolicies.length > 0
 
   const walzBenefits    = benefits.filter(b => b.category === 'WALZ')
   const partnerBenefits = benefits.filter(b => b.category === 'PARTNER')
@@ -95,8 +103,18 @@ export default async function JadeClubPage() {
         <h2 className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-3">Membership Tiers</h2>
         <div className="grid sm:grid-cols-3 gap-3 mb-8">
           <TierTile label="Jade Free" active={membership.tier === 'FREE'} description="Every Walz customer's starting membership." />
-          <TierTile label="Jade Club" active={membership.tier === 'CLUB'} comingSoon={membership.tier !== 'CLUB'} description="Enhanced member benefits." />
-          <TierTile label="Jade Club+" active={membership.tier === 'CLUB_PLUS'} comingSoon={membership.tier !== 'CLUB_PLUS'} description="Our most premium tier." />
+          <TierTile
+            label="Jade Club" active={membership.tier === 'CLUB'}
+            comingSoon={membership.tier !== 'CLUB' && !clubAvailable}
+            joinHref={membership.tier !== 'CLUB' && clubAvailable ? '/dashboard/club/join/club' : undefined}
+            description="Enhanced member benefits."
+          />
+          <TierTile
+            label="Jade Club+" active={membership.tier === 'CLUB_PLUS'}
+            comingSoon={membership.tier !== 'CLUB_PLUS' && !clubPlusAvailable}
+            joinHref={membership.tier !== 'CLUB_PLUS' && clubPlusAvailable ? '/dashboard/club/join/club_plus' : undefined}
+            description="Our most premium tier."
+          />
         </div>
 
         {/* ── Walz Miles (read-only) ──────────────────── */}
@@ -155,7 +173,7 @@ export default async function JadeClubPage() {
   )
 }
 
-function TierTile({ label, active, comingSoon, description }: { label: string; active: boolean; comingSoon?: boolean; description: string }) {
+function TierTile({ label, active, comingSoon, joinHref, description }: { label: string; active: boolean; comingSoon?: boolean; joinHref?: string; description: string }) {
   return (
     <div className={`rounded-xl border p-4 ${active ? 'bg-[#C9A84C]/10 border-[#C9A84C]/30' : 'bg-white/5 border-white/8'}`}>
       <div className="flex items-center justify-between mb-1">
@@ -166,6 +184,11 @@ function TierTile({ label, active, comingSoon, description }: { label: string; a
       <p className="text-white/40 text-xs">{description}</p>
       {comingSoon && !active && (
         <span className="inline-block mt-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/50">Coming Soon</span>
+      )}
+      {joinHref && !active && (
+        <Link href={joinHref} className="inline-block mt-2 text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#C9A84C] text-[#0B1F3A] hover:opacity-90 transition-opacity">
+          Join
+        </Link>
       )}
     </div>
   )

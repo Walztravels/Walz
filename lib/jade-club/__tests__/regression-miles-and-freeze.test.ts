@@ -51,3 +51,130 @@ describe('Flight Miles redemption freeze stays intact', () => {
     expect(src).not.toMatch(/payments\/authority/)
   })
 })
+
+describe('Release 2B — purchase engine stays inside the same boundaries', () => {
+  const src = readAllJadeClubSource()
+
+  it('never writes to WalzRewardsMembership or WalzMilesTransaction from the purchase engine either', () => {
+    // readAllJadeClubSource() scans the whole lib/jade-club directory, so
+    // this already covers purchase.ts / purchase-activation.ts /
+    // purchase-reconciliation.ts / purchase-types.ts without any new
+    // file-listing logic.
+    expect(src).not.toMatch(/prisma\.walzRewardsMembership\.(create|update|updateMany|delete|upsert)/)
+    expect(src).not.toMatch(/prisma\.walzMilesTransaction\.(create|update|updateMany|delete|upsert)/)
+  })
+
+  it('the checkout route never trusts a client-supplied price — amountMinor is only ever read from the resolved policy', () => {
+    const purchaseSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase.ts'), 'utf8')
+    expect(purchaseSrc).not.toMatch(/req\.body\.amountMinor/)
+    expect(purchaseSrc).toMatch(/amountMinor: policy\.annualPriceMinor/)
+  })
+
+  it('terms/entitlement CREATION with source PURCHASE goes through the shared createMembershipTermsCore only, never re-implemented elsewhere (structural remediation)', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+    expect(activationSrc).toMatch(/createMembershipTermsCore\(/)
+    expect(activationSrc).toMatch(/source: 'PURCHASE'/)
+    // purchase-activation.ts never re-implements terms/snapshot/slot
+    // CREATION itself — that logic lives ONLY in the shared core inside
+    // entitlements.ts. (It DOES intentionally reuse the membership lock
+    // statement/query shape as a read-only pre-check for the
+    // winner-determined-before-mutation fix — see that fix's own header
+    // comment — but never duplicates the actual row-creation logic.)
+    expect(activationSrc).not.toMatch(/jadeClubMembershipBenefitSnapshot\.create/)
+    expect(activationSrc).not.toMatch(/jadeClubEntitlementSlot\.create/)
+
+    // The shared core's own lock/guard behavior is unchanged.
+    const entitlementsSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'entitlements.ts'), 'utf8')
+    expect(entitlementsSrc).toMatch(/SELECT id FROM jade_club_memberships WHERE id = \$\{params\.membershipId\} FOR UPDATE/)
+    // Correction 3: the collision case is a RETURNED result, not a thrown
+    // exception, at the shared-core level.
+    expect(entitlementsSrc).toMatch(/ok: false, reason: 'UNEXPIRED_TERMS_EXISTS'/)
+  })
+
+  it('applyPurchaseTierBump is called ONLY after the winner-determination pre-check, never speculatively before it (narrow fix)', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+    const bumpIndex = activationSrc.indexOf('await applyPurchaseTierBump(tx')
+    const preCheckIndex = activationSrc.indexOf('conflictingUnexpiredTerms')
+    expect(bumpIndex).toBeGreaterThan(-1)
+    expect(preCheckIndex).toBeGreaterThan(-1)
+    expect(bumpIndex).toBeGreaterThan(preCheckIndex)
+    expect(activationSrc).toMatch(/WINNER — confirmed\. Only NOW does canonical membership state change/)
+  })
+
+  it('applyPurchaseTierBump has exactly ONE call site anywhere in the codebase outside its own tests — inside attemptActivation, after the collision branch', () => {
+    // Full call-site inventory, per the narrow-fix mandate: search every
+    // .ts/.tsx file in the repo (excluding node_modules and this
+    // function's own test files) for a call to applyPurchaseTierBump.
+    const repoRoot = path.join(JADE_CLUB_DIR, '..', '..')
+    const callSites: string[] = []
+    function walk(dir: string) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === '.git') continue
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) { walk(full); continue }
+        if (!/\.(ts|tsx)$/.test(entry.name)) continue
+        if (entry.name.includes('.test.')) continue // test files call it directly to exercise it — not a production call site
+        const content = fs.readFileSync(full, 'utf8')
+        if (/applyPurchaseTierBump\(/.test(content) && !full.endsWith(path.join('lib', 'jade-club', 'membership.ts'))) {
+          callSites.push(full)
+        }
+      }
+    }
+    walk(repoRoot)
+    expect(callSites).toEqual([path.join(JADE_CLUB_DIR, 'purchase-activation.ts')])
+  })
+
+  it('activateMembershipTerms (2A admin wrapper) still throws the exact same collision error string — its external contract is unaffected by the shared-core refactor', () => {
+    const entitlementsSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'entitlements.ts'), 'utf8')
+    expect(entitlementsSrc).toMatch(/This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A/)
+  })
+
+  it('lock order invariant is documented at the one call site that takes both the purchase and membership locks', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+    expect(activationSrc).toMatch(/LOCK ORDER INVARIANT/)
+    expect(activationSrc).toMatch(/ALWAYS acquired FIRST, the membership lock SECOND/)
+  })
+
+  it('the fail-closed invariant guard throws (never branches to a reconciliation state) for the post-tier-bump collision fallback, and is never caught inside the transaction callback (final correction)', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+
+    // The class exists, follows this repo's custom-error convention, and
+    // is exported (so tests — and any future caller — can identify it).
+    expect(activationSrc).toMatch(/export class JadePurchaseActivationInvariantError extends Error/)
+    expect(activationSrc).toMatch(/code = 'JADE_PURCHASE_ACTIVATION_INVARIANT_VIOLATION'/)
+
+    // The post-tier-bump fallback throws this exact class — it does NOT
+    // write PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION and does NOT return
+    // an outcome (a `return` here would mean the transaction commits).
+    const fallbackBlock = activationSrc.slice(
+      activationSrc.indexOf('const core = await createMembershipTermsCore(tx,'),
+      activationSrc.indexOf("// ── Steps 9-12: finalize"),
+    )
+    expect(fallbackBlock).toMatch(/throw new JadePurchaseActivationInvariantError/)
+    // Checks actual CODE, not prose comments explaining what NOT to do —
+    // no data write and no outcome return exist in this block at all.
+    expect(fallbackBlock).not.toMatch(/activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION'/)
+    expect(fallbackBlock).not.toMatch(/return \{ outcome:/)
+
+    // The normal, expected pre-check collision path (BEFORE the tier bump)
+    // is completely unchanged — still an explicit branch that writes
+    // PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION and returns, never throws.
+    const preCheckBlock = activationSrc.slice(
+      activationSrc.indexOf('if (conflictingUnexpiredTerms) {'),
+      activationSrc.indexOf('// ── WINNER — confirmed'),
+    )
+    expect(preCheckBlock).toMatch(/PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION/)
+    expect(preCheckBlock).toMatch(/return \{ outcome: 'REQUIRES_RECONCILIATION', reason \} as const/)
+    expect(preCheckBlock).not.toMatch(/throw new JadePurchaseActivationInvariantError/)
+
+    // No try/catch exists anywhere INSIDE the transaction callback that
+    // could swallow this specific error and convert it back into a
+    // normal return — the only try/catch in this file wraps the
+    // `prisma.$transaction(...)` call itself, i.e. OUTSIDE the callback.
+    const transactionCallbackBody = activationSrc.slice(
+      activationSrc.indexOf('return await prisma.$transaction(async (tx) => {'),
+      activationSrc.indexOf("  } catch (err) {"),
+    )
+    expect(transactionCallbackBody).not.toMatch(/\btry\s*\{/)
+  })
+})

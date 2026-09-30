@@ -11,6 +11,7 @@
 
 import { Fragment, useEffect, useState, useCallback } from 'react'
 import { Sparkles, Users, CreditCard, Package, ShieldCheck, Search } from 'lucide-react'
+import { decimalToMinor, formatCurrencyMinor } from '@/lib/currency'
 
 interface Overview {
   jadeFreeCount: number
@@ -133,6 +134,24 @@ interface MembershipTermsRow {
   benefits: BenefitSnapshotRow[]
 }
 
+// Release 2B: payment-state view sourced from JadeClubPurchase.
+interface PurchaseRow {
+  id: string
+  tier: string
+  market: string
+  currency: string
+  amountMinor: number
+  provider: string
+  providerReference: string
+  paymentStatus: string
+  activationStatus: string
+  activationAttempts: number
+  failureReason: string | null
+  createdAt: string
+  paidAt: string | null
+  activatedAt: string | null
+}
+
 export default function JadeClubAdminPage() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [memberships, setMemberships] = useState<MembershipRow[]>([])
@@ -149,8 +168,10 @@ export default function JadeClubAdminPage() {
   const [policyBenefits, setPolicyBenefits] = useState<PolicyBenefitRow[]>([])
   const [auditUserId, setAuditUserId] = useState('')
   const [auditTerms, setAuditTerms] = useState<MembershipTermsRow[] | null>(null)
+  const [auditPurchases, setAuditPurchases] = useState<PurchaseRow[] | null>(null)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [auditLoading, setAuditLoading] = useState(false)
+  const [retryingPurchaseId, setRetryingPurchaseId] = useState<string | null>(null)
 
   const loadPolicies = useCallback(async () => {
     setPoliciesLoading(true)
@@ -255,16 +276,40 @@ export default function JadeClubAdminPage() {
     setAuditLoading(true)
     setAuditError(null)
     setAuditTerms(null)
+    setAuditPurchases(null)
     try {
       const res = await fetch(`/api/admin/jade-club/memberships/${encodeURIComponent(auditUserId.trim())}/terms`)
       if (res.status === 403) { setAuditError('You do not have permission to view this.'); return }
       if (!res.ok) { setAuditError('Failed to load member terms/entitlements.'); return }
       const data = await res.json()
       setAuditTerms(data.terms)
+      setAuditPurchases(data.purchases ?? [])
     } catch {
       setAuditError('Failed to load member terms/entitlements.')
     } finally {
       setAuditLoading(false)
+    }
+  }
+
+  async function retryActivation(purchaseId: string) {
+    const reason = prompt('Reason for retrying this stuck activation (required, audited):')
+    if (!reason || !reason.trim()) return
+    setRetryingPurchaseId(purchaseId)
+    try {
+      const res = await fetch(`/api/admin/jade-club/purchases/${purchaseId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(body.error ?? 'Failed to retry activation')
+        return
+      }
+      alert(`Retry outcome: ${body.outcome?.outcome ?? 'unknown'}`)
+      await loadMemberAudit()
+    } finally {
+      setRetryingPurchaseId(null)
     }
   }
 
@@ -582,6 +627,70 @@ export default function JadeClubAdminPage() {
         <div className="p-4">
           {auditLoading && <p className="text-white/40 text-sm">Loading…</p>}
           {auditError && <p className="text-red-400 text-sm">{auditError}</p>}
+
+          {/* ── Release 2B: Purchases / payment-state ─────────────────── */}
+          {auditPurchases && (
+            <div className="mb-6">
+              <h3 className="text-white/50 text-xs font-semibold uppercase tracking-wider mb-2">Purchases</h3>
+              {auditPurchases.length === 0 ? (
+                <p className="text-white/30 text-sm">No purchase attempts for this member.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-white/30 uppercase">
+                      <th className="text-left py-1">Tier / Scope</th>
+                      <th className="text-left py-1">Amount</th>
+                      <th className="text-left py-1">Payment</th>
+                      <th className="text-left py-1">Activation</th>
+                      <th className="text-left py-1">Attempts</th>
+                      <th className="text-left py-1">Failure</th>
+                      <th className="text-left py-1">Created</th>
+                      <th className="text-left py-1" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditPurchases.map(p => (
+                      <tr key={p.id} className="border-t border-white/5">
+                        <td className="py-1 text-white/70">{p.tier} · {p.market}/{p.currency}</td>
+                        <td className="py-1 text-white/60">{formatCurrencyMinor(p.amountMinor, p.currency)}</td>
+                        <td className="py-1 text-white/60">{p.paymentStatus}</td>
+                        <td className="py-1">
+                          {p.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION' ? (
+                            <span className="text-red-400 font-semibold">⚠ Needs Reconciliation</span>
+                          ) : (
+                            <span className="text-white/60">{p.activationStatus}</span>
+                          )}
+                        </td>
+                        <td className="py-1 text-white/40">{p.activationAttempts}</td>
+                        <td className="py-1 text-white/40">{p.failureReason ?? '—'}</td>
+                        <td className="py-1 text-white/30">{new Date(p.createdAt).toLocaleString()}</td>
+                        <td className="py-1">
+                          {/* Retry is offered ONLY for a transient technical failure that a
+                              mechanical retry can plausibly resolve — mirrors the server-side
+                              RETRYABLE_ACTIVATION_FAILURE_REASONS gate in adminResetForRetry.
+                              PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION (a duplicate-paid-purchase
+                              or similar structural condition) is a DIFFERENT activationStatus
+                              entirely and is never offered a retry button — it needs the human
+                              reconciliation flag above instead. */}
+                          {p.activationStatus === 'FAILED_PERMANENTLY' && p.paymentStatus === 'SUCCEEDED'
+                            && (p.failureReason === 'MAX_RETRIES_EXCEEDED' || p.failureReason === 'UNKNOWN_ACTIVATION_ERROR') && (
+                            <button
+                              disabled={retryingPurchaseId === p.id}
+                              onClick={() => retryActivation(p.id)}
+                              className="text-[#C9A84C] font-semibold disabled:opacity-40"
+                            >
+                              {retryingPurchaseId === p.id ? 'Retrying…' : 'Retry Activation'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
           {auditTerms && auditTerms.length === 0 && <p className="text-white/30 text-sm">No commercial terms have ever been activated for this member.</p>}
           {auditTerms && auditTerms.map(t => (
             <div key={t.id} className="mb-4 border border-white/8 rounded-lg p-3">
@@ -630,16 +739,35 @@ export default function JadeClubAdminPage() {
   )
 }
 
+// Sane-range guard for a hand-typed annual price — catches an obvious
+// fat-finger (an extra/missing zero, a price of "0") before it ever
+// reaches the server. Deliberately generous (this repo prices in many
+// currencies) — this is a typo trap, not a business rule.
+const MIN_SANE_ANNUAL_PRICE_MAJOR = 1
+const MAX_SANE_ANNUAL_PRICE_MAJOR = 10_000_000
+
 function NewPolicyForm({ onCreate }: {
   onCreate: (form: { tier: string; market: string; currency: string; annualPriceMinor: string; durationMonths: string; serviceFeeDiscountPercent: string; effectiveFrom: string }) => void
 }) {
   const [tier, setTier] = useState(COMMERCIAL_TIERS[0])
   const [market, setMarket] = useState('')
   const [currency, setCurrency] = useState('')
-  const [annualPriceMinor, setAnnualPriceMinor] = useState('')
+  // Admin types a MAJOR-currency amount (e.g. "85000" for ₦85,000, not the
+  // minor-unit integer) — this is the exact 99-vs-9900 bug fix: the old
+  // raw "Annual Price (minor)" field had zero unit conversion, so an admin
+  // typing "99" (meaning $99) silently created a $0.99 policy instead of a
+  // $9,900.00 one silently doubling as $99.00 in the wrong direction. This
+  // field is converted through lib/currency.ts's decimalToMinor, never a
+  // bare "* 100".
+  const [annualPriceMajor, setAnnualPriceMajor] = useState('')
   const [durationMonths, setDurationMonths] = useState('12')
   const [serviceFeeDiscountPercent, setServiceFeeDiscountPercent] = useState('')
   const [effectiveFrom, setEffectiveFrom] = useState('')
+
+  const parsedMajor = parseFloat(annualPriceMajor)
+  const priceValid = currency.trim().length > 0 && Number.isFinite(parsedMajor)
+    && parsedMajor >= MIN_SANE_ANNUAL_PRICE_MAJOR && parsedMajor <= MAX_SANE_ANNUAL_PRICE_MAJOR
+  const minorPreview = priceValid ? decimalToMinor(parsedMajor, currency) : null
 
   return (
     <div className="flex flex-wrap items-end gap-2">
@@ -650,13 +778,27 @@ function NewPolicyForm({ onCreate }: {
       </Field>
       <Field label="Market"><input value={market} onChange={e => setMarket(e.target.value)} placeholder="e.g. NG" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
       <Field label="Currency"><input value={currency} onChange={e => setCurrency(e.target.value.toUpperCase())} placeholder="e.g. NGN" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
-      <Field label="Annual Price (minor)"><input value={annualPriceMinor} onChange={e => setAnnualPriceMinor(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-28" /></Field>
+      <Field label={`Annual Price (${currency || 'major units'})`}>
+        <input
+          value={annualPriceMajor}
+          onChange={e => setAnnualPriceMajor(e.target.value)}
+          type="number" step="0.01" placeholder="e.g. 85000"
+          className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-28"
+        />
+        {annualPriceMajor && (
+          <span className={`text-[10px] mt-0.5 ${priceValid ? 'text-white/30' : 'text-red-400'}`}>
+            {priceValid && minorPreview !== null
+              ? `= ${formatCurrencyMinor(minorPreview, currency)} (${minorPreview} minor units)`
+              : currency ? 'Out of sane range — check for a typo' : 'Enter a currency first'}
+          </span>
+        )}
+      </Field>
       <Field label="Duration (months)"><input value={durationMonths} onChange={e => setDurationMonths(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
       <Field label="Fee Discount %"><input value={serviceFeeDiscountPercent} onChange={e => setServiceFeeDiscountPercent(e.target.value)} type="number" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white w-20" /></Field>
       <Field label="Effective From"><input value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} type="date" className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-white" /></Field>
       <button
-        disabled={!market || !currency || !annualPriceMinor || !serviceFeeDiscountPercent || !effectiveFrom}
-        onClick={() => onCreate({ tier, market, currency, annualPriceMinor, durationMonths, serviceFeeDiscountPercent, effectiveFrom })}
+        disabled={!market || !currency || !priceValid || minorPreview === null || !serviceFeeDiscountPercent || !effectiveFrom}
+        onClick={() => onCreate({ tier, market, currency, annualPriceMinor: String(minorPreview), durationMonths, serviceFeeDiscountPercent, effectiveFrom })}
         className="text-xs font-semibold text-[#C9A84C] disabled:opacity-40 border border-[#C9A84C]/40 rounded-lg px-3 py-1.5"
       >
         Create Draft

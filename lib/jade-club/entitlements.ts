@@ -47,7 +47,7 @@ import { hasPermission } from '@/lib/admin/permissions'
 import { ENTITLEMENT_RESERVATION_TTL_MS, ENTITLEMENT_RESERVATION_MAX_ATTEMPTS } from './entitlement-config'
 import { isJadeClubMembershipSource, type JadeClubMembershipSource } from './types'
 
-type Tx = Prisma.TransactionClient
+export type Tx = Prisma.TransactionClient
 
 function requireManage(admin: AdminSession) {
   if (!hasPermission(admin, 'jade_club.manage')) {
@@ -59,7 +59,153 @@ function requireReason(reason: unknown): string {
   return reason.trim()
 }
 
-// ─── Activation ─────────────────────────────────────────────────────────
+// ─── Activation core (structural remediation) ──────────────────────────
+//
+// createMembershipTermsCore is the SHARED engine behind BOTH the 2A admin
+// wrapper (activateMembershipTerms, below) and the Jade Club 2B purchase
+// orchestrator (lib/jade-club/purchase-activation.ts::attemptActivation).
+// It takes a `tx` and OPENS ZERO TRANSACTIONS OF ITS OWN — the caller
+// owns the single top-level transaction (2A: its own dedicated
+// transaction, unchanged; 2B: the purchase-activation transaction, which
+// also holds the purchase row lock — see that file's own lock-order
+// comment).
+//
+// This function's internal statement order is UNCHANGED from the
+// pre-remediation activateMembershipTerms (lock -> membership fetch ->
+// policy fetch -> policy-ACTIVE check -> policy-tier-match check ->
+// unexpired-terms check -> create) — this is what makes 2A's admin
+// activation "provably identical" post-refactor: same validation order,
+// same error strings, same locking, same guard behavior, same
+// snapshot/entitlement semantics.
+//
+// THE ONE BEHAVIORAL CHANGE (Correction 3 of the structural remediation):
+// the "unexpired terms already exists" collision is now a RETURNED
+// discriminated result (`{ ok: false, reason: 'UNEXPIRED_TERMS_EXISTS', ... }`),
+// never a thrown exception, from this shared core. This is what lets the
+// 2B caller branch into its own PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION
+// state and commit normally (an expected business outcome, not a
+// technical failure) without using throw/catch as control flow. The 2A
+// wrapper below immediately converts a `{ ok: false }` result back into
+// the EXACT SAME thrown error string it always threw — so 2A's error
+// contract for admin callers (app/api/admin/jade-club/memberships/[userId]/terms/route.ts)
+// is completely unaffected.
+export type CreateMembershipTermsCoreResult =
+  | {
+      ok: true
+      termsId: string
+      expiresAt: Date
+      benefitCount: number
+      slotsIssued: number
+      policyId: string
+      policyVersion: number
+      tier: string
+    }
+  | {
+      ok: false
+      reason: 'UNEXPIRED_TERMS_EXISTS'
+      existingTerms: { id: string; purchaseId: string | null }
+    }
+
+export async function createMembershipTermsCore(
+  tx: Tx,
+  params: { membershipId: string; policyId: string; source: string; purchaseId: string | null },
+): Promise<CreateMembershipTermsCoreResult> {
+  // SECURITY FIX (independent review — HIGH finding, original 2A hardening,
+  // UNCHANGED by the 2B structural remediation): the "no unexpired terms
+  // already exists" check and the terms/snapshot/slot creation used to run
+  // as a standalone pre-check followed by a SEPARATE transaction, with no
+  // DB constraint backing the "at most one unexpired terms period per
+  // membership" invariant. Fixed by taking a row lock on the membership
+  // (`SELECT ... FOR UPDATE`) as the FIRST statement inside the caller's
+  // transaction that re-checks existingUnexpired and creates everything —
+  // a second concurrent call for the same membershipId blocks on the lock
+  // until the first transaction commits or rolls back, then re-reads and
+  // correctly sees the just-created row.
+  //
+  // LOCK ORDER INVARIANT (Jade Club 2B structural remediation): whenever a
+  // caller holds both a JadeClubPurchase lock and this membership lock in
+  // the SAME transaction, the purchase lock must ALWAYS be acquired FIRST
+  // — see lib/jade-club/purchase-activation.ts's attemptActivation, the
+  // only caller that ever takes both. This function itself only ever
+  // takes the membership lock; it never touches JadeClubPurchase directly.
+  await tx.$queryRaw`SELECT id FROM jade_club_memberships WHERE id = ${params.membershipId} FOR UPDATE`
+
+  const membership = await tx.jadeClubMembership.findUnique({ where: { id: params.membershipId } })
+  if (!membership) throw new Error('Membership not found')
+
+  const policy = await tx.jadeClubCommercialPolicy.findUnique({ where: { id: params.policyId }, include: { benefits: true } })
+  if (!policy) throw new Error('Policy not found')
+  if (policy.status !== 'ACTIVE') throw new Error(`Policy must be ACTIVE to activate terms from it (this one is ${policy.status})`)
+  if (policy.tier !== membership.tier) {
+    throw new Error(`Policy tier (${policy.tier}) does not match the membership's current tier (${membership.tier}) — adjust the membership tier first`)
+  }
+
+  const now = new Date()
+  const existingUnexpired = await tx.jadeClubMembershipTerms.findFirst({
+    where: { membershipId: params.membershipId, expiresAt: { gt: now } },
+    orderBy: { activatedAt: 'desc' },
+  })
+  if (existingUnexpired) {
+    return { ok: false, reason: 'UNEXPIRED_TERMS_EXISTS', existingTerms: { id: existingUnexpired.id, purchaseId: existingUnexpired.purchaseId } }
+  }
+
+  const expiresAt = addMonths(now, policy.durationMonths)
+
+  const terms = await tx.jadeClubMembershipTerms.create({
+    data: {
+      membershipId: params.membershipId,
+      policyId: policy.id,
+      policyVersion: policy.version,
+      tier: policy.tier,
+      market: policy.market,
+      currency: policy.currency,
+      annualPriceMinor: policy.annualPriceMinor,
+      durationMonths: policy.durationMonths,
+      serviceFeeDiscountPercent: policy.serviceFeeDiscountPercent,
+      activatedAt: now,
+      expiresAt,
+      source: params.source,
+      // Correction 1/2 of the structural remediation: the SINGLE
+      // authoritative purchase-provenance link — @unique at the DB layer,
+      // Restrict on delete (see the migration file's header for why).
+      // null for every non-purchase source (ADMIN_GRANT/PROMOTION/DEFAULT).
+      purchaseId: params.purchaseId,
+    },
+  })
+
+  let slotsIssued = 0
+  for (const benefit of policy.benefits) {
+    const catalogBenefit = await tx.jadeClubBenefit.findUnique({ where: { key: benefit.benefitKey }, select: { name: true } })
+    const snapshot = await tx.jadeClubMembershipBenefitSnapshot.create({
+      data: {
+        membershipTermsId: terms.id,
+        benefitKey: benefit.benefitKey,
+        benefitName: catalogBenefit?.name ?? benefit.benefitKey,
+        entitlementType: benefit.entitlementType,
+        countPerPeriod: benefit.countPerPeriod,
+        costCapMinorUsd: benefit.costCapMinorUsd,
+        booleanEligible: benefit.booleanEligible,
+      },
+    })
+
+    if (benefit.entitlementType === 'COUNT_PER_PERIOD' && (benefit.countPerPeriod ?? 0) > 0) {
+      slotsIssued += await issueSlotsForSnapshot(tx, {
+        membershipTermsId: terms.id,
+        benefitSnapshotId: snapshot.id,
+        periodKey: 'Y1',
+        countPerPeriod: benefit.countPerPeriod as number,
+      })
+    }
+  }
+
+  return {
+    ok: true,
+    termsId: terms.id, expiresAt: terms.expiresAt, benefitCount: policy.benefits.length, slotsIssued,
+    policyId: policy.id, policyVersion: policy.version, tier: policy.tier,
+  }
+}
+
+// ─── Activation (2A admin wrapper — UNCHANGED external contract) ───────
 
 export interface ActivateMembershipTermsResult {
   termsId: string
@@ -78,6 +224,16 @@ export interface ActivateMembershipTermsResult {
  * membership's CURRENT tier (adminAdjustMembership sets the tier; this
  * function only ever builds the matching commercial contract for a tier
  * already granted — it never itself changes JadeClubMembership.tier).
+ *
+ * Structural remediation note: this function's OWN transaction/locking/
+ * validation/error behavior is byte-for-byte identical to before the 2B
+ * purchase-attribution remediation — only the internal implementation now
+ * delegates to the shared createMembershipTermsCore (see that function's
+ * own header for why). This wrapper immediately re-throws the EXACT same
+ * error string a caller of this exported function has always seen for the
+ * "unexpired terms already exists" case — its own single top-level
+ * transaction (owned here, not by the shared core) rolls back exactly as
+ * before.
  */
 export async function activateMembershipTerms(
   admin: AdminSession,
@@ -90,93 +246,14 @@ export async function activateMembershipTerms(
   const cleanReason = requireReason(reason)
   if (!isJadeClubMembershipSource(source)) throw new Error('Invalid source')
 
-  // SECURITY FIX (independent review — HIGH finding): the "no unexpired
-  // terms already exists" check and the terms/snapshot/slot creation used
-  // to run as a standalone pre-check followed by a SEPARATE transaction,
-  // with no DB constraint backing the "at most one unexpired terms period
-  // per membership" invariant (a partial unique index isn't viable here
-  // since `expiresAt > now()` isn't an IMMUTABLE condition Postgres can
-  // index on). Two concurrent activation calls for the SAME membership
-  // could both pass the pre-check before either committed, silently
-  // double-granting a full set of entitlement slots.
-  //
-  // Fixed by taking a row lock on the membership (`SELECT ... FOR UPDATE`)
-  // as the FIRST statement inside the SAME transaction that re-checks
-  // existingUnexpired and creates everything — a second concurrent call
-  // for the same membershipId blocks on the lock until the first
-  // transaction commits or rolls back, then re-reads and correctly sees
-  // the just-created row, and bails out with the same clear error instead
-  // of racing past the check.
   const result = await prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM jade_club_memberships WHERE id = ${membershipId} FOR UPDATE`
-
-    const membership = await tx.jadeClubMembership.findUnique({ where: { id: membershipId } })
-    if (!membership) throw new Error('Membership not found')
-
-    const policy = await tx.jadeClubCommercialPolicy.findUnique({ where: { id: policyId }, include: { benefits: true } })
-    if (!policy) throw new Error('Policy not found')
-    if (policy.status !== 'ACTIVE') throw new Error(`Policy must be ACTIVE to activate terms from it (this one is ${policy.status})`)
-    if (policy.tier !== membership.tier) {
-      throw new Error(`Policy tier (${policy.tier}) does not match the membership's current tier (${membership.tier}) — adjust the membership tier first`)
-    }
-
-    const now = new Date()
-    const existingUnexpired = await tx.jadeClubMembershipTerms.findFirst({
-      where: { membershipId, expiresAt: { gt: now } },
-      orderBy: { activatedAt: 'desc' },
-    })
-    if (existingUnexpired) {
+    const core = await createMembershipTermsCore(tx, { membershipId, policyId, source, purchaseId: null })
+    if (!core.ok) {
+      // Exact same error string as before this refactor — 2A's admin
+      // error contract is unaffected.
       throw new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A')
     }
-
-    const expiresAt = addMonths(now, policy.durationMonths)
-
-    const terms = await tx.jadeClubMembershipTerms.create({
-      data: {
-        membershipId,
-        policyId: policy.id,
-        policyVersion: policy.version,
-        tier: policy.tier,
-        market: policy.market,
-        currency: policy.currency,
-        annualPriceMinor: policy.annualPriceMinor,
-        durationMonths: policy.durationMonths,
-        serviceFeeDiscountPercent: policy.serviceFeeDiscountPercent,
-        activatedAt: now,
-        expiresAt,
-        source,
-      },
-    })
-
-    let slotsIssued = 0
-    for (const benefit of policy.benefits) {
-      const catalogBenefit = await tx.jadeClubBenefit.findUnique({ where: { key: benefit.benefitKey }, select: { name: true } })
-      const snapshot = await tx.jadeClubMembershipBenefitSnapshot.create({
-        data: {
-          membershipTermsId: terms.id,
-          benefitKey: benefit.benefitKey,
-          benefitName: catalogBenefit?.name ?? benefit.benefitKey,
-          entitlementType: benefit.entitlementType,
-          countPerPeriod: benefit.countPerPeriod,
-          costCapMinorUsd: benefit.costCapMinorUsd,
-          booleanEligible: benefit.booleanEligible,
-        },
-      })
-
-      if (benefit.entitlementType === 'COUNT_PER_PERIOD' && (benefit.countPerPeriod ?? 0) > 0) {
-        slotsIssued += await issueSlotsForSnapshot(tx, {
-          membershipTermsId: terms.id,
-          benefitSnapshotId: snapshot.id,
-          periodKey: 'Y1',
-          countPerPeriod: benefit.countPerPeriod as number,
-        })
-      }
-    }
-
-    return {
-      termsId: terms.id, expiresAt: terms.expiresAt, benefitCount: policy.benefits.length, slotsIssued,
-      policyId: policy.id, policyVersion: policy.version, tier: policy.tier,
-    }
+    return core
   })
 
   await prisma.activityLog.create({
@@ -189,10 +266,10 @@ export async function activateMembershipTerms(
     },
   }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
 
-  return result
+  return { termsId: result.termsId, expiresAt: result.expiresAt, benefitCount: result.benefitCount, slotsIssued: result.slotsIssued }
 }
 
-function addMonths(date: Date, months: number): Date {
+export function addMonths(date: Date, months: number): Date {
   const d = new Date(date.getTime())
   d.setMonth(d.getMonth() + months)
   return d

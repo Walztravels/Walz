@@ -23,6 +23,7 @@ import type { AdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import { generateMemberCode } from './member-code'
 import { createMembershipVerificationToken } from './qr-token'
+import { addMonths, type Tx } from './entitlements'
 import {
   type JadeClubTier, type JadeClubMembershipStatus, type JadeClubMembershipSource,
   isJadeClubTier, isJadeClubMembershipStatus,
@@ -162,6 +163,36 @@ export async function rotateOwnVerificationToken(userId: string): Promise<JadeCl
   }
 }
 
+// ─── Shared resulting-state validation ─────────────────────────────────────
+//
+// Extracted (Release 2B) from adminAdjustMembership so the new
+// purchase-triggered tier-bump function below can reuse the EXACT same
+// "is this final state internally consistent" rule rather than
+// duplicating it ad hoc. Pure function — no DB access, no side effects —
+// so both callers can validate the FINAL state before writing anything.
+
+export function validateResultingMembershipState(
+  resultingStatus: JadeClubMembershipStatus,
+  resultingExpiresAt: Date | null,
+): void {
+  if (
+    (resultingStatus === 'ACTIVE' || resultingStatus === 'EXPIRING')
+    && resultingExpiresAt !== null
+    && resultingExpiresAt.getTime() < Date.now()
+  ) {
+    throw new Error(
+      `Cannot set status ${resultingStatus} with an expiresAt in the past (${resultingExpiresAt.toISOString()}). `
+      + 'Set a future expiresAt, clear it for an indefinite grant, or choose status EXPIRED instead.',
+    )
+  }
+  if (resultingStatus === 'EXPIRED' && resultingExpiresAt === null) {
+    throw new Error(
+      'Cannot set status EXPIRED without an expiresAt date. Provide an expiresAt, '
+      + 'or use CANCELLED for an indefinite end with no expiry date.',
+    )
+  }
+}
+
 // ─── Admin-only, audited mutation ──────────────────────────────────────────
 
 export interface AdminMembershipAdjustment {
@@ -205,22 +236,7 @@ export async function adminAdjustMembership(
   const resultingStatus = adjustment.status !== undefined ? adjustment.status : before.status
   const resultingExpiresAt = adjustment.expiresAt !== undefined ? adjustment.expiresAt : before.expiresAt
 
-  if (
-    (resultingStatus === 'ACTIVE' || resultingStatus === 'EXPIRING')
-    && resultingExpiresAt !== null
-    && resultingExpiresAt.getTime() < Date.now()
-  ) {
-    throw new Error(
-      `Cannot set status ${resultingStatus} with an expiresAt in the past (${resultingExpiresAt.toISOString()}). `
-      + 'Set a future expiresAt, clear it for an indefinite grant, or choose status EXPIRED instead.',
-    )
-  }
-  if (resultingStatus === 'EXPIRED' && resultingExpiresAt === null) {
-    throw new Error(
-      'Cannot set status EXPIRED without an expiresAt date. Provide an expiresAt, '
-      + 'or use CANCELLED for an indefinite end with no expiry date.',
-    )
-  }
+  validateResultingMembershipState(resultingStatus, resultingExpiresAt)
 
   const data: { tier?: JadeClubTier; status?: JadeClubMembershipStatus; expiresAt?: Date | null; source: JadeClubMembershipSource } = {
     source: 'ADMIN_GRANT',
@@ -251,4 +267,140 @@ export async function adminAdjustMembership(
   }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
 
   return after
+}
+
+// ─── Payment-triggered tier bump (Release 2B) ──────────────────────────────
+//
+// The ONLY other path (besides adminAdjustMembership above) that may ever
+// change JadeClubMembership.tier/status. Deliberately NARROW: no
+// interactive admin, no free-text reason, no arbitrary tier/status
+// combination — it only ever moves a membership to
+// { tier: <purchased tier>, status: 'ACTIVE', source: 'PURCHASE' }.
+//
+// STRUCTURAL REMEDIATION: this function is now `tx`-aware and opens ZERO
+// transactions of its own — it is always called from INSIDE
+// lib/jade-club/purchase-activation.ts's attemptActivation, as one step of
+// that function's single top-level atomic transaction (which also creates
+// the JadeClubMembershipTerms row and finalizes the purchase, all in the
+// SAME commit — see that file for the full sequence and its lock-order
+// comment). It never opens its own transaction, mirroring
+// lib/jade-club/entitlements.ts::createMembershipTermsCore's own "takes
+// tx, opens nothing" contract.
+//
+// It reuses validateResultingMembershipState — the EXACT same "is this
+// final state internally consistent" rule adminAdjustMembership enforces
+// — rather than duplicating that logic.
+//
+// Idempotent by design (safe for the reconciliation job's retries): if the
+// membership is already at the target tier and ACTIVE, this is a pure
+// no-op read — it never re-writes the row or re-emits an ActivityLog entry
+// for a retry that already succeeded.
+//
+// INVARIANT (narrow fix, independent-review HIGH finding): the caller
+// (lib/jade-club/purchase-activation.ts::attemptActivation) MUST call this
+// function ONLY after it has already confirmed, under the membership's
+// FOR UPDATE lock, that this purchase wins activation (no conflicting
+// unexpired terms period exists) — NEVER speculatively before that
+// determination. A purchase that does not win activation must never
+// mutate JadeClubMembership.tier/status, even transiently. (An earlier
+// version of this flow called this function BEFORE the collision check,
+// reasoning that the bump was "harmless" for same-tier collisions — that
+// reasoning broke for a DIFFERENT-TIER collision, where the loser's tier
+// bump could permanently diverge from the tier of the terms the winner
+// actually got issued. Fixed by reordering the caller, not by adding a
+// compensating revert — see that file's header for the full before/after.)
+//
+// `durationMonths` is passed by the caller from the SAME
+// JadeClubCommercialPolicy row that createMembershipTermsCore will then
+// read via `purchase.policyId` — never re-derived independently, so the
+// membership-level `expiresAt` shown on the customer's dashboard and the
+// authoritative JadeClubMembershipTerms.expiresAt are computed the same
+// way, from the same policy, moments apart, in the same transaction.
+
+export interface PurchaseTierBumpResult {
+  membership: JadeClubMembershipRecord
+  changed: boolean
+}
+
+/**
+ * tx-aware get-or-create, mirroring ensureJadeClubMembership's shape
+ * exactly but scoped to the caller's transaction — kept as a SEPARATE
+ * function from the widely-used, non-transactional ensureJadeClubMembership
+ * (used by many read-only display call sites that have no need for — and
+ * should not be forced to open — a transaction) rather than changing that
+ * shared helper's signature. Exported (narrow fix) so
+ * lib/jade-club/purchase-activation.ts::attemptActivation can resolve the
+ * SAME get-or-create membership row for its own winner-determination
+ * pre-check, before ever calling applyPurchaseTierBump — a brand-new
+ * customer's very first purchase must not fail just because no membership
+ * row happens to exist yet at that exact moment.
+ */
+export async function ensureMembershipInTx(tx: Tx, userId: string): Promise<JadeClubMembershipRecord> {
+  const existing = await tx.jadeClubMembership.findUnique({ where: { userId } })
+  if (existing) return toRecord(existing)
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const created = await tx.jadeClubMembership.create({
+        data: { userId, memberCode: generateMemberCode(), tier: 'FREE', status: 'FREE', source: 'DEFAULT' },
+      })
+      return toRecord(created)
+    } catch (err: unknown) {
+      const again = await tx.jadeClubMembership.findUnique({ where: { userId } })
+      if (again) return toRecord(again)
+      if (attempt === 4) throw err
+    }
+  }
+  throw new Error('[jade-club] failed to create membership after retries')
+}
+
+export async function applyPurchaseTierBump(tx: Tx, params: {
+  userId: string
+  tier: JadeClubTier
+  durationMonths: number
+}): Promise<PurchaseTierBumpResult> {
+  if (!isJadeClubTier(params.tier) || params.tier === 'FREE') {
+    throw new Error('applyPurchaseTierBump requires a paid tier (CLUB or CLUB_PLUS)')
+  }
+  if (!Number.isInteger(params.durationMonths) || params.durationMonths <= 0) {
+    throw new Error('applyPurchaseTierBump requires a positive integer durationMonths')
+  }
+
+  const before = await ensureMembershipInTx(tx, params.userId)
+
+  // Idempotent no-op: a retry after an already-successful bump must not
+  // re-write the row or emit a duplicate ActivityLog entry.
+  if (before.tier === params.tier && before.status === 'ACTIVE') {
+    return { membership: before, changed: false }
+  }
+
+  const now = new Date()
+  const resultingExpiresAt = addMonths(now, params.durationMonths)
+  validateResultingMembershipState('ACTIVE', resultingExpiresAt)
+
+  const updated = await tx.jadeClubMembership.update({
+    where: { userId: params.userId },
+    data: { tier: params.tier, status: 'ACTIVE', expiresAt: resultingExpiresAt, source: 'PURCHASE' },
+  })
+  const after = toRecord(updated)
+
+  // Written via the SAME tx — co-committed atomically with the rest of
+  // the purchase-activation transaction, not a fire-and-forget top-level
+  // write.
+  await tx.activityLog.create({
+    data: {
+      staffId: null,
+      staffName: 'Jade Club Purchase (system)',
+      staffRole: 'system',
+      action: 'JADE_CLUB_MEMBERSHIP_PURCHASE_ACTIVATED',
+      module: 'jade_club',
+      entityType: 'JadeClubMembership',
+      entityId: after.id,
+      detail: `Membership tier bumped to ${params.tier} following a verified purchase payment.`,
+      before: { tier: before.tier, status: before.status, expiresAt: before.expiresAt, source: before.source },
+      after: { tier: after.tier, status: after.status, expiresAt: after.expiresAt, source: after.source },
+    },
+  }).catch((e: unknown) => console.warn('[jade-club] activity log write failed:', e))
+
+  return { membership: after, changed: true }
 }
