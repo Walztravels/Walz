@@ -20,6 +20,17 @@
 // staff-only lib/notifications/) linking to /business, where they can
 // accept via POST .../[id]/invitation/accept. Non-fatal: a notification
 // failure never fails the already-committed invite.
+//
+// Release 2.1: CONVERGED onto lib/business/invitations.ts — the same
+// OrganizationInvitation model and SHA-256 token-hash discipline used by
+// the staff bootstrap route. This path still requires the invitee to
+// already have a Walz User account (an existing member to attach the
+// INVITED OrganizationMembership row to today — see the R1 limitation note
+// above, which still applies) and still creates that INVITED membership
+// immediately, but now ALSO issues a real OrganizationInvitation and sends
+// an email via the same token/hash discipline, instead of only an in-app
+// notification. There is deliberately only ONE invitation mechanism in this
+// codebase — this route must never grow its own separate token logic.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -28,6 +39,8 @@ import prisma from '@/lib/db'
 import { assertOrgScopedAccess, type OrgRole } from '@/lib/business/authz'
 import { recordBusinessAudit } from '@/lib/business/audit'
 import { createCustomerNotification } from '@/lib/portal/notifications'
+import { issueOrganizationInvitation } from '@/lib/business/invitations'
+import { sendOrganizationInvitationEmail } from '@/lib/business/invitation-email'
 
 export const dynamic = 'force-dynamic'
 
@@ -119,6 +132,30 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const org = await prisma.organization.findUnique({ where: { id: params.id }, select: { legalName: true, tradingName: true } })
     orgName = org?.tradingName ?? org?.legalName ?? orgName
   } catch { /* non-fatal: fall back to a generic name */ }
+
+  // Converged invitation issuance (Release 2.1) — same model/token
+  // discipline as the staff bootstrap route. Non-fatal: an email/issuance
+  // failure never fails the already-committed INVITED membership row above.
+  try {
+    const issued = await issueOrganizationInvitation({
+      organizationId: params.id,
+      email,
+      role: role as OrgRole,
+      invitedByMembershipId: access.membership.id,
+    })
+    if (issued.ok) {
+      await sendOrganizationInvitationEmail({
+        to: email,
+        organizationName: orgName,
+        role,
+        token: issued.token,
+        expiresAt: issued.expiresAt,
+      })
+    }
+  } catch (err) {
+    console.error('[members.invite] invitation issuance failed (non-fatal):', (err as Error).message)
+  }
+
   await createCustomerNotification({
     userId: invitee.id,
     category: 'ACCOUNT',

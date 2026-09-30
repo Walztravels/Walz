@@ -3,6 +3,7 @@
  * GET (list, minRole COORDINATOR) / POST (create, minRole TRAVEL_MANAGER).
  */
 const mockPrisma = {
+  organization: { findUnique: jest.fn() },
   organizationMembership: { findUnique: jest.fn() },
   businessTraveller: { findMany: jest.fn(), create: jest.fn() },
 }
@@ -34,6 +35,8 @@ function membershipRow(overrides: Partial<{ organizationId: string; role: string
 beforeEach(() => {
   jest.clearAllMocks()
   getServerSession.mockResolvedValue({ user: { id: USER, email: 'u@x.com' } })
+  // R2.1: lib/business/org-type-gate.ts consults organization.organizationType.
+  mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'CORPORATE' })
 })
 
 describe('GET travellers', () => {

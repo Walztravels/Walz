@@ -96,11 +96,25 @@ export async function storeCaseDocument(opts: {
   return { ok: true, doc: { documentId: row?.id ?? null, storagePath, checksum } }
 }
 
-/** Short-lived signed URL for an authorized staff read. Never public. */
-export async function signedDocumentUrl(storagePath: string, expiresInSeconds = 600): Promise<string | null> {
+/**
+ * Short-lived signed URL for an authorized staff read. Never public.
+ *
+ * Walz Business R2.1: `downloadFileName`, when supplied, forces the
+ * Supabase-issued URL to carry `Content-Disposition: attachment` (via the
+ * storage `download` option) instead of an inline-renderable response.
+ * Every B2B document-CONTENT route (untrusted, agency-uploaded files —
+ * see lib/business/document-authz.ts) MUST pass this; existing staff/intel
+ * callers that omit it are unaffected (backward-compatible, additive-only
+ * change).
+ */
+export async function signedDocumentUrl(
+  storagePath: string,
+  expiresInSeconds = 600,
+  downloadFileName?: string,
+): Promise<string | null> {
   const { data, error } = await getSupabaseAdmin().storage
     .from(INTEL_DOC_BUCKET)
-    .createSignedUrl(storagePath, expiresInSeconds)
+    .createSignedUrl(storagePath, expiresInSeconds, downloadFileName ? { download: downloadFileName } : undefined)
   if (error) return null
   return data?.signedUrl ?? null
 }

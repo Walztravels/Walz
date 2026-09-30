@@ -88,6 +88,12 @@ function isKnownOrgRole(role: string): role is OrgRole {
   return Object.prototype.hasOwnProperty.call(ORG_ROLE_RANK, role)
 }
 
+// Exported so other modules (e.g. lib/business/invitations.ts) validate a
+// caller-supplied role string against the exact same allow-list as this
+// gate, rather than maintaining a second copy of the role list.
+export const isOrgRole = isKnownOrgRole
+export const ALL_ORG_ROLES = Object.keys(ORG_ROLE_RANK) as OrgRole[]
+
 const ACTIVE_STATUS = 'ACTIVE'
 
 // Always the exact same shape and text — see "FAIL-CLOSED CONTRACT" above.

@@ -12,6 +12,7 @@
  *    tenant check.
  */
 const mockPrisma = {
+  organization: { findUnique: jest.fn() },
   organizationMembership: { findUnique: jest.fn() },
   organizationMembershipCapability: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
   travelRequestService: { findUnique: jest.fn() },
@@ -49,6 +50,9 @@ const VIEW = { id: 's2', staffId: 's2', email: 'senior@walztravels.com', role: '
 beforeEach(() => {
   jest.clearAllMocks()
   mockPrisma.organizationMembershipCapability.findFirst.mockResolvedValue(null)
+  // R2.1: lib/business/org-type-gate.ts consults organization.organizationType.
+  // Default every test to a CORPORATE org unless a test overrides it.
+  mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'CORPORATE' })
 })
 
 describe('baseline unchanged', () => {
@@ -190,7 +194,7 @@ describe('staff capability grant/revoke route', () => {
   })
 })
 
-describe('GET visa-documents (capability + two-pronged tenant check)', () => {
+describe('GET visa-documents (R2.1: metadata is broad ACTIVE-member visibility, NOT capability-gated + two-pronged tenant check + referral-partner deny)', () => {
   const params = { id: ORG_A, requestId: 'req_a', serviceId: 'svc_a' }
   function visaService(over: Record<string, unknown> = {}) {
     return { id: 'svc_a', travelRequestId: 'req_a', serviceType: 'VISA', linkedVisaApplicationId: 'visa_1', linkedQuoteId: null, linkedItineraryId: null, linkedTripId: null, travelRequest: { id: 'req_a', organizationId: ORG_A }, ...over }
@@ -208,8 +212,19 @@ describe('GET visa-documents (capability + two-pronged tenant check)', () => {
     expect(mockPrisma.visaCaseDocument.findMany).not.toHaveBeenCalled()
   })
 
-  it('TRAVEL_MANAGER without a grant denied (404)', async () => {
+  it('R2.1: TRAVEL_MANAGER WITHOUT a VISA_DOCUMENTS_VIEW grant is now ADMITTED to metadata (metadata visibility is broad-ACTIVE-member, not capability-gated — content view/download is the capability-gated surface instead)', async () => {
     mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('TRAVEL_MANAGER'))
+    mockPrisma.travelRequestService.findUnique.mockResolvedValue(visaService())
+    const res = await visaDocs({} as any, { params })
+    expect(res.status).toBe(200)
+    // Still never leaks storage path / bytes via the metadata route.
+    const body = await res.json()
+    expect(JSON.stringify(body)).not.toMatch(/storagePath|bucket/)
+  })
+
+  it('R2.1: REFERRAL_PARTNER-type organization is denied metadata visibility outright, regardless of role', async () => {
+    mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'REFERRAL_PARTNER' })
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(member('ADMIN'))
     const res = await visaDocs({} as any, { params })
     expect(res.status).toBe(404)
     expect(mockPrisma.travelRequestService.findUnique).not.toHaveBeenCalled()
