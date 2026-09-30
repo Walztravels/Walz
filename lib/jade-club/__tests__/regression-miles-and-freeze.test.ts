@@ -134,4 +134,47 @@ describe('Release 2B — purchase engine stays inside the same boundaries', () =
     expect(activationSrc).toMatch(/LOCK ORDER INVARIANT/)
     expect(activationSrc).toMatch(/ALWAYS acquired FIRST, the membership lock SECOND/)
   })
+
+  it('the fail-closed invariant guard throws (never branches to a reconciliation state) for the post-tier-bump collision fallback, and is never caught inside the transaction callback (final correction)', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+
+    // The class exists, follows this repo's custom-error convention, and
+    // is exported (so tests — and any future caller — can identify it).
+    expect(activationSrc).toMatch(/export class JadePurchaseActivationInvariantError extends Error/)
+    expect(activationSrc).toMatch(/code = 'JADE_PURCHASE_ACTIVATION_INVARIANT_VIOLATION'/)
+
+    // The post-tier-bump fallback throws this exact class — it does NOT
+    // write PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION and does NOT return
+    // an outcome (a `return` here would mean the transaction commits).
+    const fallbackBlock = activationSrc.slice(
+      activationSrc.indexOf('const core = await createMembershipTermsCore(tx,'),
+      activationSrc.indexOf("// ── Steps 9-12: finalize"),
+    )
+    expect(fallbackBlock).toMatch(/throw new JadePurchaseActivationInvariantError/)
+    // Checks actual CODE, not prose comments explaining what NOT to do —
+    // no data write and no outcome return exist in this block at all.
+    expect(fallbackBlock).not.toMatch(/activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION'/)
+    expect(fallbackBlock).not.toMatch(/return \{ outcome:/)
+
+    // The normal, expected pre-check collision path (BEFORE the tier bump)
+    // is completely unchanged — still an explicit branch that writes
+    // PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION and returns, never throws.
+    const preCheckBlock = activationSrc.slice(
+      activationSrc.indexOf('if (conflictingUnexpiredTerms) {'),
+      activationSrc.indexOf('// ── WINNER — confirmed'),
+    )
+    expect(preCheckBlock).toMatch(/PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION/)
+    expect(preCheckBlock).toMatch(/return \{ outcome: 'REQUIRES_RECONCILIATION', reason \} as const/)
+    expect(preCheckBlock).not.toMatch(/throw new JadePurchaseActivationInvariantError/)
+
+    // No try/catch exists anywhere INSIDE the transaction callback that
+    // could swallow this specific error and convert it back into a
+    // normal return — the only try/catch in this file wraps the
+    // `prisma.$transaction(...)` call itself, i.e. OUTSIDE the callback.
+    const transactionCallbackBody = activationSrc.slice(
+      activationSrc.indexOf('return await prisma.$transaction(async (tx) => {'),
+      activationSrc.indexOf("  } catch (err) {"),
+    )
+    expect(transactionCallbackBody).not.toMatch(/\btry\s*\{/)
+  })
 })

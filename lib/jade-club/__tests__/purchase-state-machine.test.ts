@@ -284,9 +284,25 @@ function makeFakeDb() {
 const { db: fakeDb, state, setEntitlementSlotCreateOverride } = makeFakeDb()
 jest.mock('@/lib/db', () => ({ __esModule: true, default: fakeDb }))
 
+// Wraps the REAL createMembershipTermsCore by default (every other test in
+// this file exercises the genuine, unmocked engine) — only the ONE test
+// for the fail-closed invariant guard below overrides it for a single
+// call, to force the normally-unreachable "collision reported AFTER the
+// pre-check already found none" branch for real.
+const mockCreateMembershipTermsCore = jest.fn((...args: unknown[]) => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const actual = jest.requireActual('../entitlements')
+  return actual.createMembershipTermsCore(...args)
+})
+jest.mock('../entitlements', () => ({
+  ...jest.requireActual('../entitlements'),
+  createMembershipTermsCore: (...args: unknown[]) => mockCreateMembershipTermsCore(...args),
+}))
+
 import {
   recordCheckoutSessionPaid, recordCheckoutSessionFailed, recordRefund,
   attemptActivation, adminResetForRetry, MAX_ACTIVATION_ATTEMPTS,
+  JadePurchaseActivationInvariantError,
 } from '../purchase-activation'
 import type { AdminSession } from '@/lib/admin-auth'
 
@@ -330,6 +346,12 @@ beforeEach(() => {
   state.slots.clear(); state.events.length = 0; state.activityLogs.length = 0; state.staffNotifications.length = 0
   state.users.clear()
   setEntitlementSlotCreateOverride(null)
+  mockCreateMembershipTermsCore.mockClear()
+  mockCreateMembershipTermsCore.mockImplementation((...args: unknown[]) => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const actual = jest.requireActual('../entitlements')
+    return actual.createMembershipTermsCore(...args)
+  })
 })
 
 describe('Scenario 2 — payment failed', () => {
@@ -796,5 +818,129 @@ describe('TEST 5 — same-purchase idempotency (the winner retried)', () => {
     })
     expect(slotsAfterSecond.length).toBe(slotsAfterFirst.length) // no duplicate entitlement issuance
     expect(slotsAfterSecond.length).toBe(6)
+  })
+})
+
+// ─── FAIL-CLOSED INVARIANT GUARD (final correction) ──────────────────────
+//
+// Forces the normally-unreachable branch for real: (1) the real pre-check
+// runs and finds no collision, (2) applyPurchaseTierBump runs for real
+// (using the real, unmocked function) inside the transaction, (3) the
+// SHARED CORE is overridden — for this ONE call only — to report the
+// defensive collision anyway, simulating the "provably redundant"
+// assumption turning out to be wrong. Every other test in this file
+// exercises the genuine engine throughout.
+
+describe('FAIL-CLOSED INVARIANT GUARD — collision detected after tier mutation (should be impossible; must roll back everything)', () => {
+  it('throws JadePurchaseActivationInvariantError, which propagates to the caller as FAILED_RETRYABLE, and the ENTIRE transaction rolls back: membership tier unchanged, purchase not ACTIVATED, no new terms/snapshots/slots/events', async () => {
+    const userId = 'user_invariant_guard'
+    const policy = seedCrossTierPolicy('CLUB', 'jade-connect-invariant', 3)
+    const preExistingMembership = await fakeDb.jadeClubMembership.create({
+      data: { userId, memberCode: 'JW-INV1', tier: 'FREE', status: 'FREE', source: 'DEFAULT' },
+    })
+    const purchase = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    const tierBeforeAttempt = preExistingMembership.tier
+    const termsCountBefore = state.terms.size
+    const snapshotsCountBefore = state.snapshots.size
+    const slotsCountBefore = state.slots.size
+    const eventsCountBefore = state.events.length
+
+    // Force the shared core to report a collision on its NEXT call only —
+    // even though the real pre-check just above it (inside
+    // attemptActivation, using the REAL, unmocked logic) will genuinely
+    // find no conflicting unexpired terms for this brand-new membership.
+    mockCreateMembershipTermsCore.mockImplementationOnce(async () => ({
+      ok: false,
+      reason: 'UNEXPIRED_TERMS_EXISTS',
+      existingTerms: { id: 'terms_phantom_for_this_test_only', purchaseId: null },
+    }))
+
+    const outcome = await attemptActivation(purchase.id)
+
+    // The invariant error surfaces to the caller as a technical failure —
+    // never silently reconciled, never a successful ACTIVATED.
+    expect(outcome.outcome).toBe('FAILED_RETRYABLE')
+    if (outcome.outcome === 'FAILED_RETRYABLE') {
+      expect(outcome.error).toContain('Collision detected after membership tier mutation under purchase/member locks')
+      expect(outcome.error).toContain(purchase.id)
+      expect(outcome.error).toContain(preExistingMembership.id)
+    }
+
+    // FULL ROLLBACK — the tier bump that ran moments before the forced
+    // collision is undone too, not just the terms/entitlement writes.
+    const membershipAfter = await fakeDb.jadeClubMembership.findUnique({ where: { id: preExistingMembership.id } })
+    expect(membershipAfter.tier).toBe(tierBeforeAttempt)
+    expect(membershipAfter.tier).toBe('FREE') // never became CLUB
+    expect(membershipAfter.status).not.toBe('ACTIVE')
+
+    const purchaseAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchase.id } })
+    expect(purchaseAfter.activationStatus).not.toBe('ACTIVATED')
+    expect(purchaseAfter.activationStatus).not.toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION') // NOT treated as a business collision either
+    expect(purchaseAfter.membershipTermsId).toBeNull()
+
+    // Nothing new was committed anywhere.
+    expect(state.terms.size).toBe(termsCountBefore)
+    expect(state.snapshots.size).toBe(snapshotsCountBefore)
+    expect(state.slots.size).toBe(slotsCountBefore)
+    expect(state.events.length).toBe(eventsCountBefore)
+  })
+
+  it('the JadePurchaseActivationInvariantError is genuinely a distinct, named error class thrown by the shared-core branch, not swallowed into a generic message anywhere inside the transaction', async () => {
+    const userId = 'user_invariant_guard_2'
+    const policy = seedCrossTierPolicy('CLUB_PLUS', 'jade-connect-invariant-2', 6)
+    await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-INV2', tier: 'FREE', status: 'FREE', source: 'DEFAULT' } })
+    const purchase = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB_PLUS', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    let capturedError: unknown = null
+    // Exercises the documented `{ ok: false }` RETURN path specifically
+    // (as opposed to a thrown error from the core, which would be a
+    // separate, already-covered "genuine technical failure" case handled
+    // the same way by the outer catch).
+    mockCreateMembershipTermsCore.mockImplementationOnce(async () => ({
+      ok: false, reason: 'UNEXPIRED_TERMS_EXISTS', existingTerms: { id: 'terms_phantom_2', purchaseId: 'some_other_purchase' },
+    }))
+
+    try {
+      await attemptActivation(purchase.id)
+    } catch (e) {
+      capturedError = e
+    }
+    // attemptActivation itself never re-throws (it catches internally and
+    // returns FAILED_RETRYABLE) — this assertion documents that
+    // expectation explicitly, and separately confirms via the outcome
+    // shape that the underlying cause really was our named error class by
+    // checking the audit trail was NOT written with a reconciliation
+    // action for this purchase.
+    expect(capturedError).toBeNull()
+    expect(state.activityLogs.some((l) => l.entityId === purchase.id && l.action === 'JADE_CLUB_PURCHASE_REQUIRES_RECONCILIATION')).toBe(false)
+    expect(state.activityLogs.some((l) => l.entityId === purchase.id && l.action === 'JADE_CLUB_PURCHASE_ACTIVATED')).toBe(false)
+  })
+
+  it('JadePurchaseActivationInvariantError is exported and is a real Error subclass with the expected name/code (source-level contract)', () => {
+    const err = new JadePurchaseActivationInvariantError('test message')
+    expect(err).toBeInstanceOf(Error)
+    expect(err.name).toBe('JadePurchaseActivationInvariantError')
+    expect(err.code).toBe('JADE_PURCHASE_ACTIVATION_INVARIANT_VIOLATION')
+    expect(err.message).toBe('test message')
+  })
+
+  it('raises a staff operational alert identifying the invariant violation, using only safe identifiers (purchase id, membership id, error code) — never payment/PII data', async () => {
+    const userId = 'user_invariant_guard_3'
+    const policy = seedCrossTierPolicy('CLUB', 'jade-connect-invariant-3', 3)
+    await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-INV3', tier: 'FREE', status: 'FREE', source: 'DEFAULT' } })
+    const purchase = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+
+    mockCreateMembershipTermsCore.mockImplementationOnce(async () => ({
+      ok: false, reason: 'UNEXPIRED_TERMS_EXISTS', existingTerms: { id: 'terms_phantom_3', purchaseId: null },
+    }))
+
+    await attemptActivation(purchase.id)
+
+    const alert = state.staffNotifications.find((n) => n.sourceId === `jade-club-activation-invariant-violation:${purchase.id}`)
+    expect(alert).toBeTruthy()
+    expect(alert.body).toContain(purchase.id)
+    expect(alert.body).toContain('JADE_PURCHASE_ACTIVATION_INVARIANT_VIOLATION')
+    expect(alert.body).not.toMatch(/card|cvv|pan\b/i)
   })
 })

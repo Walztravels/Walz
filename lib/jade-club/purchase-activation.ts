@@ -99,6 +99,28 @@ import { isJadePurchaseFailureReason, RETRYABLE_ACTIVATION_FAILURE_REASONS, type
 export const MAX_ACTIVATION_ATTEMPTS = 5
 const PENDING_REFERENCE_PREFIX = 'pending:'
 
+// ── Fail-closed invariant guard (final correction) ──────────────────────
+//
+// This is NOT a business-outcome error — it is a bug detector. It fires
+// ONLY if createMembershipTermsCore reports a collision AFTER
+// attemptActivation's own pre-check has already proven (under the SAME
+// still-held membership row lock) that no collision exists, and AFTER
+// applyPurchaseTierBump has already run. That combination is supposed to
+// be structurally impossible (the lock is held continuously across both
+// checks, so no other transaction could have raced in between) — if it
+// ever fires anyway, an assumption behind this design was wrong
+// somewhere, and the correct response is to fail loudly and roll back
+// EVERYTHING this transaction did, never to quietly reconcile it as if it
+// were a normal collision. Named/shaped per this repo's existing
+// custom-error convention (see lib/fx/types.ts's NgnRateUnavailableError).
+export class JadePurchaseActivationInvariantError extends Error {
+  readonly code = 'JADE_PURCHASE_ACTIVATION_INVARIANT_VIOLATION'
+  constructor(message: string) {
+    super(message)
+    this.name = 'JadePurchaseActivationInvariantError'
+  }
+}
+
 function requireManage(admin: AdminSession) {
   if (!hasPermission(admin, 'jade_club.manage')) {
     throw new Error('FORBIDDEN: missing jade_club.manage permission')
@@ -531,21 +553,26 @@ export async function attemptActivation(purchaseId: string): Promise<AttemptActi
       })
 
       if (!core.ok) {
-        // Structurally should be unreachable (see comment above) — kept as
-        // a defensive fallback, same branch-not-exception shape, same
-        // reconciliation state. If this ever fires in practice it means
-        // the "no other transaction can race in" reasoning above was
-        // wrong somewhere, which independent review should treat as a
-        // finding in its own right.
-        const reason: JadePurchaseFailureReason = core.existingTerms.purchaseId ? 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' : 'DUPLICATE_ACTIVE_TERMS'
-        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', failureReason: reason } })
-        await writeAuditLog(
-          tx, 'JADE_CLUB_PURCHASE_REQUIRES_RECONCILIATION', purchase.id,
-          'Unreachable-in-theory fallback: the shared core detected a collision even though this transaction\'s own pre-check found none under the same lock. Requires reconciliation.',
-          { winningPurchaseId: core.existingTerms.purchaseId, winningTermsId: core.existingTerms.id, reason },
+        // FAIL CLOSED (final correction — independent review): this is the
+        // "provably redundant" re-check above turning out NOT to have been
+        // redundant after all — an internal invariant violation, not a
+        // business collision. Throw, do NOT branch to
+        // PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION, do NOT write anything
+        // to the purchase row, do NOT attempt to manually revert the tier
+        // bump above. Throwing here lets Postgres/Prisma roll back
+        // EVERYTHING this transaction did (the tier bump, any purchase-row
+        // mutation, any terms/snapshot/entitlement writes) — the database
+        // transaction is the correct, simplest mechanism for "an
+        // unexpected invariant failed, undo it all," and a hand-rolled
+        // compensating write here would only add a second way for this
+        // exact class of bug to go wrong. This throw is NEVER caught
+        // anywhere inside this transaction callback — it propagates
+        // straight out of `prisma.$transaction`, where the outer catch
+        // below treats it as a technical failure (never as ACTIVATED,
+        // never as REQUIRES_RECONCILIATION).
+        throw new JadePurchaseActivationInvariantError(
+          `Collision detected after membership tier mutation under purchase/member locks (purchaseId=${purchase.id}, membershipId=${membership.id})`,
         )
-        await raiseDuplicatePaidPurchaseAlert(tx, purchase.id, core.existingTerms.purchaseId)
-        return { outcome: 'REQUIRES_RECONCILIATION', reason } as const
       }
 
       // ── Steps 9-12: finalize — SAME transaction, SAME commit. ──
@@ -568,6 +595,24 @@ export async function attemptActivation(purchaseId: string): Promise<AttemptActi
     // entitlements, no purchase-row mutation from this attempt survive.
     const message = err instanceof Error ? err.message : String(err)
     console.error('[jade-club/purchase-activation] attempt failed for', purchaseId, ':', message)
+
+    // Secondary, optional diagnostic (final correction) — ONLY after the
+    // transaction above has already fully rolled back, NEVER from inside
+    // it (a write from inside would itself be undone by the rollback) and
+    // NEVER before the outcome is known. Safe identifiers only — purchase
+    // id, membership id (both already logged in the error message
+    // constructed above, never any payment/card/PII data) plus the
+    // error's own `code` and this operation's name.
+    if (err instanceof JadePurchaseActivationInvariantError) {
+      console.error('[jade-club/purchase-activation] INVARIANT VIOLATION (fail-closed, rolled back):', {
+        purchaseId, code: err.code, operation: 'attemptActivation',
+      })
+      await raiseJadeClubOperationalAlert(prisma as unknown as Tx, {
+        sourceId: `jade-club-activation-invariant-violation:${purchaseId}`,
+        title: 'Jade Club: internal invariant violation during purchase activation (rolled back)',
+        body: `Purchase ${purchaseId} hit an internal invariant violation during activation (code: ${err.code}) — the entire attempt was rolled back automatically (no tier change, no terms/entitlements were created). This indicates a bug, not a normal duplicate-purchase collision, and needs engineering attention.`,
+      }).catch((e) => console.warn('[jade-club] failed to raise invariant-violation alert:', e))
+    }
 
     if (attemptRow.activationAttempts >= MAX_ACTIVATION_ATTEMPTS) {
       const cas = await prisma.jadeClubPurchase.updateMany({

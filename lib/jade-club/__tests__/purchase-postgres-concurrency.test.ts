@@ -52,6 +52,19 @@
  *   8. CROSS-TIER reverse: CLUB_PLUS forced to win over CLUB — proves the
  *      fix in the other direction (membership.tier ends CLUB_PLUS, never
  *      downgraded to CLUB by the loser)
+ *   9. FK delete-protection: a real `DELETE FROM jade_club_purchases` for a
+ *      row that backs an active `jade_club_membership_terms` row is
+ *      rejected by the real Postgres FK constraint (ON DELETE RESTRICT) —
+ *      purchase-state-machine.test.ts's own Test B additionally covers
+ *      this with a simulated P2003 plus the schema/migration text
+ *      assertions; this is the same invariant proven against a real
+ *      database.
+ *   10. FINAL CORRECTION: a forced post-tier-bump invariant failure (the
+ *       shared core reporting a collision AFTER the pre-check already
+ *       passed and the tier bump already ran) rolls back the ENTIRE real
+ *       transaction — the tier mutation, purchase-row state, and any
+ *       terms/snapshot/entitlement writes, verified via actual persisted
+ *       Postgres state after rollback.
  */
 
 import { execSync, spawnSync } from 'child_process'
@@ -90,10 +103,12 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
   const PG_PORT = 55655
   const DB_URL = `postgresql://postgres:postgres@localhost:${PG_PORT}/postgres`
   let logDir: string
-  let attemptActivation: (purchaseId: string) => Promise<{ outcome: string }>
+  let attemptActivation: (purchaseId: string) => Promise<{ outcome: string; error?: string }>
   let recordRefund: (providerReference: string) => Promise<void>
   let reconcilePendingActivations: () => Promise<{ activated: number; requiresReconciliation: number }>
   let realPrisma: { $disconnect: () => Promise<void> }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let entitlementsModule: any
 
   function psql(sql: string) {
     return spawnSync('docker', ['exec', CONTAINER_NAME, 'psql', '-U', 'postgres', '-t', '-c', sql], { encoding: 'utf8' })
@@ -170,7 +185,8 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
         ('user_s5', 's5@example.com', 'Scenario 5', now(), now()),
         ('user_s6', 's6@example.com', 'Scenario 6', now(), now()),
         ('user_s7', 's7@example.com', 'Scenario 7', now(), now()),
-        ('user_s8', 's8@example.com', 'Scenario 8', now(), now());
+        ('user_s8', 's8@example.com', 'Scenario 8', now(), now()),
+        ('user_s10', 's10@example.com', 'Scenario 10', now(), now());
 
       INSERT INTO jade_club_commercial_policies (id, tier, market, currency, annual_price_minor, duration_months, service_fee_discount_percent, effective_from, version, status, created_by, created_at, updated_at)
       VALUES
@@ -245,6 +261,22 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
       VALUES
         ('purchase_s8_plus', 'user_s8', 'membership_s8', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s8_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
         ('purchase_s8_club', 'user_s8', 'membership_s8', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s8_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now());
+
+      -- Scenario 10 (final correction): forces the post-tier-bump
+      -- invariant-guard fallback via jest.spyOn on the shared core, for
+      -- ONE call, against this real Postgres instance.
+      INSERT INTO jade_club_memberships (id, user_id, member_code, tier, status, source, started_at, qr_token_version, created_at, updated_at)
+      VALUES ('membership_s10', 'user_s10', 'JW-900010', 'FREE', 'FREE', 'DEFAULT', now(), 1, now(), now());
+      INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at)
+      VALUES ('purchase_s10', 'user_s10', 'membership_s10', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s10', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now());
+
+      -- Scenario 9: FK delete-protection fixture — activated independently
+      -- so this test doesn't depend on Scenario 1 having already run.
+      INSERT INTO "User" (id, email, name, "createdAt", "updatedAt") VALUES ('user_s9', 's9@example.com', 'Scenario 9', now(), now());
+      INSERT INTO jade_club_memberships (id, user_id, member_code, tier, status, source, started_at, qr_token_version, created_at, updated_at)
+      VALUES ('membership_s9', 'user_s9', 'JW-900009', 'CLUB', 'FREE', 'DEFAULT', now(), 1, now(), now());
+      INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at)
+      VALUES ('purchase_s9', 'user_s9', 'membership_s9', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s9', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now());
     `
     const fixturePath = path.join(logDir, 'fixture.sql')
     fs.writeFileSync(fixturePath, fixtureSql)
@@ -256,6 +288,8 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
     const activationModule = require('../purchase-activation')
     attemptActivation = activationModule.attemptActivation
     recordRefund = activationModule.recordRefund
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    entitlementsModule = require('../entitlements')
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     reconcilePendingActivations = require('../purchase-reconciliation').reconcilePendingActivations
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -485,5 +519,87 @@ d('Jade Club 2B Phase 1 — real-Postgres atomic activation concurrency proof', 
     // THE explicit assertion: membership was never left at (or downgraded to) CLUB.
     const membershipTierOnly = psql(`SELECT tier FROM jade_club_memberships WHERE id = 'membership_s8'`)
     expect(membershipTierOnly.stdout.trim()).toBe('CLUB_PLUS')
+  })
+
+  it('SCENARIO 9 — FK delete-protection: a real DELETE against a purchase backing an active terms row is rejected by Postgres (ON DELETE RESTRICT), never silently nulling the provenance', async () => {
+    const activated = await attemptActivation('purchase_s9')
+    expect(activated.outcome).toBe('ACTIVATED')
+
+    const beforeDelete = psql(`SELECT id, purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s9'`)
+    expect(beforeDelete.stdout).toContain('purchase_s9')
+
+    const deleteAttempt = psql(`DELETE FROM jade_club_purchases WHERE id = 'purchase_s9'`)
+    // A real Postgres RESTRICT violation — psql reports a non-zero exit
+    // and a foreign key constraint error on stderr, never a silent success.
+    expect(deleteAttempt.status).not.toBe(0)
+    expect((deleteAttempt.stderr || '') + (deleteAttempt.stdout || '')).toMatch(/foreign key constraint/i)
+
+    // The purchase row and the terms row's provenance are both untouched.
+    const purchaseStillExists = psql(`SELECT count(*) FROM jade_club_purchases WHERE id = 'purchase_s9'`)
+    expect(purchaseStillExists.stdout.trim()).toBe('1')
+    const afterDelete = psql(`SELECT purchase_id FROM jade_club_membership_terms WHERE membership_id = 'membership_s9'`)
+    expect(afterDelete.stdout).toContain('purchase_s9') // never silently nulled
+  })
+
+  it('SCENARIO 10 — final correction: a forced post-tier-bump invariant failure rolls back the ENTIRE real-Postgres transaction — tier mutation undone, purchase not ACTIVATED, no terms/snapshots/slots/events, verified via actual persisted state', async () => {
+    // jest.spyOn on the REAL, required entitlements module — overrides
+    // createMembershipTermsCore for exactly ONE call (simulating the
+    // "provably redundant" re-check turning out to be wrong), then
+    // automatically falls back to the real implementation for any
+    // subsequent call. This exercises the REAL attemptActivation/
+    // applyPurchaseTierBump/database transaction end to end against real
+    // Postgres — only the shared core's single return value for this one
+    // call is substituted.
+    const spy = jest.spyOn(entitlementsModule, 'createMembershipTermsCore').mockImplementationOnce(async () => ({
+      ok: false, reason: 'UNEXPIRED_TERMS_EXISTS', existingTerms: { id: 'phantom_terms_for_scenario_10', purchaseId: null },
+    }))
+
+    try {
+      const outcome = await attemptActivation('purchase_s10')
+      expect(outcome.outcome).toBe('FAILED_RETRYABLE')
+      expect(outcome.error).toContain('Collision detected after membership tier mutation under purchase/member locks')
+      expect(outcome.error).toContain('purchase_s10')
+      expect(outcome.error).toContain('membership_s10')
+
+      // Actual persisted state after rollback — real psql queries, not a
+      // mocked assertion.
+      const membershipRow = psql(`SELECT tier, status FROM jade_club_memberships WHERE id = 'membership_s10'`)
+      const purchaseRow = psql(`SELECT activation_status, membership_terms_id FROM jade_club_purchases WHERE id = 'purchase_s10'`)
+      const termsCount = psql(`SELECT count(*) FROM jade_club_membership_terms WHERE membership_id = 'membership_s10'`)
+      const snapshotCount = psql(`SELECT count(*) FROM jade_club_membership_benefit_snapshots WHERE membership_terms_id IN (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s10')`)
+      const slotCount = psql(`SELECT count(*) FROM jade_club_entitlement_slots WHERE membership_terms_id IN (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s10')`)
+      const eventCount = psql(`SELECT count(*) FROM jade_club_entitlement_events WHERE slot_id IN (SELECT id FROM jade_club_entitlement_slots WHERE membership_terms_id IN (SELECT id FROM jade_club_membership_terms WHERE membership_id = 'membership_s10'))`)
+
+      // eslint-disable-next-line no-console
+      console.log('[SCENARIO 10 final DB state — after rollback]', {
+        membershipRow: membershipRow.stdout.trim(),
+        purchaseRow: purchaseRow.stdout.trim(),
+        termsCount: termsCount.stdout.trim(),
+        snapshotCount: snapshotCount.stdout.trim(),
+        slotCount: slotCount.stdout.trim(),
+        eventCount: eventCount.stdout.trim(),
+      })
+
+      // The tier mutation (which ran moments before the forced invariant
+      // failure, in the SAME transaction) is rolled back — real proof
+      // this is one atomic unit against a real database, not partially
+      // committed.
+      expect(membershipRow.stdout).toContain('FREE')
+      expect(membershipRow.stdout).not.toContain('ACTIVE')
+      expect(purchaseRow.stdout).toContain('PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING')
+      expect(purchaseRow.stdout).not.toContain('ACTIVATED')
+      expect(termsCount.stdout.trim()).toBe('0')
+      expect(snapshotCount.stdout.trim()).toBe('0')
+      expect(slotCount.stdout.trim()).toBe('0')
+      expect(eventCount.stdout.trim()).toBe('0')
+
+      // A real staff alert was raised for the invariant violation itself
+      // (the secondary diagnostic, written AFTER rollback, in a separate
+      // statement).
+      const alert = psql(`SELECT count(*) FROM "StaffNotification" WHERE "sourceId" = 'jade-club-activation-invariant-violation:purchase_s10'`)
+      expect(Number(alert.stdout.trim())).toBeGreaterThan(0)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
