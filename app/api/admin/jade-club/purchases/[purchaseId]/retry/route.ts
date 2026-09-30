@@ -35,7 +35,8 @@ export async function POST(req: NextRequest, { params }: { params: { purchaseId:
     await adminResetForRetry(session, params.purchaseId, reason as string)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to reset for retry'
-    return NextResponse.json({ error: message }, { status: 400 })
+    const status = message.startsWith('FORBIDDEN') ? 403 : 400
+    return NextResponse.json({ error: message }, { status })
   }
 
   const outcome = await attemptActivation(params.purchaseId)

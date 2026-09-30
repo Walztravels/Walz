@@ -35,6 +35,7 @@ function makeFakeDb() {
     events: [] as any[],
     purchases: new Map<string, any>(),
     activityLogs: [] as any[],
+    staffNotifications: [] as any[],
   }
 
   function membershipUpdate(where: { id?: string; userId?: string }, data: any) {
@@ -141,6 +142,7 @@ function makeFakeDb() {
           if (where.userId !== undefined && p.userId !== where.userId) continue
           if (where.provider !== undefined && p.provider !== where.provider) continue
           if (where.providerReference !== undefined && p.providerReference !== where.providerReference) continue
+          if (where.membershipTermsId !== undefined && p.membershipTermsId !== where.membershipTermsId) continue
           return { ...p }
         }
         return null
@@ -169,6 +171,13 @@ function makeFakeDb() {
     },
     activityLog: {
       create: async ({ data }: any) => { state.activityLogs.push(data); return { id: nid('log', seq), createdAt: new Date(), ...data } },
+    },
+    staff: {
+      findMany: async () => [{ id: 'staff_1', role: 'super_admin', permissions: { 'jade_club.manage': true } }],
+    },
+    staffNotification: {
+      findFirst: async ({ where }: any) => state.staffNotifications.find((n: any) => n.staffId === where.staffId && n.sourceId === where.sourceId) ?? null,
+      create: async ({ data }: any) => { state.staffNotifications.push(data); return { id: nid('notif', seq), createdAt: new Date(), ...data } },
     },
     $queryRaw: async () => { // simulated SELECT ... FOR UPDATE
       const ctx = txContext.getStore()
@@ -310,5 +319,76 @@ describe('Jade Club 2B — full checkout -> webhook -> activation happy path', (
     expect(after.paymentStatus).toBe(before.paymentStatus)
     expect(after.activationStatus).toBe('ACTIVATED')
     expect(state.terms.size).toBe(beforeTermsCount) // no second terms row created
+  })
+})
+
+describe('Jade Club 2B — CASE B end-to-end: two DIFFERENT, distinct, paid purchases for the SAME membership (real, unmocked 2A engine)', () => {
+  // A SEPARATE user/membership/policy scope from the suite above, so this
+  // block is fully independent of ordering.
+  const userId = 'user_case_b'
+  const policyId = 'policy_case_b'
+
+  beforeAll(() => {
+    state.users.set(userId, { id: userId, email: 'caseb@example.com' })
+    state.policies.set(policyId, {
+      id: policyId, tier: 'CLUB', market: 'NG', currency: 'NGN',
+      annualPriceMinor: 8_500_000, durationMonths: 12, serviceFeeDiscountPercent: 10,
+      version: 1, status: 'ACTIVE', createdBy: 'admin_1', effectiveFrom: new Date(), effectiveTo: null,
+      createdAt: new Date(), updatedAt: new Date(),
+    })
+    state.policyBenefits.set(policyId, [])
+  })
+
+  it('purchase A activates normally; purchase B (a DIFFERENT, distinct, already-SUCCEEDED purchase for the SAME membership) is routed to PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION — never a second terms period, never FAILED_PERMANENTLY, never swallowed', async () => {
+    // Two independent purchases, as if from two browser tabs — both already
+    // paid before either side's activation ran (the actual race window).
+    const purchaseA = await fakeDb.jadeClubPurchase.create({
+      data: { userId, policyId, policyVersion: 1, tier: 'CLUB', market: 'NG', currency: 'NGN', amountMinor: 8_500_000, providerReference: 'cs_case_b_a', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
+    })
+    const purchaseB = await fakeDb.jadeClubPurchase.create({
+      data: { userId, policyId, policyVersion: 1, tier: 'CLUB', market: 'NG', currency: 'NGN', amountMinor: 8_500_000, providerReference: 'cs_case_b_b', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
+    })
+
+    // A activates first, for real — the actual activateMembershipTerms
+    // engine runs, unmocked, and creates the membership's one unexpired
+    // terms period.
+    const outcomeA = await attemptActivation(purchaseA.id)
+    expect(outcomeA.outcome).toBe('ACTIVATED')
+
+    // B races in afterward (or concurrently — the SAME-membership guard
+    // inside activateMembershipTerms is what actually stops it, real and
+    // unmocked) and must be rejected cleanly, never double-activated.
+    const outcomeB = await attemptActivation(purchaseB.id)
+    expect(outcomeB).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    const aAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchaseA.id } })
+    const bAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchaseB.id } })
+
+    expect(aAfter.activationStatus).toBe('ACTIVATED')
+    expect(bAfter.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+    expect(bAfter.activationStatus).not.toBe('FAILED_PERMANENTLY') // the core fix
+    expect(bAfter.failureReason).toBe('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+    expect(bAfter.membershipTermsId).toBeNull() // never got its own terms period
+
+    // Exactly ONE unexpired terms period for this membership — real DB
+    // invariant, not a mock.
+    const membership = await fakeDb.jadeClubMembership.findUnique({ where: { userId } })
+    const membershipTermsForThisMembership = [...state.terms.values()].filter((t: any) => t.membershipId === membership.id)
+    expect(membershipTermsForThisMembership).toHaveLength(1)
+    expect(membershipTermsForThisMembership[0].id).toBe(aAfter.membershipTermsId)
+
+    // B remains visible/queryable for financial reconciliation — never hidden.
+    expect(bAfter).toBeTruthy()
+    expect(bAfter.paymentStatus).toBe('SUCCEEDED')
+
+    // A real staff alert was raised naming purchase A as the winner.
+    expect(state.staffNotifications.some((n: any) =>
+      n.sourceId === `jade-club-duplicate-purchase:${purchaseB.id}` && n.body.includes(purchaseA.id),
+    )).toBe(true)
+
+    // Retry is never offered for B — adminResetForRetry cannot target this status.
+    const { adminResetForRetry } = await import('../purchase-activation')
+    const fakeAdmin = { id: 'staff_1', email: 'a@b.com', name: 'A', roleTitle: 'Ops', sendingEmail: 'a@b.com', signatureTagline: null, role: 'super_admin', staffRole: 'super_admin', permissions: { 'jade_club.manage': true }, branch: 'HQ', department: 'ops', isActive: true }
+    await expect(adminResetForRetry(fakeAdmin as any, purchaseB.id, 'trying anyway')).rejects.toThrow('not eligible for a mechanical retry')
   })
 })

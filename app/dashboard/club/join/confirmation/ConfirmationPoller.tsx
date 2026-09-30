@@ -41,7 +41,9 @@ export default function ConfirmationPoller({ purchaseId }: { purchaseId: string 
         if (cancelled) return
         setStatus(data.purchase)
 
-        const terminal = data.purchase?.activationStatus === 'ACTIVATED' || data.purchase?.activationStatus === 'FAILED_PERMANENTLY'
+        const terminal = data.purchase?.activationStatus === 'ACTIVATED'
+          || data.purchase?.activationStatus === 'FAILED_PERMANENTLY'
+          || data.purchase?.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION'
         pollCount.current += 1
         if (!terminal && pollCount.current < MAX_POLLS) {
           timer = setTimeout(poll, POLL_MS)
@@ -79,6 +81,17 @@ export default function ConfirmationPoller({ purchaseId }: { purchaseId: string 
         icon={<XCircle className="w-8 h-8 text-red-400" />}
         title="We couldn't finish activating your membership"
         body="Your payment was received. Our team has been notified and will follow up shortly — no need to pay again."
+        action={<Link href="/dashboard/club" className="text-[#C9A84C] font-semibold text-sm hover:underline">Back to Jade Travel Club →</Link>}
+      />
+    )
+  }
+
+  if (status.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION') {
+    return (
+      <StatusCard
+        icon={<Clock className="w-8 h-8 text-[#C9A84C]" />}
+        title="We're reviewing your account"
+        body="Your payment was received. Our team is reviewing your membership and will follow up shortly — no need to pay again or try again."
         action={<Link href="/dashboard/club" className="text-[#C9A84C] font-semibold text-sm hover:underline">Back to Jade Travel Club →</Link>}
       />
     )

@@ -26,7 +26,7 @@
 --   Two independent state machines on one row (see
 --   docs/jade-2b-purchase-state-machine.md for the full design):
 --     payment_status:    PENDING -> SUCCEEDED | FAILED | CANCELLED ; SUCCEEDED -> REFUNDED
---     activation_status: NOT_STARTED -> PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING -> ACTIVATED | FAILED_PERMANENTLY
+--     activation_status: NOT_STARTED -> PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING -> ACTIVATED | FAILED_PERMANENTLY | PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION
 --   amount_minor/currency/policy_id/policy_version are copied from the
 --   resolved ACTIVE jade_club_commercial_policies row at CHECKOUT-CREATION
 --   time and never mutated again by any route.
@@ -99,7 +99,7 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_jade_purchases_activation_status') THEN
     ALTER TABLE jade_club_purchases
       ADD CONSTRAINT chk_jade_purchases_activation_status
-      CHECK (activation_status IN ('NOT_STARTED','PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING','ACTIVATED','FAILED_PERMANENTLY'));
+      CHECK (activation_status IN ('NOT_STARTED','PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING','ACTIVATED','FAILED_PERMANENTLY','PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION'));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_jade_purchases_provider') THEN
     ALTER TABLE jade_club_purchases

@@ -20,6 +20,7 @@ export interface ReconciliationSummary {
   stillPending: number
   failedPermanently: number
   alreadyDone: number
+  requiresReconciliation: number
 }
 
 /**
@@ -36,7 +37,9 @@ export async function reconcilePendingActivations(limit = 200): Promise<Reconcil
     select: { id: true },
   })
 
-  const summary: ReconciliationSummary = { scanned: pending.length, activated: 0, stillPending: 0, failedPermanently: 0, alreadyDone: 0 }
+  const summary: ReconciliationSummary = {
+    scanned: pending.length, activated: 0, stillPending: 0, failedPermanently: 0, alreadyDone: 0, requiresReconciliation: 0,
+  }
 
   for (const row of pending) {
     let outcome: AttemptActivationOutcome
@@ -52,6 +55,12 @@ export async function reconcilePendingActivations(limit = 200): Promise<Reconcil
       case 'ACTIVATED': summary.activated++; break
       case 'ALREADY_ACTIVATED': summary.alreadyDone++; break
       case 'FAILED_PERMANENTLY': summary.failedPermanently++; break
+      // Case B of the race-condition remediation — a different, distinct
+      // paid purchase already won this membership. This purchase's row
+      // moved OUT of PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING, so the NEXT
+      // scan will never pick it up again — it is never retried further by
+      // this job, by construction (not just by convention).
+      case 'REQUIRES_RECONCILIATION': summary.requiresReconciliation++; break
       case 'FAILED_RETRYABLE':
       case 'NOT_READY':
       default: summary.stillPending++; break

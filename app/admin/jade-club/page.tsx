@@ -654,12 +654,26 @@ export default function JadeClubAdminPage() {
                         <td className="py-1 text-white/70">{p.tier} · {p.market}/{p.currency}</td>
                         <td className="py-1 text-white/60">{formatCurrencyMinor(p.amountMinor, p.currency)}</td>
                         <td className="py-1 text-white/60">{p.paymentStatus}</td>
-                        <td className="py-1 text-white/60">{p.activationStatus}</td>
+                        <td className="py-1">
+                          {p.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION' ? (
+                            <span className="text-red-400 font-semibold">⚠ Needs Reconciliation</span>
+                          ) : (
+                            <span className="text-white/60">{p.activationStatus}</span>
+                          )}
+                        </td>
                         <td className="py-1 text-white/40">{p.activationAttempts}</td>
                         <td className="py-1 text-white/40">{p.failureReason ?? '—'}</td>
                         <td className="py-1 text-white/30">{new Date(p.createdAt).toLocaleString()}</td>
                         <td className="py-1">
-                          {p.activationStatus === 'FAILED_PERMANENTLY' && p.paymentStatus === 'SUCCEEDED' && (
+                          {/* Retry is offered ONLY for a transient technical failure that a
+                              mechanical retry can plausibly resolve — mirrors the server-side
+                              RETRYABLE_ACTIVATION_FAILURE_REASONS gate in adminResetForRetry.
+                              PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION (a duplicate-paid-purchase
+                              or similar structural condition) is a DIFFERENT activationStatus
+                              entirely and is never offered a retry button — it needs the human
+                              reconciliation flag above instead. */}
+                          {p.activationStatus === 'FAILED_PERMANENTLY' && p.paymentStatus === 'SUCCEEDED'
+                            && (p.failureReason === 'MAX_RETRIES_EXCEEDED' || p.failureReason === 'UNKNOWN_ACTIVATION_ERROR') && (
                             <button
                               disabled={retryingPurchaseId === p.id}
                               onClick={() => retryActivation(p.id)}

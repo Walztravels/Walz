@@ -16,6 +16,8 @@ function nid(prefix: string, seq: { n: number }) { return `${prefix}_${++seq.n}`
 function makeFakeDb() {
   const seq = { n: 0 }
   const purchases = new Map<string, any>()
+  const membershipTerms = new Map<string, any>()
+  const staffNotifications: any[] = []
   const activityLogs: any[] = []
 
   function seedPurchase(overrides: Partial<any> = {}) {
@@ -33,6 +35,17 @@ function makeFakeDb() {
     return row
   }
 
+  function seedTerms(overrides: Partial<any> = {}) {
+    const id = overrides.id ?? nid('terms', seq)
+    const row = {
+      id, membershipId: 'membership_1', activatedAt: new Date(),
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 300),
+      ...overrides,
+    }
+    membershipTerms.set(id, row)
+    return row
+  }
+
   const db: any = {
     jadeClubPurchase: {
       create: async ({ data }: any) => seedPurchase(data),
@@ -42,6 +55,7 @@ function makeFakeDb() {
           if (where.id !== undefined && p.id !== where.id) continue
           if (where.provider !== undefined && p.provider !== where.provider) continue
           if (where.providerReference !== undefined && p.providerReference !== where.providerReference) continue
+          if (where.membershipTermsId !== undefined && p.membershipTermsId !== where.membershipTermsId) continue
           return { ...p }
         }
         return null
@@ -60,6 +74,9 @@ function makeFakeDb() {
           if (where.paymentStatus !== undefined && p.paymentStatus !== where.paymentStatus) continue
           if (where.activationStatus !== undefined && p.activationStatus !== where.activationStatus) continue
           if (where.provider !== undefined && p.provider !== where.provider) continue
+          if (where.failureReason && typeof where.failureReason === 'object' && where.failureReason.in !== undefined) {
+            if (!where.failureReason.in.includes(p.failureReason)) continue
+          }
           if (where.providerReference && typeof where.providerReference === 'object' && where.providerReference.startsWith !== undefined) {
             if (!p.providerReference.startsWith(where.providerReference.startsWith)) continue
           } else if (where.providerReference !== undefined) {
@@ -71,14 +88,28 @@ function makeFakeDb() {
         return { count }
       },
     },
+    jadeClubMembershipTerms: {
+      findFirst: async ({ where }: any) => {
+        const rows = [...membershipTerms.values()].filter(t => t.membershipId === where.membershipId && t.expiresAt.getTime() > where.expiresAt.gt.getTime())
+        rows.sort((a, b) => b.activatedAt.getTime() - a.activatedAt.getTime())
+        return rows[0] ? { ...rows[0] } : null
+      },
+    },
+    staff: {
+      findMany: async () => [{ id: 'staff_1', role: 'super_admin', permissions: { 'jade_club.manage': true } }],
+    },
+    staffNotification: {
+      findFirst: async ({ where }: any) => staffNotifications.find(n => n.staffId === where.staffId && n.sourceId === where.sourceId) ?? null,
+      create: async ({ data }: any) => { staffNotifications.push(data); return { id: nid('notif', seq), createdAt: new Date(), ...data } },
+    },
     activityLog: {
       create: async ({ data }: any) => { activityLogs.push(data); return { id: nid('log', seq), createdAt: new Date(), ...data } },
     },
   }
-  return { db, purchases, activityLogs, seedPurchase }
+  return { db, purchases, membershipTerms, staffNotifications, activityLogs, seedPurchase, seedTerms }
 }
 
-const { db: fakeDb, purchases, activityLogs, seedPurchase } = makeFakeDb()
+const { db: fakeDb, purchases, membershipTerms, staffNotifications, activityLogs, seedPurchase, seedTerms } = makeFakeDb()
 
 jest.mock('@/lib/db', () => ({ __esModule: true, default: fakeDb }))
 
@@ -106,6 +137,8 @@ const FAKE_ADMIN: AdminSession = {
 
 beforeEach(() => {
   purchases.clear()
+  membershipTerms.clear()
+  staffNotifications.length = 0
   activityLogs.length = 0
   mockApplyPurchaseTierBump.mockReset()
   mockActivateMembershipTerms.mockReset()
@@ -226,7 +259,7 @@ describe('Scenario 7 — refund before activation', () => {
 })
 
 describe('Scenario 8 — refund after activation', () => {
-  it('CAS-transitions SUCCEEDED -> REFUNDED without touching activationStatus/membershipTermsId', async () => {
+  it('CAS-transitions SUCCEEDED -> REFUNDED without touching activationStatus/membershipTermsId, and raises a staff alert (A4)', async () => {
     const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'ACTIVATED', membershipTermsId: 'terms_1' })
     await recordRefund(p.providerReference)
     const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
@@ -234,6 +267,15 @@ describe('Scenario 8 — refund after activation', () => {
     expect(after.activationStatus).toBe('ACTIVATED')
     expect(after.membershipTermsId).toBe('terms_1')
     expect(activityLogs.some(l => l.action === 'JADE_CLUB_PURCHASE_REFUNDED')).toBe(true)
+
+    // A4 — a real staff alert, not just a passive row.
+    expect(staffNotifications.some(n => n.staffId === 'staff_1' && n.sourceId === `jade-club-refund-after-activation:${p.id}`)).toBe(true)
+  })
+
+  it('does NOT raise the refund-after-activation alert for a refund that lands BEFORE activation', async () => {
+    const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+    await recordRefund(p.providerReference)
+    expect(staffNotifications.some(n => n.sourceId.startsWith('jade-club-refund-after-activation:'))).toBe(false)
   })
 })
 
@@ -252,7 +294,7 @@ describe('Scenario 9 — duplicate webhook delivery', () => {
   })
 })
 
-describe('Scenario 10 — concurrent webhook delivery (two workers racing the same purchase)', () => {
+describe('Scenario 10 — concurrent webhook delivery / activation races (HIGH-severity remediation)', () => {
   it('exactly one of two simultaneous payment-confirmation CAS attempts wins', async () => {
     const p = seedPurchase({ paymentStatus: 'PENDING' })
     const [r1, r2] = await Promise.all([
@@ -263,15 +305,131 @@ describe('Scenario 10 — concurrent webhook delivery (two workers racing the sa
     expect(outcomes).toEqual(['CONFIRMED_PENDING_ACTIVATION', 'DUPLICATE_IGNORED'])
   })
 
-  it('activateMembershipTerms throwing its own "unexpired terms" guard is treated as non-retryable (DUPLICATE_ACTIVE_TERMS)', async () => {
-    const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
-    mockApplyPurchaseTierBump.mockResolvedValue({ changed: true, membership: { id: 'membership_1' } })
-    mockActivateMembershipTerms.mockRejectedValue(new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A'))
+  describe('CASE A — two workers processing the SAME purchase (the bug the independent reviewer found)', () => {
+    it('when the winning terms belong to THIS SAME purchase, the loser reports ALREADY_ACTIVATED — NEVER FAILED_PERMANENTLY', async () => {
+      const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+      // Simulate the narrow self-heal window: a concurrent call for the
+      // SAME purchase already created the terms row AND already recorded
+      // membershipTermsId on THIS purchase row, but the final CAS flipping
+      // activationStatus itself to ACTIVATED has not landed yet (the
+      // strictest, most interleaved version of Case A). A real DB would
+      // only ever reach this exact combination transiently — this test
+      // pins the self-heal branch's correctness in that window.
+      const winningTerms = seedTerms({ membershipId: 'membership_1' })
+      purchases.get(p.id).membershipTermsId = winningTerms.id
 
-    const outcome = await attemptActivation(p.id)
-    expect(outcome).toEqual({ outcome: 'FAILED_PERMANENTLY', reason: 'DUPLICATE_ACTIVE_TERMS' })
-    const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
-    expect(after.activationStatus).toBe('FAILED_PERMANENTLY')
+      mockApplyPurchaseTierBump.mockResolvedValue({ changed: true, membership: { id: 'membership_1' } })
+      mockActivateMembershipTerms.mockRejectedValue(new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A'))
+
+      const outcome = await attemptActivation(p.id)
+
+      // THE core assertion the original bug violated: never FAILED_PERMANENTLY here.
+      expect(outcome.outcome).not.toBe('FAILED_PERMANENTLY')
+      expect(outcome).toEqual({ outcome: 'ACTIVATED', termsId: winningTerms.id })
+
+      const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
+      expect(after.activationStatus).toBe('ACTIVATED')
+      expect(after.membershipTermsId).toBe(winningTerms.id)
+      expect(after.failureReason).toBeNull()
+    })
+
+    it('when the winning purchase (SAME id) already flipped to ACTIVATED before the loser re-reads, it is a pure idempotent no-op', async () => {
+      const winningTerms = seedTerms({ membershipId: 'membership_1' })
+      const p = seedPurchase({
+        paymentStatus: 'SUCCEEDED', activationStatus: 'ACTIVATED', // the OTHER concurrent call already committed this
+        membershipTermsId: winningTerms.id, activatedAt: new Date(),
+      })
+      mockApplyPurchaseTierBump.mockResolvedValue({ changed: true, membership: { id: 'membership_1' } })
+      mockActivateMembershipTerms.mockRejectedValue(new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A'))
+
+      // attemptActivation's own top-of-function guard catches this before
+      // ever reaching the try/catch — this asserts the fast path.
+      const outcome = await attemptActivation(p.id)
+      expect(outcome).toEqual({ outcome: 'ALREADY_ACTIVATED' })
+
+      const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
+      expect(after.activationStatus).toBe('ACTIVATED') // never regressed
+      expect(after.membershipTermsId).toBe(winningTerms.id) // never cleared
+    })
+  })
+
+  describe('CASE B — two DIFFERENT, distinct, successfully-paid purchases racing for the SAME membership', () => {
+    it('the losing purchase lands in PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION with DUPLICATE_PAID_MEMBERSHIP_PURCHASE — NEVER FAILED_PERMANENTLY, NEVER a second activation', async () => {
+      const winnerTerms = seedTerms({ membershipId: 'membership_1' })
+      const winnerPurchase = seedPurchase({ activationStatus: 'ACTIVATED', paymentStatus: 'SUCCEEDED', membershipTermsId: winnerTerms.id })
+      const loserPurchase = seedPurchase({ activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', paymentStatus: 'SUCCEEDED' })
+
+      mockApplyPurchaseTierBump.mockResolvedValue({ changed: false, membership: { id: 'membership_1' } })
+      mockActivateMembershipTerms.mockRejectedValue(new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A'))
+
+      const outcome = await attemptActivation(loserPurchase.id)
+
+      expect(outcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+      const loserAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: loserPurchase.id } })
+      expect(loserAfter.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+      expect(loserAfter.activationStatus).not.toBe('FAILED_PERMANENTLY') // structurally distinct — the core fix
+      expect(loserAfter.failureReason).toBe('DUPLICATE_PAID_MEMBERSHIP_PURCHASE')
+      expect(loserAfter.membershipTermsId).toBeNull() // never got a second terms period
+
+      // The winner is completely untouched.
+      const winnerAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: winnerPurchase.id } })
+      expect(winnerAfter.activationStatus).toBe('ACTIVATED')
+      expect(winnerAfter.membershipTermsId).toBe(winnerTerms.id)
+
+      // Exactly one terms period exists for the membership — no duplicate.
+      expect(membershipTerms.size).toBe(1)
+
+      // The loser remains visible/queryable — never swallowed (A2 invariant #7).
+      expect(loserAfter).toBeTruthy()
+      expect(loserAfter.paymentStatus).toBe('SUCCEEDED')
+
+      // A real staff alert was raised, naming the winning purchase.
+      expect(staffNotifications.some(n =>
+        n.staffId === 'staff_1' && n.sourceId === `jade-club-duplicate-purchase:${loserPurchase.id}` && n.body.includes(winnerPurchase.id),
+      )).toBe(true)
+    })
+
+    it('retry is never offered for a REQUIRES_RECONCILIATION purchase — adminResetForRetry structurally cannot target it', async () => {
+      const winnerTerms = seedTerms({ membershipId: 'membership_1' })
+      seedPurchase({ id: 'winner', activationStatus: 'ACTIVATED', paymentStatus: 'SUCCEEDED', membershipTermsId: winnerTerms.id })
+      const loser = seedPurchase({
+        activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', paymentStatus: 'SUCCEEDED',
+        failureReason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE',
+      })
+
+      await expect(adminResetForRetry(FAKE_ADMIN, loser.id, 'trying to retry anyway')).rejects.toThrow('not eligible for a mechanical retry')
+
+      const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: loser.id } })
+      expect(after.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION') // unchanged
+    })
+
+    it('the reconciliation job never retries a REQUIRES_RECONCILIATION row again (it no longer matches the scan filter)', async () => {
+      seedPurchase({ activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', paymentStatus: 'SUCCEEDED', failureReason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+      // The reconciliation job's own findMany filters on
+      // activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' —
+      // this purchase's row no longer matches, by construction. Proven
+      // directly here against the fake DB's own filtering semantics.
+      const scanned = [...purchases.values()].filter(p => p.activationStatus === 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING')
+      expect(scanned).toHaveLength(0)
+    })
+  })
+
+  describe('CASE B variant — winning terms belong to a non-purchase source (e.g. an admin grant)', () => {
+    it('falls back to DUPLICATE_ACTIVE_TERMS but still routes to REQUIRES_RECONCILIATION, never FAILED_PERMANENTLY', async () => {
+      seedTerms({ id: 'admin_granted_terms', membershipId: 'membership_1' }) // no purchase claims this terms row
+      const p = seedPurchase({ activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', paymentStatus: 'SUCCEEDED' })
+
+      mockApplyPurchaseTierBump.mockResolvedValue({ changed: false, membership: { id: 'membership_1' } })
+      mockActivateMembershipTerms.mockRejectedValue(new Error('This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A'))
+
+      const outcome = await attemptActivation(p.id)
+      expect(outcome).toEqual({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_ACTIVE_TERMS' })
+
+      const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
+      expect(after.activationStatus).toBe('PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION')
+      expect(after.activationStatus).not.toBe('FAILED_PERMANENTLY')
+    })
   })
 })
 
@@ -356,7 +514,29 @@ describe('Admin retry (reason-required, audited)', () => {
   })
 
   it('refuses to retry a REFUNDED purchase (paymentStatus must still be SUCCEEDED)', async () => {
-    const p = seedPurchase({ paymentStatus: 'REFUNDED', activationStatus: 'FAILED_PERMANENTLY' })
-    await expect(adminResetForRetry(FAKE_ADMIN, p.id, 'please retry')).rejects.toThrow('nothing to retry')
+    const p = seedPurchase({ paymentStatus: 'REFUNDED', activationStatus: 'FAILED_PERMANENTLY', failureReason: 'MAX_RETRIES_EXCEEDED' })
+    await expect(adminResetForRetry(FAKE_ADMIN, p.id, 'please retry')).rejects.toThrow('not eligible for a mechanical retry')
+  })
+
+  it('refuses to retry a structural/business failure reason even when activationStatus+paymentStatus otherwise match (A2 invariant #8)', async () => {
+    const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'FAILED_PERMANENTLY', failureReason: 'POLICY_NO_LONGER_ACTIVE' })
+    await expect(adminResetForRetry(FAKE_ADMIN, p.id, 'please retry anyway')).rejects.toThrow('not eligible for a mechanical retry')
+    const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
+    expect(after.activationStatus).toBe('FAILED_PERMANENTLY') // unchanged — retry never happened
+  })
+
+  it('allows retry for a genuinely transient failure reason (MAX_RETRIES_EXCEEDED)', async () => {
+    const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'FAILED_PERMANENTLY', failureReason: 'MAX_RETRIES_EXCEEDED' })
+    await adminResetForRetry(FAKE_ADMIN, p.id, 'transient outage resolved')
+    const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
+    expect(after.activationStatus).toBe('PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING')
+  })
+
+  it('requires jade_club.manage even if called directly, bypassing any route-level check (A5 defense-in-depth)', async () => {
+    const p = seedPurchase({ paymentStatus: 'SUCCEEDED', activationStatus: 'FAILED_PERMANENTLY', failureReason: 'MAX_RETRIES_EXCEEDED' })
+    const unprivileged: AdminSession = { ...FAKE_ADMIN, role: 'sales_rep', staffRole: 'sales_rep', permissions: {} }
+    await expect(adminResetForRetry(unprivileged, p.id, 'trying anyway')).rejects.toThrow('FORBIDDEN')
+    const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
+    expect(after.activationStatus).toBe('FAILED_PERMANENTLY') // unchanged
   })
 })

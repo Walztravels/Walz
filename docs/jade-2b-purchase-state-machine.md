@@ -135,11 +135,14 @@ auto-revoke `JadeClubMembershipTerms` or the membership tier on refund —
 revocation/cancellation path exists inside it, and building one is out of
 this scope), and a real "refund after benefits may already be consumed"
 policy is a business decision, not a code default. Instead: the refund is
-recorded truthfully (`paymentStatus=REFUNDED`) and surfaced in the admin
-purchase view so a human can decide whether to run the *existing*,
-separately-audited `adminAdjustMembership` (e.g. set `status: CANCELLED`)
-— which remains the single source of truth for tier/status changes outside
-the purchase flow. This is a deliberate scope boundary, called out again
+recorded truthfully (`paymentStatus=REFUNDED`), a real staff alert is
+raised (`raiseRefundAfterActivationAlert` — the repo's `StaffNotification`
+pattern, added in the A4 remediation — never just a passive row a human
+might happen to notice), and it is surfaced in the admin purchase view so a
+human can decide whether to run the *existing*, separately-audited
+`adminAdjustMembership` (e.g. set `status: CANCELLED`) — which remains the
+single source of truth for tier/status changes outside the purchase flow.
+This is a deliberate scope boundary, called out again
 in the "what remains for review" list.
 
 ### 9. Duplicate webhook delivery
@@ -162,21 +165,72 @@ simultaneous `updateMany` calls with the same `where: { id, paymentStatus:
 codebase already has a *stronger* guarantee one layer down:
 `activateMembershipTerms` takes `SELECT ... FOR UPDATE` on the
 `jade_club_memberships` row as the first statement of its transaction, so
-even if two workers both won their own outer
-`PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING` CAS (which cannot happen for the
-*same* purchase row, but a user could in principle have two purchases
-racing — see scenario 12/"policy race" note below), the second call
-blocks on that lock and then correctly sees the just-created unexpired
-terms row and throws its existing, unmodified
-"already has an unexpired commercial terms period" error, which the
-purchase-activation wrapper catches and treats as a **non-retryable**
-failure (`FAILED_PERMANENTLY`, `failureReason: 'DUPLICATE_ACTIVE_TERMS'`)
-rather than blindly retrying forever.
-This test is exercised for real in
+a second concurrent activation attempt for the SAME membership blocks on
+that lock and then correctly sees the just-created unexpired terms row and
+throws its existing, unmodified "already has an unexpired commercial terms
+period" error.
+
+**RACE-CONDITION REMEDIATION (post-independent-review fix).** That guard
+string fires in TWO genuinely different situations, and the original
+implementation collapsed them into one incorrect outcome — this was found
+by independent review as a HIGH-severity bug and is fixed as follows
+(`lib/jade-club/purchase-activation.ts::resolveUnexpiredTermsCollision`):
+
+- **CASE A — two workers processing the SAME purchase** (a duplicate
+  webhook delivery, webhook-vs-reconciliation, or two reconciliation runs
+  racing the same row). One of the two calls wins the row lock inside
+  `activateMembershipTerms`, creates the terms row, and commits the outer
+  CAS to `activationStatus: 'ACTIVATED'` first. The LOSING call, upon
+  catching the guard error, re-reads the SAME purchase row: if it is now
+  `ACTIVATED`, this is correctly reported as `{ outcome: 'ALREADY_ACTIVATED' }`
+  — a clean idempotent success, **never** `FAILED_PERMANENTLY`. (A narrow
+  self-heal also exists for the sub-case where the winning terms row is
+  provably this SAME purchase's own but the final CAS hasn't landed on this
+  row yet — it completes that CAS itself rather than reporting a false
+  failure.) The original bug unconditionally called `markFailedPermanently`
+  here regardless of which case it was — mislabeling a purchase that HAD
+  succeeded (via the other racing call) as a permanent failure.
+
+- **CASE B — two DIFFERENT, distinct, successfully-paid purchases racing
+  for the SAME membership** (e.g. two browser tabs, two completed Stripe
+  Checkout Sessions before either side's webhook had activated anything).
+  The losing purchase's re-read shows it is NOT the purchase that owns the
+  winning terms row (`jadeClubPurchase.findFirst({ where: { membershipTermsId } })`
+  resolves to a *different* purchase id, or to no purchase at all, e.g. an
+  ADMIN_GRANT/PROMOTION terms row that landed in the same window). This
+  purchase can **never** be mechanically retried into activating — retrying
+  will hit the exact same guard again, deterministically, forever. It is
+  therefore CAS-transitioned to a **structurally distinct** activation
+  status, `PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION`, with a
+  machine-readable `failureReason` (`DUPLICATE_PAID_MEMBERSHIP_PURCHASE`
+  when the winner is a different purchase, `DUPLICATE_ACTIVE_TERMS` for the
+  narrower non-purchase-source edge case) — never `FAILED_PERMANENTLY`,
+  which is reserved for "a mechanical retry might still succeed." The admin
+  "Retry Activation" action is *structurally* unable to target this status
+  (its CAS only ever matches `activationStatus: 'FAILED_PERMANENTLY'`), so
+  it can never be offered for a purchase that can't possibly benefit from
+  it. A real staff alert is also raised (see
+  `raiseDuplicatePaidPurchaseAlert` — the repo's `StaffNotification`
+  pattern, not a passive DB row) so a human picks up the (normally: refund)
+  reconciliation promptly. The purchase itself remains fully visible and
+  queryable in the admin Purchases panel — never swallowed or hidden.
+
+**Defense-in-depth for "retry can actually succeed" (A2 invariant #8):**
+`adminResetForRetry` additionally CAS-gates on
+`failureReason: { in: RETRYABLE_ACTIVATION_FAILURE_REASONS }`
+(`MAX_RETRIES_EXCEEDED`, `UNKNOWN_ACTIVATION_ERROR` only) — so even a
+`FAILED_PERMANENTLY` row with a structural/business failure reason (e.g.
+`POLICY_NO_LONGER_ACTIVE`) cannot be retried through this action, on top of
+the structural status separation above.
+
+This is exercised in
 `lib/jade-club/__tests__/purchase-postgres-concurrency.test.ts` against a
-real Postgres instance (see that file's header for how to run it — it
-requires Docker and is skipped, not failed, when Docker is unavailable, as
-it was in this implementation environment).
+real Postgres instance, with tightened assertions that only the CORRECT
+outcome can pass (see that file's header for how to run it — it requires
+Docker; this implementation environment genuinely has no `docker` binary
+available, so the test compiles and is skipped, not silently green, and
+still needs to be executed with Docker available before independent
+sign-off).
 
 ### 11. Provider reference uniqueness
 **Mechanism:** `@@unique([provider, providerReference])` on

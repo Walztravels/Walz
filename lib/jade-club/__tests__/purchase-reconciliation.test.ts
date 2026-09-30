@@ -74,4 +74,13 @@ describe('reconcilePendingActivations', () => {
     const summary = await reconcilePendingActivations()
     expect(summary.failedPermanently).toBe(1)
   })
+
+  it('counts REQUIRES_RECONCILIATION outcomes distinctly (Case B of the race-condition remediation) — never conflated with failedPermanently', async () => {
+    purchases.set('p1', { id: 'p1', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', createdAt: new Date(1) })
+    mockAttemptActivation.mockResolvedValueOnce({ outcome: 'REQUIRES_RECONCILIATION', reason: 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' })
+
+    const summary = await reconcilePendingActivations()
+    expect(summary.requiresReconciliation).toBe(1)
+    expect(summary.failedPermanently).toBe(0)
+  })
 })
