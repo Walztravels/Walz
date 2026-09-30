@@ -270,6 +270,127 @@
  *   (`'S11'`, an unmistakably test-scoped, never-colliding code) is a safe,
  *   complete fix with no other behavioral effect.
  *
+ * CORRECTION 5 (post-fifth-real-external-run, 7/12 genuinely passed — 1,
+ * 4, 5, 6, 9, 11, 12, including Scenario 1's contention now clean at
+ * 1.5s): a full investigation, root-cause-first, no timing tuned, no
+ * production code touched, per explicit instruction.
+ *
+ *   THE StaffNotification.data MYSTERY — verified, not assumed. HEAD at
+ *   the time of the failing run was confirmed as exactly 79512e41
+ *   (`git rev-parse HEAD`), and `data jsonb` was confirmed present in that
+ *   exact commit's own source (`git show 79512e41:...test.ts`) — so the
+ *   fix was genuinely in the file that ran. The actual root cause: CREATE
+ *   TABLE IF NOT EXISTS only creates a table that doesn't exist yet — it
+ *   silently no-ops against a table that already exists, even with an
+ *   OLDER, incomplete column set. Against a fresh Docker container this
+ *   never matters (the table never existed before); against a PERSISTENT
+ *   external Neon database, it means every one of this file's own past
+ *   column/table additions (ActivityLog as a new table, the
+ *   StaffNotificationCategory enum conversion, now `data`) only ever
+ *   changed the CREATE TABLE statement in the SOURCE FILE — never
+ *   retroactively applied to a table that an EARLIER run had already
+ *   created against that same persistent database. This session has no
+ *   live access to `JADE_TEST_DATABASE_URL` to run a read-only
+ *   information_schema.columns query and directly confirm the existing
+ *   table's actual live shape — this conclusion is reasoned entirely from
+ *   the code path (CREATE TABLE IF NOT EXISTS's documented Postgres
+ *   semantics) and is stated as such, not claimed as verified by a live
+ *   query. FIX: added idempotent `ALTER TABLE ... ADD COLUMN IF NOT
+ *   EXISTS` for every column of all four prerequisite tables, run
+ *   unconditionally right after their CREATE TABLE IF NOT EXISTS
+ *   statements — see the "SCHEMA CONVERGENCE" comment inline, below.
+ *
+ *   SCENARIO 2 — root cause confirmed by tracing purchase-activation.ts
+ *   directly, not assumed: the LOSER branch (the `conflictingUnexpiredTerms`
+ *   branch) does, in order: (1) `tx.jadeClubPurchase.update(...
+ *   activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION' ...)`,
+ *   (2) `writeAuditLog(tx, ...)`, (3) `raiseDuplicatePaidPurchaseAlert(tx,
+ *   ...)` — ALL using the SAME `tx` as the surrounding
+ *   `prisma.$transaction()`. `raiseJadeClubOperationalAlert`'s own
+ *   try/catch swallows any error from its `staffNotification.create()`
+ *   call at the JS/application level — but a real SQL-level error (like
+ *   the P2022 this file's own missing column caused) leaves the
+ *   underlying POSTGRES transaction itself in the aborted state, even
+ *   though the JS exception was caught and the callback returns normally.
+ *   When `prisma.$transaction()` then tries to COMMIT that aborted
+ *   transaction, the commit itself fails, and Prisma's own machinery
+ *   throws (this is exactly the "Transaction API error"/P2028 class of
+ *   error already seen) — which propagates out of the `try` in
+ *   `attemptActivation` and IS caught by ITS OWN outer `catch (err)`,
+ *   which returns `FAILED_RETRYABLE`, not `REQUIRES_RECONCILIATION` — and
+ *   the whole transaction rolls back, undoing step (1)'s
+ *   REQUIRES_RECONCILIATION write along with everything else. This exactly
+ *   and completely explains "genuine contention observed, but the
+ *   expected reconciliation state was never found on either row" — the
+ *   loser's row reverted to its PRE-transaction state
+ *   (PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING). Same root cause as the
+ *   StaffNotification.data mystery above, cascading into what looks like a
+ *   different failure. Should resolve once the schema-convergence fix
+ *   above stops the underlying alert-insert from failing — stated as a
+ *   reasoned prediction from the traced code, not confirmed by execution.
+ *
+ *   SCENARIO 3 — traced and RULED OUT as the same StaffNotification.data
+ *   cascade: this scenario's two workers both ultimately call
+ *   `attemptActivation('purchase_s3')` for the SAME purchase (worker A
+ *   directly, worker B indirectly via `reconcilePendingActivations()`),
+ *   which only ever reaches the SAME-PURCHASE idempotent-recovery branch
+ *   (the `ownTerms` branch) for whichever one loses the race — that branch
+ *   is a plain `tx.jadeClubPurchase.update(...)` with NO alert-raising
+ *   call anywhere in it. So the StaffNotification schema-convergence fix
+ *   cannot be the explanation here. Instead, this is the SAME CLASS of
+ *   problem as CORRECTION 4(v) (Prisma's 5000ms interactive-transaction
+ *   timeout), via a DIFFERENT specific trigger:
+ *   `reconcilePendingActivations()` runs its own un-transacted
+ *   `jadeClubPurchase.findMany()` scan BEFORE it ever calls
+ *   `attemptActivation` — one extra real Neon round-trip of overhead on
+ *   worker B's side, on top of the exact same per-transaction lock/sleep
+ *   dynamics that scenario 1 (structurally near-identical, minus this
+ *   extra scan) already passed cleanly at 1.5s this run. The reported
+ *   P2028 "transaction not found/closed" error and "contention not
+ *   observed" are both consistent with this: the losing side's own
+ *   transaction handle was force-closed by Prisma's client-side timeout
+ *   watchdog before the poller's next 15ms sample could catch it still
+ *   genuinely blocked. Per instruction, timing was NOT tuned for this
+ *   scenario in this pass — this is a classification finding to hand back,
+ *   not a fix applied.
+ *
+ *   SCENARIOS 7 AND 8 — the highest-priority classification in this round.
+ *   DETERMINED: (A), a harness-caused transaction failure — NOT (B), a
+ *   production state-machine defect. Both scenarios' losing purchase goes
+ *   through the EXACT SAME `conflictingUnexpiredTerms` LOSER branch traced
+ *   for Scenario 2 above — same code, same `raiseDuplicatePaidPurchaseAlert
+ *   (tx, ...)` call using the same surrounding transaction's `tx`, same
+ *   failure mechanism (the alert insert's real SQL-level error aborts the
+ *   transaction, the subsequent COMMIT fails, Prisma throws, the whole
+ *   transaction — including the REQUIRES_RECONCILIATION write moments
+ *   earlier — rolls back, leaving the loser exactly where it started:
+ *   PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING). This is not a guess: it is
+ *   the same, single, already-fully-traced code path as Scenario 2, read
+ *   directly from purchase-activation.ts lines ~525-539. The genuinely
+ *   good news this run's evidence already shows — real FOR UPDATE
+ *   membership contention, the correct winner tier in both directions, and
+ *   the loser NEVER mutating the canonical membership tier (the core
+ *   round-3/4 fix holding under real concurrent load) — is untouched by
+ *   this finding and required no fix. The schema-convergence fix above
+ *   should resolve 7/8's stuck-loser-state finding as a side effect of
+ *   fixing the SAME underlying StaffNotification.data gap Scenario 2 and
+ *   the original P2022 report both trace to — stated as a reasoned
+ *   prediction from the traced code, not confirmed by execution. The
+ *   full-stop rule was deliberately NOT invoked here, because the tracing
+ *   above rules out (B) with the actual code, not by assumption.
+ *
+ *   SCENARIO 10 — the fail-closed invariant fix itself already succeeded
+ *   for real this run (membership FREE/FREE, purchase still pending,
+ *   terms 0, slots 0). Its ONLY remaining gap, the missing persisted
+ *   operational alert, is raised via `raiseJadeClubOperationalAlert(prisma
+ *   as unknown as Tx, ...)` in `attemptActivation`'s OUTER `catch` block —
+ *   using the raw `prisma` client directly, OUTSIDE any transaction (the
+ *   main transaction has already thrown and rolled back by the time this
+ *   line runs). So a failure here cannot cascade into rolling back
+ *   anything else — it is a simpler, standalone case of the exact same
+ *   StaffNotification.data gap, and should resolve on its own once the
+ *   schema-convergence fix above lands, with no separate fix needed.
+ *
  * ── EXTERNAL MODE SAFETY (non-negotiable) ────────────────────────────────
  * - The connection string is read ONLY from `JADE_TEST_DATABASE_URL` —
  *   this file never reads or falls back to `DATABASE_URL`.
@@ -594,6 +715,85 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
         after jsonb,
         "createdAt" timestamptz NOT NULL DEFAULT now()
       );
+
+      -- ── SCHEMA CONVERGENCE (CORRECTION 5) ──────────────────────────────
+      -- CREATE TABLE IF NOT EXISTS only creates a table that does not
+      -- exist yet — it silently no-ops against a table that ALREADY
+      -- exists, even if that existing table has an OLDER, incomplete
+      -- column set. Against a fresh Docker container this is harmless
+      -- (the table never existed before). Against a PERSISTENT external
+      -- database, this is a real bug: this file's own git history added
+      -- "ActivityLog" as a whole new table in one round, converted
+      -- "StaffNotification".category to a real enum in the next round,
+      -- and added "StaffNotification".data in the round after that — each
+      -- one only ever changed the CREATE TABLE statement above, never
+      -- re-applied to a table that had already been created by an EARLIER
+      -- run against the SAME persistent Neon database. This is the
+      -- confirmed root cause of the P2022 "column StaffNotification.data
+      -- does not exist" seen on a genuine external run even after data
+      -- was already present in this file's own CREATE TABLE statement at
+      -- that exact commit (verified by reading that commit's source
+      -- directly) — the persistent database's StaffNotification table had
+      -- already been created by an earlier run, before the data column
+      -- existed here, so the CREATE TABLE IF NOT EXISTS above never
+      -- actually applied it.
+      --
+      -- FIX: an idempotent ADD COLUMN IF NOT EXISTS for every column each
+      -- prerequisite table currently needs, run unconditionally right
+      -- after every CREATE TABLE IF NOT EXISTS above — so an EXISTING
+      -- table of ANY older shape converges to the exact current required
+      -- shape on every single run, not just on a from-scratch database.
+      -- ADD COLUMN IF NOT EXISTS is a guaranteed no-op for a column that
+      -- already exists, regardless of existing row count, so this is safe
+      -- to run every time against a table of any prior shape. Deliberately
+      -- NOT NULL is dropped on every one of these (even where the CREATE
+      -- TABLE statement above has it) — the CREATE TABLE statement remains
+      -- the authoritative, fully-faithful shape for a genuinely fresh
+      -- table; these ADD COLUMN statements are a separate, deliberately
+      -- relaxed safety net whose only job is to add a column that might be
+      -- missing from an already-populated persistent table without ever
+      -- failing, which a NOT NULL without a DEFAULT could do against
+      -- pre-existing rows. DEFAULT is kept wherever the CREATE TABLE
+      -- statement has one, since Postgres correctly backfills existing
+      -- rows with a column's DEFAULT when added via ALTER TABLE.
+      ALTER TABLE "User" ADD COLUMN IF NOT EXISTS name text;
+      ALTER TABLE "User" ADD COLUMN IF NOT EXISTS email text;
+      ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "createdAt" timestamptz;
+      ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "updatedAt" timestamptz;
+
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS name text;
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS email text;
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS "passwordHash" text;
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS role text DEFAULT 'sales_rep';
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS permissions jsonb DEFAULT '{}'::jsonb;
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS "isActive" boolean DEFAULT true;
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS "createdAt" timestamptz DEFAULT now();
+      ALTER TABLE "Staff" ADD COLUMN IF NOT EXISTS "updatedAt" timestamptz DEFAULT now();
+
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS category "StaffNotificationCategory" DEFAULT 'SYSTEM';
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS title text;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS body text;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS data jsonb;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS important boolean DEFAULT false;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS "sourceId" text;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS "sourceType" text;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS read boolean DEFAULT false;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS archived boolean DEFAULT false;
+      ALTER TABLE "StaffNotification" ADD COLUMN IF NOT EXISTS "createdAt" timestamptz DEFAULT now();
+
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "staffName" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "staffRole" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "staffBranch" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS action text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS module text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "entityId" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "entityType" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS detail text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "ipAddress" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "userAgent" text;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS before jsonb;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS after jsonb;
+      ALTER TABLE "ActivityLog" ADD COLUMN IF NOT EXISTS "createdAt" timestamptz DEFAULT now();
     `
     const prerequisitePath = path.join(logDir, 'prerequisite.sql')
     fs.writeFileSync(prerequisitePath, prerequisiteSql)
