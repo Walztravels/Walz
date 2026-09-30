@@ -7522,6 +7522,7 @@ model OrganizationMembership {
 
   submittedRequests TravelRequest[]  @relation("SubmittedByMembership")
   approvals         TravelApproval[] @relation("ApproverMembership")
+  capabilities      OrganizationMembershipCapability[]
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -7548,6 +7549,11 @@ model BusinessTraveller {
   // lib/business/claim.ts::initiateBusinessTravellerClaim() doc comment.
   claimVerificationToken String?   @unique @map("claim_verification_token")
   claimVerifiedAt        DateTime? @map("claim_verified_at")
+  // Walz Business R2 — hard expiry for claimVerificationToken. A token
+  // with a NULL or past expiry is never accepted (fail closed). Set by
+  // initiateBusinessTravellerClaim(), cleared on successful consumption.
+  // See prisma/migrations/walz_business_r2.sql.
+  claimTokenExpiresAt    DateTime? @map("claim_token_expires_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -7681,4 +7687,40 @@ model BusinessAuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@map("business_audit_log")
+}
+
+// ============================================================================
+// WALZ BUSINESS — RELEASE 2: explicit, additive membership capabilities
+// ============================================================================
+// A capability is an EXPLICIT, staff-granted, individually-audited grant on
+// top of an OrganizationMembership — never inferred from the org role, and
+// never inferred from any staff-side permission (e.g. visa_view_all is a
+// different axis entirely). The only capability in R2 is
+// VISA_DOCUMENTS_VIEW, checked by lib/business/capabilities.ts
+// ::assertVisaDocumentAccess(). ADMIN/OWNER keep their hardcoded baseline
+// (lib/business/authz.ts::assertSensitiveDocumentAccess) without a grant.
+// Rows are never deleted — a revoke stamps revokedAt (append-only history).
+// At most ONE un-revoked grant per (membership, capability) is enforced by a
+// partial unique index in prisma/migrations/walz_business_r2.sql (Prisma
+// cannot express partial uniques, so it is SQL-only).
+model OrganizationMembershipCapability {
+  id               String    @id @default(cuid())
+  membershipId     String    @map("membership_id")
+  // Denormalized from the membership so every check can require BOTH the
+  // membership id AND the organization id to match (defence in depth).
+  organizationId   String    @map("organization_id")
+  // VISA_DOCUMENTS_VIEW
+  capability       String
+  grantedByStaffId String    @map("granted_by_staff_id")
+  grantReason      String    @map("grant_reason") @db.Text
+  grantedAt        DateTime  @default(now()) @map("granted_at")
+  revokedAt        DateTime? @map("revoked_at")
+  revokedByStaffId String?   @map("revoked_by_staff_id")
+  revokeReason     String?   @map("revoke_reason") @db.Text
+
+  membership OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([membershipId])
+  @@index([organizationId])
+  @@map("organization_membership_capabilities")
 }

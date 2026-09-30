@@ -2,6 +2,10 @@
  * Walz Business (Release 1) — /api/admin/business/organizations
  * GET requires 'b2b'. POST requires 'b2b.manage'. This is the ONLY
  * organization-creation path in Release 1.
+ *
+ * Release 2: defaultCurrency is now REQUIRED at creation (no silent GBP
+ * fallback), so every creation call below supplies it explicitly. The R2
+ * currency rules themselves are covered in business-r2-currency.test.ts.
  */
 const mockPrisma = {
   organization: { findMany: jest.fn(), create: jest.fn() },
@@ -63,35 +67,35 @@ describe('GET organizations (staff)', () => {
 describe('POST create organization (staff-only path)', () => {
   it('rejects unauthenticated with 401', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(null)
-    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com' }))
+    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
     expect(res.status).toBe(401)
   })
 
   it('denies a view-only b2b role (senior_manager lacks b2b.manage)', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_VIEW_ONLY)
-    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com' }))
+    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
     expect(res.status).toBe(403)
     expect(mockPrisma.organization.create).not.toHaveBeenCalled()
   })
 
   it('denies a role without b2b at all', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_NO_ACCESS)
-    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com' }))
+    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
     expect(res.status).toBe(403)
   })
 
   it('rejects a missing required field', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
-    const res = await POST(postReq({ country: 'GB', businessEmail: 'a@acme.com' }))
+    const res = await POST(postReq({ country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
     expect(res.status).toBe(400)
     expect(mockPrisma.organization.create).not.toHaveBeenCalled()
   })
 
   it('creates an organization with b2b.manage and records an audit row — always status ONBOARDING', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
-    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme Ltd', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme Ltd', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING' })
 
-    const res = await POST(postReq({ legalName: 'Acme Ltd', country: 'GB', businessEmail: 'A@Acme.com' }))
+    const res = await POST(postReq({ legalName: 'Acme Ltd', country: 'GB', businessEmail: 'A@Acme.com', defaultCurrency: 'GBP' }))
     expect(res.status).toBe(201)
     expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ legalName: 'Acme Ltd', businessEmail: 'a@acme.com', status: 'ONBOARDING', defaultCurrency: 'GBP' }),
@@ -106,9 +110,9 @@ describe('POST create organization (staff-only path)', () => {
   // achieve any effect at all, valid or invalid).
   it('silently ignores a client-supplied status field — creation is always ONBOARDING regardless', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
-    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING' })
 
-    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', status: 'ACTIVE' }))
+    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ACTIVE' }))
     expect(res.status).toBe(201)
     expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'ONBOARDING' }),
@@ -117,9 +121,9 @@ describe('POST create organization (staff-only path)', () => {
 
   it('silently ignores even an invalid/bogus status value — no 400, just ignored', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
-    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+    mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING' })
 
-    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', status: 'BOGUS' }))
+    const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'BOGUS' }))
     expect(res.status).toBe(201)
     expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'ONBOARDING' }),
@@ -132,7 +136,7 @@ describe('POST create organization (staff-only path)', () => {
       mockPrisma.staff.findUnique.mockResolvedValue(null)
 
       const res = await POST(postReq({
-        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', accountManagerId: 'ghost@walztravels.com',
+        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', accountManagerId: 'ghost@walztravels.com',
       }))
       expect(res.status).toBe(400)
       expect(mockPrisma.organization.create).not.toHaveBeenCalled()
@@ -143,7 +147,7 @@ describe('POST create organization (staff-only path)', () => {
       mockPrisma.staff.findUnique.mockResolvedValue({ email: 'exstaff@walztravels.com', isActive: false })
 
       const res = await POST(postReq({
-        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', accountManagerId: 'exstaff@walztravels.com',
+        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', accountManagerId: 'exstaff@walztravels.com',
       }))
       expect(res.status).toBe(400)
       expect(mockPrisma.organization.create).not.toHaveBeenCalled()
@@ -152,10 +156,10 @@ describe('POST create organization (staff-only path)', () => {
     it('accepts and stores a verified active Staff email', async () => {
       ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
       mockPrisma.staff.findUnique.mockResolvedValue({ email: 'ops@walztravels.com', isActive: true })
-      mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+      mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING' })
 
       const res = await POST(postReq({
-        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', accountManagerId: 'OPS@Walztravels.com',
+        legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', accountManagerId: 'OPS@Walztravels.com',
       }))
       expect(res.status).toBe(201)
       expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -165,9 +169,9 @@ describe('POST create organization (staff-only path)', () => {
 
     it('omits accountManagerId entirely when not supplied — no Staff lookup performed', async () => {
       ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
-      mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', status: 'ONBOARDING' })
+      mockPrisma.organization.create.mockResolvedValue({ id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING' })
 
-      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com' }))
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
       expect(res.status).toBe(201)
       expect(mockPrisma.staff.findUnique).not.toHaveBeenCalled()
       expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({

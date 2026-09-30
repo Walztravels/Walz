@@ -15,8 +15,16 @@
 // bg-[#0f1c33] + border-white/8 for panels, border-white/5 for row dividers,
 // hover:bg-white/3 for row hover. No layout, structure, or business logic
 // changed — same form fields, same table columns, same API calls.
+//
+// RELEASE 2: the create form now has a REQUIRED currency selector (the
+// closed list in lib/business/currency.ts). There is no default selection,
+// so a new organization can never silently fall back to GBP — the server
+// rejects a missing/unsupported currency as well. Each row links to the
+// new organization detail page (app/admin/business/[orgId]/page.tsx).
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
+import { SUPPORTED_ORG_CURRENCIES, orgCurrencyLabel } from '@/lib/business/currency'
 
 interface OrganizationRow {
   id: string
@@ -34,7 +42,7 @@ export default function AdminBusinessPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({ legalName: '', country: '', businessEmail: '' })
+  const [form, setForm] = useState({ legalName: '', country: '', businessEmail: '', defaultCurrency: '' })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,7 +72,7 @@ export default function AdminBusinessPage() {
         body: JSON.stringify(form),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Failed to create organization')
-      setForm({ legalName: '', country: '', businessEmail: '' })
+      setForm({ legalName: '', country: '', businessEmail: '', defaultCurrency: '' })
       await load()
     } catch (err) {
       setError((err as Error).message)
@@ -109,9 +117,21 @@ export default function AdminBusinessPage() {
           onChange={e => setForm(f => ({ ...f, businessEmail: e.target.value }))}
           className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 focus:border-[#C9A84C]/50 flex-[1_1_220px]"
         />
+        <select
+          required
+          aria-label="Billing currency"
+          value={form.defaultCurrency}
+          onChange={e => setForm(f => ({ ...f, defaultCurrency: e.target.value }))}
+          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 focus:border-[#C9A84C]/50 flex-[1_1_160px]"
+        >
+          <option value="" disabled className="bg-[#0f1c33] text-white/60">Billing currency…</option>
+          {SUPPORTED_ORG_CURRENCIES.map(code => (
+            <option key={code} value={code} className="bg-[#0f1c33] text-white">{orgCurrencyLabel(code)}</option>
+          ))}
+        </select>
         <button
           type="submit"
-          disabled={creating}
+          disabled={creating || !form.defaultCurrency}
           className="px-4 py-2 rounded-xl bg-[#C9A84C] text-[#0a1628] font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#d9ba5c] transition-colors focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50"
         >
           {creating ? 'Creating…' : 'Create organization'}
@@ -137,7 +157,12 @@ export default function AdminBusinessPage() {
             <tbody>
               {organizations.map(org => (
                 <tr key={org.id} className="border-t border-white/5 hover:bg-white/3 transition-colors">
-                  <td className="px-4 py-2 text-white">{org.tradingName ?? org.legalName}</td>
+                  <td className="px-4 py-2 text-white">{org.tradingName ?? org.legalName}
+                    {' '}
+                    <Link href={`/admin/business/${org.id}`} className="text-[#C9A84C] text-xs hover:underline focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 rounded">
+                      Open
+                    </Link>
+                  </td>
                   <td className="px-4 py-2 text-white/60">{org.country}</td>
                   <td className="px-4 py-2 text-white/60">{org.businessEmail}</td>
                   <td className="px-4 py-2 text-white/60">{org.status}</td>

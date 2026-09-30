@@ -18,6 +18,12 @@
 // verified against a real, active Staff row before the Organization is
 // created — a typo'd or made-up email is rejected rather than silently
 // stored, closing the "arbitrary string" gap the review flagged.
+//
+// RELEASE 2: `defaultCurrency` is now REQUIRED and must be one of
+// lib/business/currency.ts::SUPPORTED_ORG_CURRENCIES. The R1 silent 'GBP'
+// fallback is gone for every organization created from now on. Existing
+// organizations are never touched by this route; their currency only
+// changes via the dedicated, audited [id]/currency/route.ts action.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
@@ -25,6 +31,7 @@ import { hasPermission } from '@/lib/admin/permissions'
 import prisma from '@/lib/db'
 import { recordBusinessAudit } from '@/lib/business/audit'
 import { CREATION_STATUS } from '@/lib/business/organization-status'
+import { parseOrgCurrency, SUPPORTED_ORG_CURRENCIES } from '@/lib/business/currency'
 
 export const dynamic = 'force-dynamic'
 // Every Organization is created in CREATION_STATUS ('ONBOARDING'),
@@ -90,6 +97,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'businessEmail is required' }, { status: 400 })
   }
 
+  const currency = parseOrgCurrency(defaultCurrency)
+  if (!currency) {
+    return NextResponse.json(
+      { error: `defaultCurrency is required and must be one of: ${SUPPORTED_ORG_CURRENCIES.join(', ')}` },
+      { status: 400 },
+    )
+  }
+
   let verifiedAccountManagerId: string | null = null
   if (accountManagerId !== undefined && accountManagerId !== null) {
     if (typeof accountManagerId !== 'string' || !accountManagerId.trim()) {
@@ -114,7 +129,7 @@ export async function POST(req: NextRequest) {
       businessPhone: typeof businessPhone === 'string' ? businessPhone.trim() : null,
       status: CREATION_STATUS,
       accountManagerId: verifiedAccountManagerId,
-      defaultCurrency: typeof defaultCurrency === 'string' && defaultCurrency.trim() ? defaultCurrency.trim().toUpperCase() : 'GBP',
+      defaultCurrency: currency,
       market: typeof market === 'string' ? market.trim() : null,
     },
   })
@@ -125,7 +140,13 @@ export async function POST(req: NextRequest) {
     action: 'organization.create',
     entityType: 'Organization',
     entityId: organization.id,
-    after: { legalName: organization.legalName, businessEmail: organization.businessEmail, status: organization.status },
+    after: {
+      legalName: organization.legalName,
+      businessEmail: organization.businessEmail,
+      status: organization.status,
+      defaultCurrency: organization.defaultCurrency,
+      accountManagerId: organization.accountManagerId ?? null,
+    },
   })
 
   return NextResponse.json({ organization }, { status: 201 })
