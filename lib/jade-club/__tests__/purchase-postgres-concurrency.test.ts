@@ -68,14 +68,26 @@
  *       columns the Jade migrations' FKs and this file's own fixtures
  *       actually reference, with every included column's name/type/
  *       nullability/default copied EXACTLY from the real
- *       `prisma/schema.prisma` models (User, Staff, StaffNotification) —
- *       never invented. Chosen. The one deliberate, documented
- *       simplification: `StaffNotification.category` is a native Postgres
- *       enum in the real schema; here it's a plain `text` column (a
- *       stricter type would reject nothing this file's own inserts don't
- *       already satisfy, and creating/registering an enum type adds
- *       complexity with no behavioral benefit for what these tests
- *       actually assert).
+ *       `prisma/schema.prisma` models (User, Staff, StaffNotification,
+ *       ActivityLog) — never invented. Chosen. The one deliberate,
+ *       documented simplification: `StaffNotification.category` is a
+ *       native Postgres enum in the real schema; here it's a plain `text`
+ *       column (a stricter type would reject nothing this file's own
+ *       inserts don't already satisfy, and creating/registering an enum
+ *       type adds complexity with no behavioral benefit for what these
+ *       tests actually assert).
+ *
+ * CORRECTION (post-first-real-external-run): the first genuine run against
+ * a real Neon Postgres test database reached and executed the scenarios,
+ * but hit a real Prisma P2021 — `ActivityLog` did not exist, because it
+ * was missing from the prerequisite bootstrap above. This is a harness gap,
+ * NOT a Jade business-logic finding — the scenario results from that run
+ * are invalid evidence and must be disregarded. `ActivityLog` (and the
+ * `anon`/`authenticated`/`service_role` Postgres roles the Jade migrations'
+ * RLS policies reference, also missing until this correction) have been
+ * added below. See the "FULL PREREQUISITE-DEPENDENCY AUDIT" comment further
+ * down for the complete trace of every non-Jade model reachable by the 12
+ * scenarios in this file.
  *
  * ── EXTERNAL MODE SAFETY (non-negotiable) ────────────────────────────────
  * - The connection string is read ONLY from `JADE_TEST_DATABASE_URL` —
@@ -260,7 +272,62 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       if (!ready) throw new Error('Postgres container did not become ready in time')
     }
 
+    // ── Idempotent Postgres role bootstrap ──────────────────────────────
+    // The Jade migrations' RLS policies target `service_role` (e.g.
+    // `CREATE POLICY "service_role_jade_club_..." ON ... TO service_role`)
+    // — a role Supabase provisions automatically but vanilla Postgres
+    // (this Docker image, or a fresh Neon/Railway database) does not.
+    // Without it, those CREATE POLICY statements themselves fail with
+    // "role service_role does not exist", which — now that ON_ERROR_STOP=1
+    // is enforced — would abort migration setup outright. Created here,
+    // idempotently, in the disposable test bootstrap only — NEVER in any
+    // production migration file. `anon`/`authenticated` are included for
+    // the same reason, in case a future Jade migration's RLS policies ever
+    // reference them (none currently do, but Supabase always provisions
+    // all three together, so bootstrapping only `service_role` would be a
+    // partial, fragile fix). This test always connects as the `postgres`
+    // superuser, which bypasses RLS regardless — these roles only need to
+    // EXIST for the CREATE POLICY statements to succeed; their actual
+    // privilege grants are irrelevant to what this test file exercises.
+    const rolesSql = `
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+          CREATE ROLE anon NOLOGIN;
+        END IF;
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+          CREATE ROLE authenticated NOLOGIN;
+        END IF;
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN
+          CREATE ROLE service_role NOLOGIN BYPASSRLS;
+        END IF;
+      END $$;
+    `
+    const rolesPath = path.join(logDir, 'roles.sql')
+    fs.writeFileSync(rolesPath, rolesSql)
+    runSqlFile(rolesPath, 'roles.sql')
+
     // ── Minimal, exact-shape prerequisite schema (see file header for why) ──
+    //
+    // FULL PREREQUISITE-DEPENDENCY AUDIT (traced across every production
+    // code path the 12 scenarios in this file actually exercise —
+    // attemptActivation, applyPurchaseTierBump, createMembershipTermsCore,
+    // issueSlotsForSnapshot, recordRefund, recordCheckoutSessionPaid,
+    // recordCheckoutSessionFailed, reconcilePendingActivations, and the
+    // alert-raising functions; adminResetForRetry is NOT reachable by any
+    // of the 12 scenarios and was excluded from this audit for that
+    // reason): every non-Jade Prisma model touched is `User` (FK target
+    // only), `Staff` (read by the alert functions), `StaffNotification`
+    // (written by the alert functions), and `ActivityLog` (written by
+    // lib/jade-club/purchase-activation.ts's writeAuditLog and
+    // lib/jade-club/membership.ts's applyPurchaseTierBump — this was the
+    // ONE table missing from the harness before this correction, causing
+    // a real Prisma P2021 "table does not exist" inside the activation
+    // transaction on a genuine external Postgres run). No other non-Jade
+    // model is reachable by these 12 scenarios — entitlements.ts's OWN
+    // ActivityLog write lives inside activateMembershipTerms (the 2A admin
+    // wrapper), which none of these scenarios call; only its sibling
+    // createMembershipTermsCore is exercised here, and that function never
+    // touches ActivityLog itself.
     const prerequisiteSql = `
       CREATE TABLE IF NOT EXISTS "User" (
         id text PRIMARY KEY,
@@ -291,6 +358,31 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
         "sourceType" text,
         read boolean NOT NULL DEFAULT false,
         archived boolean NOT NULL DEFAULT false,
+        "createdAt" timestamptz NOT NULL DEFAULT now()
+      );
+      -- Exact shape copied from prisma/schema.prisma's ActivityLog model —
+      -- no @@map, so the real table name is the bare model name
+      -- "ActivityLog"; no @map on any field, so every column name matches
+      -- the Prisma field name exactly (camelCase, quoted). staffBranch/
+      -- ipAddress/userAgent exist on the real model but are never written
+      -- by any code path these 12 scenarios exercise — included anyway
+      -- (nullable, matching the real model) for full schema fidelity
+      -- rather than an invented stripped-down shape.
+      CREATE TABLE IF NOT EXISTS "ActivityLog" (
+        id text PRIMARY KEY,
+        "staffId" text REFERENCES "Staff"(id) ON DELETE SET NULL,
+        "staffName" text,
+        "staffRole" text,
+        "staffBranch" text,
+        action text NOT NULL,
+        module text,
+        "entityId" text,
+        "entityType" text,
+        detail text,
+        "ipAddress" text,
+        "userAgent" text,
+        before jsonb,
+        after jsonb,
         "createdAt" timestamptz NOT NULL DEFAULT now()
       );
     `
