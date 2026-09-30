@@ -107,6 +107,8 @@ const PERM_META: Record<Permission, PermMeta> = {
   'quotes.view_audit':    { label: 'View Quote Audit Trail',        desc: 'Read the full activity log and version history of any quote' },
   'jade_club':            { label: 'View Jade Travel Club',         desc: 'See Jade Travel Club membership records, benefits catalog, and physical card status' },
   'jade_club.manage':     { label: 'Adjust Jade Travel Club Membership', desc: 'Change a customer\'s membership tier/status, update the benefits catalog, and change physical card fulfilment status' },
+  'b2b':                  { label: 'View Walz Business',            desc: 'See B2B organizations, their members, travellers, and travel requests' },
+  'b2b.manage':           { label: 'Manage Walz Business',          desc: 'Create new B2B organizations (the only organization-creation path)' },
 }
 
 const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
@@ -123,6 +125,7 @@ const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
   { label: 'Concierge',          perms: ['concierge', 'concierge.book', 'concierge.images'] },
   { label: 'Quotes & Proposals', perms: ['quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete', 'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit'] },
   { label: 'Jade Travel Club',   perms: ['jade_club', 'jade_club.manage'] },
+  { label: 'Walz Business',      perms: ['b2b', 'b2b.manage'] },
 ]
 
 // Sourced from lib/rbac/roles.ts (the single role catalogue) instead of a
