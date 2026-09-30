@@ -94,6 +94,33 @@ jobs:
         run: |
           PGPASSWORD=jade_ci_test_only psql -h localhost -U jade_ci -d jade_concurrency_ci -c "SELECT version();"
 
+      - name: Create CI-only Supabase role prerequisites (anon, authenticated)
+        # walz_business_r1_foundation.sql includes `REVOKE ALL ... FROM anon,
+        # authenticated` hardening statements on every table it creates —
+        # correct and necessary for its real target, a Supabase project,
+        # where these two roles always exist automatically. A vanilla
+        # `postgres:16` image (this ephemeral CI service container) has
+        # neither role, so applying that migration verbatim here fails with
+        # `role "anon" does not exist` before ever reaching the Jade
+        # migration or the concurrency test. This step exists solely to
+        # reproduce that one Supabase prerequisite in this disposable,
+        # job-scoped database — NOLOGIN because nothing ever authenticates
+        # as either role here; only their existence (as REVOKE targets)
+        # matters. No other Supabase behavior (RLS-as-a-service, auth
+        # schema, storage, etc.) is emulated, and none is added unless a
+        # concrete migration prerequisite proves it necessary.
+        run: |
+          PGPASSWORD=jade_ci_test_only psql -v ON_ERROR_STOP=1 -h localhost -U jade_ci -d jade_concurrency_ci <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+              CREATE ROLE anon NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+              CREATE ROLE authenticated NOLOGIN;
+            END IF;
+          END $$;
+          SQL
+
       - name: Generate Prisma Client
         run: npx prisma generate
 
