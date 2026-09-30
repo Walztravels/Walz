@@ -1,8 +1,9 @@
 'use client'
 
 // app/business/[orgId]/CreateRequestForm.tsx — bare-bones "Create Travel
-// Request" form (title + notes only). Service-linking is API-only for
-// Release 1 — no UI for it here.
+// Request" form (title + notes only). Release 2: travellers and service
+// lines are added from the request detail page
+// (app/business/[orgId]/requests/[requestId]).
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
