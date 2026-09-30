@@ -131,6 +131,24 @@ jobs:
           END $$;
           SQL
 
+      - name: Enable PostgreSQL statement logging (log_statement=all)
+        # A prior run showed that relying on Prisma's own DEBUG=prisma:query
+        # channel is not a reliable evidence mechanism in this app: lib/db.ts
+        # only configures Prisma's `log` array to ['error'] outside
+        # NODE_ENV=development, and DEBUG appears to gate an
+        # already-configured log event rather than provide fully independent
+        # instrumentation — so no query text was ever captured that way. This
+        # step instead makes PostgreSQL itself log every statement it
+        # executes, server-side, completely independent of the application's
+        # own logging configuration — the only reliable way to prove what
+        # actually ran against the database. Scoped entirely to this
+        # ephemeral, job-only CI database; `jade_ci` is this container's
+        # bootstrap superuser (POSTGRES_USER in the service definition
+        # above), so it can run ALTER SYSTEM here.
+        run: |
+          PGPASSWORD=jade_ci_test_only psql -h localhost -U jade_ci -d jade_concurrency_ci -c "ALTER SYSTEM SET log_statement = 'all';"
+          PGPASSWORD=jade_ci_test_only psql -h localhost -U jade_ci -d jade_concurrency_ci -c "SELECT pg_reload_conf();"
+
       - name: Generate Prisma Client
         run: npx prisma generate
 
@@ -177,25 +195,31 @@ jobs:
             -f prisma/migrations/jade_travel_club_commercial_v2a.sql
 
       - name: Run REAL Postgres concurrency acceptance test
-        # DEBUG=prisma:query makes Prisma's own query-engine debug channel
-        # print every literal SQL statement it sends to Postgres — including
-        # the `SELECT ... FOR UPDATE` inside activateMembershipTerms's
-        # transaction — to this step's log, independent of the app's own
-        # `log` config (lib/db.ts only logs 'error' outside development).
-        # This is evidence, not a code change: no product file is modified
-        # to produce it.
-        run: DEBUG=prisma:query npx jest --config jest.postgres-concurrency.config.js --runInBand 2>&1 | tee /tmp/pg-concurrency-test.log
+        run: npx jest --config jest.postgres-concurrency.config.js --runInBand
 
-      - name: Verify the real row-lock statement actually executed
-        # Fails the job outright (not just a warning) if this specific
-        # statement is ever missing from the captured query log — e.g. if a
-        # future refactor accidentally removed the row lock, this step
-        # catches it even if every assertion above happened to still pass
-        # by coincidence.
+      - name: Retrieve PostgreSQL's own server log and verify SELECT ... FOR UPDATE executed
+        # Proof independent of the application entirely: with
+        # log_statement=all (set two steps above), PostgreSQL itself writes
+        # every statement it executes to its own server log — this reads
+        # that log directly from the service container (via `docker logs`,
+        # the same mechanism GitHub Actions itself uses to print service
+        # container output on failure), not from anything the application or
+        # Prisma emitted. Fails the job outright if the literal `FOR UPDATE`
+        # text is absent — e.g. if a future refactor accidentally removed the
+        # row lock, this step catches it even if every test assertion above
+        # happened to still pass by coincidence.
         run: |
-          if grep -qi "FOR UPDATE" /tmp/pg-concurrency-test.log; then
-            echo "Confirmed: a real 'SELECT ... FOR UPDATE' statement was sent to PostgreSQL during this run."
+          CONTAINER_ID=$(docker ps --filter "name=postgres16" --format "{{.ID}}" | head -1)
+          if [ -z "$CONTAINER_ID" ]; then
+            echo "FAIL: could not locate the postgres service container to retrieve its server log." >&2
+            exit 1
+          fi
+          docker logs "$CONTAINER_ID" > /tmp/postgres-server.log 2>&1
+          if grep -qi "FOR UPDATE" /tmp/postgres-server.log; then
+            echo "Confirmed: PostgreSQL's own server log shows a real 'FOR UPDATE' statement executed during this run."
+            echo "Matching line(s):"
+            grep -i "FOR UPDATE" /tmp/postgres-server.log
           else
-            echo "FAIL: no 'FOR UPDATE' statement was observed in the Prisma query log — the row lock did not execute." >&2
+            echo "FAIL: no 'FOR UPDATE' statement was found in PostgreSQL's own server log — the row lock did not execute." >&2
             exit 1
           fi
