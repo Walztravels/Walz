@@ -69,13 +69,13 @@
  *       actually reference, with every included column's name/type/
  *       nullability/default copied EXACTLY from the real
  *       `prisma/schema.prisma` models (User, Staff, StaffNotification,
- *       ActivityLog) — never invented. Chosen. The one deliberate,
- *       documented simplification: `StaffNotification.category` is a
- *       native Postgres enum in the real schema; here it's a plain `text`
- *       column (a stricter type would reject nothing this file's own
- *       inserts don't already satisfy, and creating/registering an enum
- *       type adds complexity with no behavioral benefit for what these
- *       tests actually assert).
+ *       ActivityLog) — never invented. Chosen. `StaffNotification.category`
+ *       was originally simplified to plain `text` here (a stricter type
+ *       seemed to reject nothing this file's own inserts wouldn't already
+ *       satisfy) — CORRECTED in CORRECTION 3(ii) below: Prisma's generated
+ *       client always casts this column's parameter to the real native
+ *       enum type regardless of what the actual column type is, so the
+ *       real `"StaffNotificationCategory"` enum is now created and used.
  *
  * CORRECTION (post-first-real-external-run): the first genuine run against
  * a real Neon Postgres test database reached and executed the scenarios,
@@ -102,6 +102,113 @@
  * this harness owns immediately before any fixture SQL runs on every run —
  * see the "EXTERNAL-MODE RESET" block in `beforeAll` below for the exact
  * mechanism and why it is safe even on a database's very first run.
+ *
+ * CORRECTION 3 (post-third-real-external-run, 3/12 genuinely passed — 1, 3,
+ * 12): four DISTINCT issues, diagnosed and fixed individually:
+ *
+ *   (i) THE "ALREADY_ACTIVATED" PATTERN (scenarios 6, 7, 8, 9, 10) —
+ *   DIAGNOSED AS A HARNESS/FIXTURE-ORDERING BUG, NOT A BUSINESS-LOGIC
+ *   FINDING, confirmed by reading `lib/jade-club/purchase-reconciliation.ts`
+ *   directly rather than assumed: `reconcilePendingActivations()` runs a
+ *   genuinely GLOBAL, UNSCOPED scan (`WHERE activationStatus =
+ *   'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING'`, no purchase/scenario
+ *   filter of any kind) and retries EVERY matching row — this is correct,
+ *   intended production behavior for a cron-style reconciliation job, and
+ *   it was NOT the bug. The bug was entirely in this file: every scenario's
+ *   `jade_club_purchases` fixture row used to be inserted ONCE, upfront, in
+ *   the shared `beforeAll`, before ANY scenario's `it()` body runs — despite
+ *   the (factually wrong) comment claiming "one per scenario, so no
+ *   scenario's writes interfere". Scenario 3 races a REAL
+ *   `reconcilePendingActivations()` call as one of its two workers
+ *   (unconditionally invoked, not gated behind any earlier assertion) —
+ *   since scenarios 1 and 2 had already resolved their own purchases out of
+ *   the pending status by the time scenario 3 runs, but scenarios 4-11's
+ *   purchase rows were ALL still sitting in that exact pending status
+ *   (inserted upfront, untouched), scenario 3's reconciliation sweep
+ *   correctly, genuinely activated every one of them right then — long
+ *   before their own scenarios' tests ever called `attemptActivation`
+ *   themselves. This is the exact and complete explanation for the exact
+ *   set of scenarios affected (everything numbered after 3 that expected a
+ *   fresh pending purchase) and for the CLUB-vs-CLUB_PLUS asymmetry in
+ *   7/8 (reconcile's `createdAt asc` scan happened to activate one side of
+ *   each pair first, correctly bumping the other to
+ *   `REQUIRES_RECONCILIATION` via the already-accepted distinct-purchase
+ *   collision path — itself further evidence the business logic behaved
+ *   correctly given the harness's premature input, not evidence of a
+ *   business-logic defect). FIX: every scenario's `jade_club_purchases`
+ *   fixture row(s) now get inserted as the FIRST action inside that
+ *   scenario's OWN `it()` body — never upfront — so no purchase row exists
+ *   in the pending status a global reconciliation scan matches on until the
+ *   scenario that owns it has actually begun. This is deliberately applied
+ *   to EVERY scenario (not just 4-11) so that if scenario 2's own
+ *   `reconcilePendingActivations()` call (currently never reached in a
+ *   failing run because an earlier assertion throws first, but which WOULD
+ *   run for real once Priority 3-class contention-detection issues are
+ *   fixed) ever executes for real, it cannot prematurely consume scenario
+ *   3-12's fixtures either — the fix is robust to this file's own future
+ *   execution-order changes, not just today's specific failure shape.
+ *
+ *   (ii) `type "public.StaffNotificationCategory" does not exist` — a
+ *   genuine harness schema-fidelity gap: Prisma's generated client always
+ *   casts the `category` column parameter to the real native Postgres enum
+ *   type declared in `prisma/schema.prisma`, regardless of what type this
+ *   harness's own `"StaffNotification"` table actually declared that column
+ *   as (previously plain `text`, as a documented simplification — now
+ *   corrected). Fixed by creating the real `"StaffNotificationCategory"`
+ *   enum type with the exact 7 values copied verbatim from
+ *   `prisma/schema.prisma`'s `enum StaffNotificationCategory` block
+ *   (`JADE_BRIEF`, `SYSTEM`, `VISA`, `TRAVEL`, `BOOKING`, `SUPPLIER`,
+ *   `MANAGEMENT`), and changing `"StaffNotification".category` to use it.
+ *
+ *   (iii) `expect(contention.observed).toBe(true)` failed for scenarios 2,
+ *   4, 5 specifically (against a real remote Neon pooled endpoint, not
+ *   local Docker). Scenarios 4 and 5's failure is very likely a DOWNSTREAM
+ *   SYMPTOM of (i) above, not an independent timing problem: their
+ *   structural lock-acquisition pattern is identical to scenario 1's (both
+ *   workers contend on the SAME `jade_club_purchases` row as their very
+ *   FIRST lock, so the widening trigger should fire immediately) — but if
+ *   their purchase was already `ACTIVATED` ahead of time by (i)'s bug, the
+ *   activation worker returns via the near-instant `ALREADY_ACTIVATED`
+ *   short-circuit without ever issuing the widened UPDATE at all, so no
+ *   contention can be observed regardless of timing. Fixing (i) should
+ *   resolve this as a side effect; this is a testable prediction for the
+ *   next real run, not a claim of certainty, since re-execution was not
+ *   available in this session. Scenario 2's failure cannot be explained by
+ *   (i) (it runs BEFORE scenario 3's reconciliation sweep, so nothing had
+ *   touched its purchases yet) and has a genuine, distinct structural
+ *   explanation: unlike scenario 1/3/4 (which contend on the SAME row as
+ *   the very first lock acquired), scenario 2's two workers each first lock
+ *   and process their OWN DISTINCT purchase row before their paths converge
+ *   on the SAME shared membership row — meaning there are several more real
+ *   network round-trips to the remote Neon endpoint before the contended
+ *   UPDATE is even reached, versus scenario 1's near-t=0 contention. Since
+ *   real round-trip latency to a remote pooled endpoint cannot be measured
+ *   from this sandbox (no Postgres access), rather than guess a single
+ *   "long enough" number, the widening delay and poll budget were increased
+ *   uniformly and conservatively across every lock-contention scenario
+ *   (1, 2, 3, 4, 5, 7, 8) — see `installSlowUpdateTrigger` call sites and
+ *   `raceWithLockContentionProof`'s default `pollTimeoutMs` — as a
+ *   documented safety margin, not an empirically-measured minimum. 7 and 8
+ *   share scenario 2's "second lock, after separate per-worker processing"
+ *   structure, so the same margin was applied to them pre-emptively even
+ *   though this run never actually reached their own contention assertion
+ *   (an earlier assertion on the ALREADY_ACTIVATED-contaminated outcome
+ *   threw first) — whether they needed it is genuinely unknown from this
+ *   run's evidence.
+ *
+ *   (iv) Scenario 11's dedicated policy insert collided with
+ *   `idx_jade_club_commercial_policies_one_active` — confirmed by reading
+ *   the actual migration (`jade_travel_club_commercial_v2a.sql`) that this
+ *   is a PARTIAL unique index on `(tier, market, currency) WHERE status =
+ *   'ACTIVE'`, and that the shared fixture already creates an ACTIVE
+ *   `(CLUB, NG, NGN)` row (`policy_concurrency_1`) — the exact tuple
+ *   scenario 11's own dedicated policy also used. Confirmed via
+ *   `purchase-activation.ts` that `attemptActivation` checks only the
+ *   referenced policy row's OWN `status` column, never cross-validates the
+ *   purchase's market/currency against its policy's, so changing only the
+ *   dedicated policy's `market` to a value no shared fixture row uses
+ *   (`'S11'`, an unmistakably test-scoped, never-colliding code) is a safe,
+ *   complete fix with no other behavioral effect.
  *
  * ── EXTERNAL MODE SAFETY (non-negotiable) ────────────────────────────────
  * - The connection string is read ONLY from `JADE_TEST_DATABASE_URL` —
@@ -361,10 +468,25 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
         "createdAt" timestamptz NOT NULL DEFAULT now(),
         "updatedAt" timestamptz NOT NULL DEFAULT now()
       );
+      -- Real native enum, copied verbatim (all 7 values, exact spelling)
+      -- from prisma/schema.prisma's enum StaffNotificationCategory block.
+      -- Required because Prisma's generated client always emits a
+      -- ::"StaffNotificationCategory" cast on this column's parameter
+      -- regardless of the actual column type — a plain text column
+      -- caused a real 'type "public.StaffNotificationCategory" does not
+      -- exist' error on a genuine external Postgres run (CORRECTION 3(ii)).
+      -- CREATE TYPE has no IF NOT EXISTS form, so this is guarded via a
+      -- pg_type existence check for idempotency, matching this file's
+      -- convention for every other DDL statement in this bootstrap.
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'StaffNotificationCategory') THEN
+          CREATE TYPE "StaffNotificationCategory" AS ENUM ('JADE_BRIEF', 'SYSTEM', 'VISA', 'TRAVEL', 'BOOKING', 'SUPPLIER', 'MANAGEMENT');
+        END IF;
+      END $$;
       CREATE TABLE IF NOT EXISTS "StaffNotification" (
         id text PRIMARY KEY,
         "staffId" text NOT NULL REFERENCES "Staff"(id),
-        category text NOT NULL DEFAULT 'SYSTEM', -- native enum in the real schema; text here, see file header
+        category "StaffNotificationCategory" NOT NULL DEFAULT 'SYSTEM',
         title text NOT NULL,
         body text NOT NULL,
         important boolean NOT NULL DEFAULT false,
@@ -506,24 +628,14 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
         ('membership_s10', 'user_s10', 'JW-900010', 'FREE', 'FREE', 'DEFAULT', now(), 1, now(), now()),
         ('membership_s11', 'user_s11', 'JW-900011', 'FREE', 'FREE', 'DEFAULT', now(), 1, now(), now()),
         ('membership_s12', 'user_s12', 'JW-900012', 'FREE', 'FREE', 'DEFAULT', now(), 1, now(), now());
-
-      INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at) VALUES
-        ('purchase_s1', 'user_s1', 'membership_s1', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s1', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s2a', 'user_s2', 'membership_s2', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s2a', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s2b', 'user_s2', 'membership_s2', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s2b', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s3', 'user_s3', 'membership_s3', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s3', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s4', 'user_s4', 'membership_s4', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s4', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s5', 'user_s5', 'membership_s5', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s5', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s6', 'user_s6', 'membership_s6', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s6', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s7_club', 'user_s7', 'membership_s7', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s7_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s7_plus', 'user_s7', 'membership_s7', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s7_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s8_plus', 'user_s8', 'membership_s8', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s8_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s8_club', 'user_s8', 'membership_s8', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s8_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s9', 'user_s9', 'membership_s9', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s9', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s10', 'user_s10', 'membership_s10', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s10', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s11', 'user_s11', 'membership_s11', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s11', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()),
-        ('purchase_s12', 'user_s12', 'membership_s12', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'pending:crashwindow_s12', 'PENDING', 'NOT_STARTED', now(), now(), NULL);
     `
+    // NOTE: `jade_club_purchases` rows are DELIBERATELY NOT seeded here —
+    // see CORRECTION 3(i) in the file header. Each scenario inserts its own
+    // purchase row(s) as the first action of its own `it()` body, via
+    // `insertPurchaseFixture()` below, so a global, unscoped scan like
+    // `reconcilePendingActivations()` (run for real by scenario 3, and
+    // potentially by scenario 2) can never observe a later scenario's
+    // not-yet-started fixture.
     const fixturePath = path.join(logDir, 'fixture.sql')
     fs.writeFileSync(fixturePath, fixtureSql)
     runSqlFile(fixturePath, 'fixture.sql')
@@ -548,6 +660,23 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
     if (MODE === 'docker') spawnSync('docker', ['rm', '-f', CONTAINER_NAME])
     try { fs.rmSync(logDir, { recursive: true, force: true }) } catch { /* best-effort cleanup */ }
   })
+
+  /**
+   * Inserts one scenario's own `jade_club_purchases` fixture row(s) — see
+   * CORRECTION 3(i) in the file header for why this is scenario-local
+   * (called as the first action inside that scenario's own `it()` body)
+   * rather than seeded upfront in `beforeAll` alongside users/memberships/
+   * policies. `valuesSql` is one or more literal `(...)` VALUES tuples in
+   * the exact column order below — same shape/values this file always used,
+   * just relocated to run exactly when the owning scenario needs it to
+   * exist, and not a moment before.
+   */
+  function insertPurchaseFixture(valuesSql: string, label: string) {
+    psqlOrThrow(
+      `INSERT INTO jade_club_purchases (id, user_id, membership_id, policy_id, policy_version, tier, market, currency, amount_minor, provider, provider_reference, payment_status, activation_status, created_at, updated_at, paid_at) VALUES ${valuesSql}`,
+      label,
+    )
+  }
 
   // ─── Genuine-concurrency proof infrastructure ─────────────────────────
   //
@@ -617,7 +746,13 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
 
     const runA = params.workerA.run().then((r) => { order.push(params.workerA.label); return r })
     const runB = params.workerB.run().then((r) => { order.push(params.workerB.label); return r })
-    const pollPromise = pollForLockContention(params.tableHint, startedAt, params.pollTimeoutMs ?? 2500)
+    // Default poll budget increased from 2500ms to 8000ms — see CORRECTION
+    // 3(iii) in the file header. This is a documented safety margin against
+    // real internet round-trip latency to a remote pooled Neon endpoint,
+    // not an empirically-measured minimum (no Postgres access to measure
+    // it from this sandbox); it comfortably fits within the overall
+    // jest.setTimeout(300_000) budget even summed across all 12 scenarios.
+    const pollPromise = pollForLockContention(params.tableHint, startedAt, params.pollTimeoutMs ?? 8000)
 
     const [resultA, resultB, contention] = await Promise.all([runA, runB, pollPromise])
 
@@ -631,7 +766,8 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   }
 
   it('SCENARIO 1 [TRUE CONCURRENT RACE] — two workers race the SAME purchase: exactly one terms period, exactly one 3-slot benefit-issuance set, ACTIVATED with membershipTermsId populated, NO FAILED_PERMANENTLY anywhere, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1, 's1')
+    insertPurchaseFixture(`('purchase_s1', 'user_s1', 'membership_s1', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s1', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 1 purchase fixture')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's1')
     try {
       const { resultA, resultB, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_purchases',
@@ -659,7 +795,12 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 2 [TRUE CONCURRENT RACE] — two DIFFERENT, distinct, same-tier SUCCEEDED purchases race for the SAME membership: exactly one ACTIVATED, exactly one terms period, the loser lands in PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1, 's2')
+    insertPurchaseFixture(
+      `('purchase_s2a', 'user_s2', 'membership_s2', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s2a', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()), ` +
+      `('purchase_s2b', 'user_s2', 'membership_s2', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s2b', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
+      'scenario 2 purchase fixtures',
+    )
+    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 3, 's2')
     try {
       const { resultA, resultB, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_memberships',
@@ -688,7 +829,12 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 3 [TRUE CONCURRENT RACE] — a webhook-triggered attemptActivation() races a reconciliation-job pass over the SAME purchase: idempotent successful result, never double-activated, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1, 's3')
+    // NOTE: this scenario's `reconcilePendingActivations()` worker is a REAL,
+    // globally-unscoped scan (see CORRECTION 3(i)) — it is safe here ONLY
+    // because scenarios 4-11's own purchase fixtures no longer exist yet at
+    // this point (each is inserted lazily inside its own `it()` body).
+    insertPurchaseFixture(`('purchase_s3', 'user_s3', 'membership_s3', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s3', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 3 purchase fixture')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's3')
     try {
       const { resultA, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_purchases',
@@ -707,7 +853,8 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 4 [TRUE CONCURRENT RACE] — refund vs activation racing the SAME purchase row lock: the purchase never ends ACTIVATED with a REFUNDED payment silently ignored, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1, 's4')
+    insertPurchaseFixture(`('purchase_s4', 'user_s4', 'membership_s4', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s4', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 4 purchase fixture')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's4')
     try {
       const { resultA, contention } = await raceWithLockContentionProof({
         tableHint: 'jade_club_purchases',
@@ -729,7 +876,8 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 5 [TRUE CONCURRENT RACE] — activation vs refund with the opposite start ordering pressure (activation fires first): the purchase ends REFUNDED, at most one terms row, alert raised if activation completed first, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 1, 's5')
+    insertPurchaseFixture(`('purchase_s5', 'user_s5', 'membership_s5', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s5', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 5 purchase fixture')
+    const removeTrigger = installSlowUpdateTrigger('jade_club_purchases', 3, 's5')
     try {
       const startedAt = Date.now()
       const order: string[] = []
@@ -737,7 +885,9 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       const refundPromise = new Promise<void>((resolve) => setTimeout(resolve, 10))
         .then(() => recordRefund('cs_s5'))
         .then((r) => { order.push('refund'); return r })
-      const pollPromise = pollForLockContention('jade_club_purchases', startedAt, 2500)
+      // See CORRECTION 3(iii): 2500ms -> 8000ms, same documented safety
+      // margin as raceWithLockContentionProof's default.
+      const pollPromise = pollForLockContention('jade_club_purchases', startedAt, 8000)
 
       const [, , contention] = await Promise.all([activationPromise, refundPromise, pollPromise])
       // eslint-disable-next-line no-console
@@ -760,6 +910,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 6 [ROLLBACK TEST — single-threaded, no race] — a genuine technical failure during entitlement-slot issuance rolls back the ENTIRE real-Postgres transaction: no terms, no snapshots, no slots, no ACTIVATED purchase, membership tier bump also undone', async () => {
+    insertPurchaseFixture(`('purchase_s6', 'user_s6', 'membership_s6', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s6', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 6 purchase fixture')
     psqlOrThrow(`ALTER TABLE jade_club_entitlement_slots ADD CONSTRAINT test_force_issuance_failure CHECK (false) NOT VALID`, 'scenario 6 setup')
 
     try {
@@ -789,7 +940,12 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 7 [TRUE CONCURRENT RACE] — CROSS-TIER: CLUB vs CLUB_PLUS genuinely racing, CLUB pressured to win by a head start — membership.tier ends CLUB, never mutated by the CLUB_PLUS loser, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1, 's7')
+    insertPurchaseFixture(
+      `('purchase_s7_club', 'user_s7', 'membership_s7', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s7_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()), ` +
+      `('purchase_s7_plus', 'user_s7', 'membership_s7', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s7_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
+      'scenario 7 purchase fixtures',
+    )
+    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 3, 's7')
     try {
       const startedAt = Date.now()
       const order: string[] = []
@@ -803,7 +959,11 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       const plusPromise = new Promise<void>((resolve) => setTimeout(resolve, 15))
         .then(() => attemptActivation('purchase_s7_plus'))
         .then((r) => { order.push('club_plus'); return r })
-      const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 2500)
+      // See CORRECTION 3(iii): same "second lock, after separate per-worker
+      // processing" structure as scenario 2, so the same 8000ms margin is
+      // applied pre-emptively, even though this scenario's own contention
+      // assertion was never actually reached in the failing run.
+      const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 8000)
 
       const [clubOutcome, plusOutcome, contention] = await Promise.all([clubPromise, plusPromise, pollPromise])
       // eslint-disable-next-line no-console
@@ -843,7 +1003,12 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 8 [TRUE CONCURRENT RACE] — CROSS-TIER reverse: CLUB vs CLUB_PLUS genuinely racing, CLUB_PLUS pressured to win by a head start — membership.tier ends CLUB_PLUS, never downgraded by the CLUB loser, genuine lock contention proven', async () => {
-    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 1, 's8')
+    insertPurchaseFixture(
+      `('purchase_s8_plus', 'user_s8', 'membership_s8', 'policy_concurrency_plus', 1, 'CLUB_PLUS', 'NG', 'NGN', 15000000, 'STRIPE', 'cs_s8_plus', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now()), ` +
+      `('purchase_s8_club', 'user_s8', 'membership_s8', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s8_club', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`,
+      'scenario 8 purchase fixtures',
+    )
+    const removeTrigger = installSlowUpdateTrigger('jade_club_memberships', 3, 's8')
     try {
       const startedAt = Date.now()
       const order: string[] = []
@@ -851,7 +1016,8 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
       const clubPromise = new Promise<void>((resolve) => setTimeout(resolve, 15))
         .then(() => attemptActivation('purchase_s8_club'))
         .then((r) => { order.push('club'); return r })
-      const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 2500)
+      // See CORRECTION 3(iii) — same margin as scenario 7, same rationale.
+      const pollPromise = pollForLockContention('jade_club_memberships', startedAt, 8000)
 
       const [plusOutcome, clubOutcome, contention] = await Promise.all([plusPromise, clubPromise, pollPromise])
       // eslint-disable-next-line no-console
@@ -891,6 +1057,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 9 [FK-INTEGRITY TEST — no concurrency] — a real DELETE against a purchase backing an active terms row is rejected by Postgres (ON DELETE RESTRICT), never silently nulling the provenance', async () => {
+    insertPurchaseFixture(`('purchase_s9', 'user_s9', 'membership_s9', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s9', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 9 purchase fixture')
     const activated = await attemptActivation('purchase_s9')
     expect(activated.outcome).toBe('ACTIVATED')
 
@@ -908,6 +1075,7 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 10 [ROLLBACK TEST — single-threaded, no race] — a forced post-tier-bump invariant failure rolls back the ENTIRE real-Postgres transaction — tier mutation undone, purchase not ACTIVATED, no terms/snapshots/slots/events, verified via actual persisted state', async () => {
+    insertPurchaseFixture(`('purchase_s10', 'user_s10', 'membership_s10', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s10', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 10 purchase fixture')
     const spy = jest.spyOn(entitlementsModule, 'createMembershipTermsCore').mockImplementationOnce(async () => ({
       ok: false, reason: 'UNEXPIRED_TERMS_EXISTS', existingTerms: { id: 'phantom_terms_for_scenario_10', purchaseId: null },
     }))
@@ -942,13 +1110,23 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 11 [SEQUENTIAL STATE-TRANSITION TEST — no concurrency needed] — POLICY_NO_LONGER_ACTIVE through the REAL attemptActivation orchestration against real Postgres: no tier mutation, no terms/snapshots/entitlements', async () => {
+    insertPurchaseFixture(`('purchase_s11', 'user_s11', 'membership_s11', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'cs_s11', 'SUCCEEDED', 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING', now(), now(), now())`, 'scenario 11 purchase fixture')
     // Uses a DEDICATED cloned policy row (never the shared
     // policy_concurrency_1 every other scenario also activates against),
     // so superseding it here can never affect any other scenario's
-    // fixtures regardless of Jest's execution order.
+    // fixtures regardless of Jest's execution order. `market` is
+    // deliberately 'S11' — an unmistakably test-scoped code that cannot
+    // collide with the shared fixture's (CLUB, NG, NGN) ACTIVE row on
+    // idx_jade_club_commercial_policies_one_active, a PARTIAL unique index
+    // on (tier, market, currency) WHERE status = 'ACTIVE' (confirmed by
+    // reading jade_travel_club_commercial_v2a.sql — see CORRECTION 3(iv)).
+    // attemptActivation only ever checks the referenced policy row's own
+    // `status` column, never cross-validates the purchase's market/currency
+    // against its policy's (confirmed by reading purchase-activation.ts),
+    // so this has no other behavioral effect.
     psqlOrThrow(
       `INSERT INTO jade_club_commercial_policies (id, tier, market, currency, annual_price_minor, duration_months, service_fee_discount_percent, effective_from, version, status, created_by, created_at, updated_at) ` +
-      `VALUES ('policy_s11_superseded', 'CLUB', 'NG', 'NGN', 8500000, 12, 10, now(), 2, 'ACTIVE', 'test-admin', now(), now())`,
+      `VALUES ('policy_s11_superseded', 'CLUB', 'S11', 'NGN', 8500000, 12, 10, now(), 2, 'ACTIVE', 'test-admin', now(), now())`,
       'scenario 11 dedicated policy',
     )
     psqlOrThrow(`UPDATE jade_club_purchases SET policy_id = 'policy_s11_superseded' WHERE id = 'purchase_s11'`, 'scenario 11 repoint purchase')
@@ -966,6 +1144,11 @@ d('Jade Club 2B — real-Postgres atomic activation concurrency proof', () => {
   })
 
   it('SCENARIO 12 [SEQUENTIAL STATE-TRANSITION TEST — no concurrency needed] — purchaseIdHint crash-recovery self-heal via the REAL recordCheckoutSessionPaid against real Postgres: correct purchase recovered, no duplicate created', async () => {
+    // NOT_STARTED/PENDING from the start, so reconcilePendingActivations()'s
+    // scan (which only matches PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING)
+    // was never actually a risk here — deferred to its own scenario anyway,
+    // for consistency with every other scenario after CORRECTION 3(i).
+    insertPurchaseFixture(`('purchase_s12', 'user_s12', 'membership_s12', 'policy_concurrency_1', 1, 'CLUB', 'NG', 'NGN', 8500000, 'STRIPE', 'pending:crashwindow_s12', 'PENDING', 'NOT_STARTED', now(), now(), NULL)`, 'scenario 12 purchase fixture')
     const before = psql(`SELECT count(*) FROM jade_club_purchases`)
     const countBefore = Number(before.stdout.trim())
 
