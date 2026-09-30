@@ -131,3 +131,26 @@ describe('POST create travel request', () => {
     expect(res.status).toBe(201)
   })
 })
+
+// ── Release 2 additions ─────────────────────────────────────────────────────
+
+describe('GET travel requests — explicit cross-organization framing (R2)', () => {
+  it('an ACTIVE member of Org A targeting Org B\'s request list gets the generic 404 and no request query runs', async () => {
+    mockPrisma.organizationMembership.findUnique.mockImplementation(({ where }: any) => {
+      const { organizationId } = where.organizationId_userId
+      return Promise.resolve(organizationId === ORG_A ? membershipRow({ role: 'OWNER' }) : null)
+    })
+    const res = await GET(getReq(), { params: { id: ORG_B } })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Not found' })
+    expect(mockPrisma.travelRequest.findMany).not.toHaveBeenCalled()
+  })
+
+  it('a TRAVELLER of Org A targeting Org B is denied the same way', async () => {
+    mockPrisma.organizationMembership.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve(where.organizationId_userId.organizationId === ORG_A ? membershipRow({ role: 'TRAVELLER' }) : null))
+    const res = await GET(getReq(), { params: { id: ORG_B } })
+    expect(res.status).toBe(404)
+    expect(mockPrisma.travelRequest.findMany).not.toHaveBeenCalled()
+  })
+})

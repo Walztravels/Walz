@@ -10,6 +10,7 @@ const mockPrisma = {
 }
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
 jest.mock('@/lib/business/audit', () => ({ recordBusinessAudit: jest.fn().mockResolvedValue({ id: 'audit_1' }) }))
+jest.mock('@/lib/portal/notifications', () => ({ createCustomerNotification: jest.fn().mockResolvedValue(undefined) }))
 
 const getServerSession = jest.fn()
 jest.mock('next-auth', () => ({ getServerSession: (...args: unknown[]) => getServerSession(...args) }))
@@ -17,6 +18,7 @@ jest.mock('@/lib/auth', () => ({ authOptions: {} }))
 
 import { GET, POST } from '@/app/api/business/organizations/[id]/members/route'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { createCustomerNotification } from '@/lib/portal/notifications'
 
 const ORG_A = 'org_a'
 const ORG_B = 'org_b'
@@ -138,5 +140,57 @@ describe('POST invite member', () => {
     mockPrisma.organizationMembership.create.mockRejectedValue(new Error('unique constraint'))
     const res = await POST(postReq({ email: 'new@x.com', role: 'TRAVELLER' }), { params: { id: ORG_A } })
     expect(res.status).toBe(409)
+  })
+})
+
+// ── Release 2 additions ─────────────────────────────────────────────────────
+
+describe('GET members — explicit cross-organization framing (R2)', () => {
+  it('an ACTIVE ADMIN of Org A targeting Org B\'s member list gets the generic 404 and no roster query runs', async () => {
+    mockPrisma.organizationMembership.findUnique.mockImplementation(({ where }: any) => {
+      const { organizationId } = where.organizationId_userId
+      return Promise.resolve(organizationId === ORG_A ? membershipRow({ role: 'ADMIN' }) : null)
+    })
+    const res = await GET(getReq(), { params: { id: ORG_B } })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Not found' })
+    expect(mockPrisma.organizationMembership.findMany).not.toHaveBeenCalled()
+  })
+
+  it('when allowed, the roster query is scoped to the URL organization only', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'ADMIN' }))
+    mockPrisma.organizationMembership.findMany.mockResolvedValue([])
+    await GET(getReq(), { params: { id: ORG_A } })
+    expect(mockPrisma.organizationMembership.findMany.mock.calls[0][0].where).toEqual({ organizationId: ORG_A })
+  })
+})
+
+describe('POST invite — customer portal notification (R2)', () => {
+  it('notifies the invitee via lib/portal/notifications with a relative /business link', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'ADMIN' }))
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'user_2', email: 'new@x.com' })
+    mockPrisma.organizationMembership.create.mockResolvedValue({ id: 'mem_2', userId: 'user_2', role: 'APPROVER', status: 'INVITED' })
+    const res = await POST(postReq({ email: 'new@x.com', role: 'APPROVER' }), { params: { id: ORG_A } })
+    expect(res.status).toBe(201)
+    expect(createCustomerNotification).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user_2', category: 'ACCOUNT', type: 'b2b_member_invited', href: '/business',
+      entityType: 'OrganizationMembership', entityId: 'mem_2', dedupeKey: 'b2b-member-invite:mem_2',
+    }))
+  })
+
+  it('a notification failure never fails the committed invite', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'ADMIN' }))
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'user_2', email: 'new@x.com' })
+    mockPrisma.organizationMembership.create.mockResolvedValue({ id: 'mem_2', userId: 'user_2', role: 'APPROVER', status: 'INVITED' })
+    ;(createCustomerNotification as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+    const res = await POST(postReq({ email: 'new@x.com', role: 'APPROVER' }), { params: { id: ORG_A } })
+    expect(res.status).toBe(201)
+  })
+
+  it('no notification is sent when the invite is denied cross-org', async () => {
+    mockPrisma.organizationMembership.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve(where.organizationId_userId.organizationId === ORG_A ? membershipRow({ role: 'ADMIN' }) : null))
+    await POST(postReq({ email: 'new@x.com', role: 'TRAVELLER' }), { params: { id: ORG_B } })
+    expect(createCustomerNotification).not.toHaveBeenCalled()
   })
 })

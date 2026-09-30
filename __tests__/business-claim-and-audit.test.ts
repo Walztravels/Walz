@@ -29,7 +29,8 @@ describe('initiateBusinessTravellerClaim', () => {
     expect(result!.token).toMatch(/^[0-9a-f]{64}$/)
     expect(mockPrisma.businessTraveller.update).toHaveBeenCalledWith({
       where: { id: 'bt_1' },
-      data: { claimVerificationToken: result!.token, claimVerifiedAt: null },
+      // Release 2: every issued token now carries a hard expiry.
+      data: { claimVerificationToken: result!.token, claimVerifiedAt: null, claimTokenExpiresAt: result!.expiresAt },
     })
   })
 

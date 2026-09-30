@@ -105,3 +105,25 @@ describe('POST create traveller', () => {
     expect(res.status).toBe(201)
   })
 })
+
+// ── Release 2 additions ─────────────────────────────────────────────────────
+
+describe('GET travellers — explicit cross-organization framing (R2)', () => {
+  it('an ACTIVE member of Org A targeting Org B\'s traveller list gets the generic 404 and no traveller query runs', async () => {
+    mockPrisma.organizationMembership.findUnique.mockImplementation(({ where }: any) => {
+      const { organizationId } = where.organizationId_userId
+      return Promise.resolve(organizationId === ORG_A ? membershipRow({ role: 'OWNER' }) : null)
+    })
+    const res = await GET(getReq(), { params: { id: ORG_B } })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Not found' })
+    expect(mockPrisma.businessTraveller.findMany).not.toHaveBeenCalled()
+  })
+
+  it('when allowed, the traveller query is scoped to the URL organization only', async () => {
+    mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'TRAVEL_MANAGER' }))
+    mockPrisma.businessTraveller.findMany.mockResolvedValue([])
+    await GET(getReq(), { params: { id: ORG_A } })
+    expect(mockPrisma.businessTraveller.findMany.mock.calls[0][0].where).toEqual({ organizationId: ORG_A })
+  })
+})
