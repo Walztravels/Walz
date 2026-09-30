@@ -1,28 +1,63 @@
 // lib/jade-club/purchase-activation.ts — Jade Travel Club Release 2B:
-// provider-agnostic purchase state transitions + the activation
+// provider-agnostic purchase state transitions + the ATOMIC activation
 // orchestration shared by the webhook handler and the reconciliation job.
 //
-// Every state transition here is a CAS (`updateMany` keyed on the CURRENT
-// expected status + a `.count === 1` check), never a blind `.update()` —
-// see docs/jade-2b-purchase-state-machine.md for the full design and why
-// this makes duplicate/concurrent delivery a clean no-op.
+// ── STRUCTURAL REMEDIATION (post-independent-review, Phase 1) ───────────
+// The activation sequence below is ONE top-level interactive transaction,
+// exactly matching the approved model:
+//   1. SELECT JadeClubPurchase ... FOR UPDATE
+//   2. Re-read authoritative purchase state
+//   3. Direct, authoritative lookup: JadeClubMembershipTerms by unique
+//      purchaseId = currentPurchase.id (Correction 2 — NOT a reverse
+//      pointer/status inference; NOT dependent on expiresAt being in the
+//      future)
+//   4. If found: idempotent same-purchase recovery — reconcile, never
+//      re-create
+//   5. Require paymentStatus === SUCCEEDED (a branch, not an exception)
+//   6. Lock the membership via 2A's existing, UNCHANGED SELECT ... FOR
+//      UPDATE discipline (inside createMembershipTermsCore)
+//   7. Re-check for an unexpired terms period on the membership
+//   8. If a DIFFERENT unexpired terms period exists: explicit branch
+//      (Correction 3 — NOT throw/catch) -> PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION
+//      -> commit normally
+//   9-11. Otherwise: create JadeClubMembershipTerms (source: 'PURCHASE',
+//      purchaseId: currentPurchase.id) + benefit snapshots + entitlement
+//      slots/events — all via lib/jade-club/entitlements.ts's shared
+//      createMembershipTermsCore, which takes `tx` and opens no
+//      transactions of its own
+//   12. Update the SAME purchase row (activationStatus: ACTIVATED,
+//       membershipTermsId) — SAME transaction, SAME commit as 9-11
+//   13. Commit
 //
-// This file is deliberately Stripe-type-agnostic (plain primitives in,
-// plain result unions out) so it is trivially unit-testable without a real
-// Stripe SDK object, and so the SAME functions serve both the webhook
-// route (app/api/webhooks/jade-club/route.ts) and the reconciliation job
-// (lib/jade-club/purchase-reconciliation.ts).
+// NO POST-COMMIT PURCHASE-ATTRIBUTION WRITE EXISTS ANYWHERE IN THIS FILE —
+// every write to JadeClubPurchase for the activation path happens inside
+// the SAME `prisma.$transaction` callback that also creates the terms.
 //
-// ── activateMembershipTerms is called EXACTLY as published — untouched ──
-// This file never modifies lib/jade-club/entitlements.ts. It constructs a
-// synthetic, non-interactive AdminSession (SYSTEM_ADMIN below) purely to
-// satisfy that function's existing signature and 'jade_club.manage'
-// permission check — see SYSTEM_ADMIN's own comment for the one accepted,
-// documented trade-off this implies (activateMembershipTerms's OWN
-// internal per-call ActivityLog write will fail its staffId foreign key
-// for this synthetic id and be silently caught by THAT function's own
-// existing `.catch()` — this file compensates with its own ActivityLog
-// entries below, which use `staffId: null`, a valid value).
+// ── LOCK ORDER INVARIANT (read this before touching this file) ──────────
+// Whenever a transaction in this codebase holds BOTH a JadeClubPurchase
+// row lock AND the JadeClubMembership row lock, the PURCHASE lock is
+// ALWAYS acquired FIRST, the membership lock SECOND — NEVER the reverse.
+// attemptActivation (below) is the only function that takes both:
+// purchase lock at the top of its transaction, membership lock moments
+// later inside createMembershipTermsCore. recordRefund (below) only ever
+// takes the purchase lock. A future feature that needs both locks in one
+// transaction MUST follow this same order or it can deadlock against
+// attemptActivation.
+//
+// Every non-activation state transition here (recordCheckoutSessionPaid,
+// recordCheckoutSessionFailed) keeps its existing CAS (`updateMany` keyed
+// on the CURRENT expected status + a `.count === 1` check) — that pattern
+// already correctly handles duplicate/concurrent webhook delivery for a
+// single boolean-ish PENDING -> SUCCEEDED transition, and the mission does
+// not ask for it to be converted to the heavier lock+transaction treatment
+// reserved for the more complex activation step.
+//
+// ── entitlements.ts / membership.ts are called via their SHARED CORES ───
+// createMembershipTermsCore (entitlements.ts) and applyPurchaseTierBump
+// (membership.ts) both take `tx` and open zero transactions of their own
+// — this file owns the ONE top-level transaction for the whole activation
+// sequence. See entitlements.ts's own header for the 2A-compatibility
+// proof (activateMembershipTerms, the admin wrapper, is unaffected).
 //
 // ── Freeze / boundary compliance ─────────────────────────────────────────
 // Never imports the flight Miles redemption-freeze module. Never
@@ -32,7 +67,7 @@ import prisma from '@/lib/db'
 import { Prisma } from '@prisma/client'
 import type { AdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
-import { activateMembershipTerms } from './entitlements'
+import { createMembershipTermsCore, type Tx } from './entitlements'
 import { applyPurchaseTierBump } from './membership'
 import { isJadeCommercialTier } from './commercial-types'
 import type { JadeClubTier } from './types'
@@ -40,7 +75,6 @@ import { isJadePurchaseFailureReason, RETRYABLE_ACTIVATION_FAILURE_REASONS, type
 
 export const MAX_ACTIVATION_ATTEMPTS = 5
 const PENDING_REFERENCE_PREFIX = 'pending:'
-const UNEXPIRED_TERMS_GUARD_MESSAGE = 'already has an unexpired commercial terms period'
 
 function requireManage(admin: AdminSession) {
   if (!hasPermission(admin, 'jade_club.manage')) {
@@ -52,28 +86,8 @@ function requireReason(reason: unknown): string {
   return reason.trim()
 }
 
-// A synthetic, permission-bearing session used ONLY to call
-// activateMembershipTerms/applyPurchaseTierBump from an automated context
-// (no interactive staff member is involved in a customer-triggered
-// purchase). `id` does not correspond to any real Staff row — see this
-// file's header comment.
-const SYSTEM_ADMIN: AdminSession = {
-  id: 'SYSTEM_JADE_CLUB_PURCHASE',
-  email: 'system@walztravels.com',
-  name: 'Jade Club Purchase (system)',
-  roleTitle: 'System',
-  sendingEmail: 'system@walztravels.com',
-  signatureTagline: null,
-  role: 'super_admin',
-  staffRole: 'super_admin',
-  permissions: { 'jade_club.manage': true, 'jade_club': true },
-  branch: 'HQ',
-  department: 'system',
-  isActive: true,
-}
-
-async function writeAuditLog(action: string, purchaseId: string, detail: string, after: Record<string, unknown>): Promise<void> {
-  await prisma.activityLog.create({
+async function writeAuditLog(client: Tx, action: string, purchaseId: string, detail: string, after: Record<string, unknown>): Promise<void> {
+  await client.activityLog.create({
     data: {
       staffId: null,
       staffName: 'Jade Club Purchase (system)',
@@ -86,7 +100,7 @@ async function writeAuditLog(action: string, purchaseId: string, detail: string,
       before: Prisma.JsonNull,
       after: after as Prisma.InputJsonValue,
     },
-  }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
+  }).catch((e: unknown) => console.warn('[jade-club] activity log write failed:', e))
 }
 
 // ─── Operational alerts ─────────────────────────────────────────────────
@@ -104,22 +118,28 @@ async function writeAuditLog(action: string, purchaseId: string, detail: string,
 // `sourceType: 'jade_club_reconciliation'` making the concept explicit.
 // Idempotent per (staffId, sourceId) via check-then-create, mirroring the
 // daily-brief route's own delivery-idempotency pattern.
-async function raiseJadeClubOperationalAlert(params: { sourceId: string; title: string; body: string }): Promise<void> {
+//
+// Takes the SAME `tx` as the surrounding transaction (structural
+// remediation) so the alert is co-committed atomically with the state
+// transition it documents — but its own internal try/catch means an
+// alert-write failure never aborts the (far more important) state
+// transition it's attached to.
+async function raiseJadeClubOperationalAlert(client: Tx, params: { sourceId: string; title: string; body: string }): Promise<void> {
   try {
-    const staffRows = await prisma.staff.findMany({
+    const staffRows = await client.staff.findMany({
       where: { isActive: true },
       select: { id: true, role: true, permissions: true },
     })
     const recipients = staffRows.filter((s) => hasPermission({ role: s.role, permissions: s.permissions }, 'jade_club.manage'))
 
     for (const staff of recipients) {
-      const already = await prisma.staffNotification.findFirst({
+      const already = await client.staffNotification.findFirst({
         where: { staffId: staff.id, sourceId: params.sourceId },
         select: { id: true },
       })
       if (already) continue
 
-      await prisma.staffNotification.create({
+      await client.staffNotification.create({
         data: {
           staffId: staff.id,
           category: 'BOOKING',
@@ -136,8 +156,8 @@ async function raiseJadeClubOperationalAlert(params: { sourceId: string; title: 
   }
 }
 
-async function raiseDuplicatePaidPurchaseAlert(purchaseId: string, winningPurchaseId: string | null): Promise<void> {
-  await raiseJadeClubOperationalAlert({
+async function raiseDuplicatePaidPurchaseAlert(client: Tx, purchaseId: string, winningPurchaseId: string | null): Promise<void> {
+  await raiseJadeClubOperationalAlert(client, {
     sourceId: `jade-club-duplicate-purchase:${purchaseId}`,
     title: 'Jade Club: duplicate paid membership purchase needs reconciliation',
     body: winningPurchaseId
@@ -146,8 +166,8 @@ async function raiseDuplicatePaidPurchaseAlert(purchaseId: string, winningPurcha
   })
 }
 
-async function raiseRefundAfterActivationAlert(purchaseId: string, activationStatusAtRefund: string): Promise<void> {
-  await raiseJadeClubOperationalAlert({
+async function raiseRefundAfterActivationAlert(client: Tx, purchaseId: string, activationStatusAtRefund: string): Promise<void> {
+  await raiseJadeClubOperationalAlert(client, {
     sourceId: `jade-club-refund-after-activation:${purchaseId}`,
     title: 'Jade Club: refund recorded after membership activation',
     body: `Purchase ${purchaseId} was refunded by the payment provider after its membership was already activated (activationStatus at refund time: ${activationStatusAtRefund}). Financial reconciliation and a lifecycle review are required. No membership/terms/benefit data has been automatically changed — this alert exists specifically so a human decides what to do.`,
@@ -171,6 +191,10 @@ export type RecordCheckoutPaidOutcome =
  * lib/jade-club/purchase.ts::createJadeClubCheckout. The heal itself is a
  * CAS: it only ever patches a row that is STILL carrying our own
  * placeholder reference, so it can never hijack an unrelated purchase.
+ *
+ * Not converted to the lock+transaction pattern (see this file's header)
+ * — this is a single boolean-ish PENDING -> SUCCEEDED transition already
+ * correctly handled by the existing CAS.
  */
 export async function recordCheckoutSessionPaid(params: {
   providerReference: string
@@ -209,7 +233,7 @@ export async function recordCheckoutSessionPaid(params: {
     })
     if (cas.count === 1) {
       await writeAuditLog(
-        'JADE_CLUB_PURCHASE_AMOUNT_MISMATCH', purchase.id,
+        prisma as unknown as Tx, 'JADE_CLUB_PURCHASE_AMOUNT_MISMATCH', purchase.id,
         'Paid amount/currency did not match the checkout amount — activation blocked for manual review.',
         { expectedMinor: purchase.amountMinor, expectedCurrency: purchase.currency, gotMinor: params.amountTotalMinor, gotCurrency: params.currency },
       )
@@ -243,28 +267,46 @@ export async function recordCheckoutSessionFailed(providerReference: string, rea
   })
 }
 
-/** charge.refunded, resolved back to our providerReference (Checkout Session id) by the caller. */
+/**
+ * charge.refunded, resolved back to our providerReference (Checkout
+ * Session id) by the caller.
+ *
+ * STRUCTURAL REMEDIATION — refund/activation serialization: this function
+ * now locks the SAME purchase row (`SELECT ... FOR UPDATE`) inside its own
+ * transaction, so a refund landing concurrently with attemptActivation for
+ * the SAME purchase is serialized by Postgres itself — whichever
+ * transaction's lock acquisition wins goes first; the other blocks until
+ * the first commits, then re-reads the (now up to date) row. This is the
+ * ONLY function besides attemptActivation that locks JadeClubPurchase —
+ * it never also locks JadeClubMembership, so the lock-order invariant
+ * (purchase before membership) is trivially satisfied here.
+ */
 export async function recordRefund(providerReference: string): Promise<void> {
-  const cas = await prisma.jadeClubPurchase.updateMany({
-    where: { provider: 'STRIPE', providerReference, paymentStatus: 'SUCCEEDED' },
-    data: { paymentStatus: 'REFUNDED' },
-  })
-  if (cas.count === 1) {
-    const purchase = await prisma.jadeClubPurchase.findFirst({ where: { provider: 'STRIPE', providerReference } })
-    if (purchase) {
-      await writeAuditLog('JADE_CLUB_PURCHASE_REFUNDED', purchase.id, 'Payment refunded by provider.', { activationStatusAtRefund: purchase.activationStatus })
+  await prisma.$transaction(async (tx) => {
+    // Lock by the natural key directly — avoids a TOCTOU gap between a
+    // separate lookup-by-reference and acquiring the lock.
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM jade_club_purchases WHERE provider = 'STRIPE' AND provider_reference = ${providerReference} FOR UPDATE
+    `
+    if (locked.length === 0) return // no such purchase — nothing to refund
 
-      // A refund landing on an ALREADY-ACTIVATED purchase is exactly the
-      // "needs a human financial/lifecycle decision now" situation a
-      // passive DB row isn't enough for — raise a real staff alert. This
-      // deliberately does NOT auto-revoke membership/terms/benefit
-      // snapshots/entitlements — that needs separate lifecycle-rule
-      // approval (see docs/jade-2b-purchase-state-machine.md, scenario 8).
-      if (purchase.activationStatus === 'ACTIVATED') {
-        await raiseRefundAfterActivationAlert(purchase.id, purchase.activationStatus)
-      }
+    const purchase = await tx.jadeClubPurchase.findUnique({ where: { id: locked[0].id } })
+    if (!purchase) return
+    if (purchase.paymentStatus !== 'SUCCEEDED') return // already refunded, or never succeeded — idempotent no-op
+
+    await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { paymentStatus: 'REFUNDED' } })
+    await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_REFUNDED', purchase.id, 'Payment refunded by provider.', { activationStatusAtRefund: purchase.activationStatus })
+
+    // A refund landing on an ALREADY-ACTIVATED purchase is exactly the
+    // "needs a human financial/lifecycle decision now" situation a
+    // passive DB row isn't enough for — raise a real staff alert. This
+    // deliberately does NOT auto-revoke membership/terms/benefit
+    // snapshots/entitlements — that needs separate lifecycle-rule
+    // approval (see docs/jade-2b-purchase-state-machine.md, scenario 8).
+    if (purchase.activationStatus === 'ACTIVATED') {
+      await raiseRefundAfterActivationAlert(tx, purchase.id, purchase.activationStatus)
     }
-  }
+  })
 }
 
 // ─── Activation orchestration (shared by webhook + reconciliation) ────────
@@ -288,220 +330,196 @@ export type AttemptActivationOutcome =
 /**
  * Idempotent. Safe to call any number of times for the same purchaseId —
  * from the webhook right after payment confirmation, or from the
- * reconciliation job on a schedule. Calls applyPurchaseTierBump (2B, new)
- * then activateMembershipTerms (2A, UNTOUCHED) in that order, exactly as
- * the mission requires.
+ * reconciliation job on a schedule.
+ *
+ * ATOMIC — see this file's header for the full 13-step sequence. Steps
+ * 1-13 (purchase lock through purchase finalization) are ONE
+ * `prisma.$transaction` — there is no window in which terms/snapshots/
+ * entitlements exist without the purchase row also reflecting ACTIVATED,
+ * and no window in which the purchase reflects ACTIVATED without the
+ * terms/snapshots/entitlements existing (database invariant #7).
+ *
+ * The activationAttempts counter is bumped in its OWN small, always-
+ * committed statement BEFORE the main transaction — deliberately NOT
+ * inside it, so a genuine technical failure that rolls back the main
+ * transaction does not also erase the fact that an attempt was made
+ * (otherwise the same failure could repeat forever without ever tripping
+ * MAX_ACTIVATION_ATTEMPTS).
  */
 export async function attemptActivation(purchaseId: string): Promise<AttemptActivationOutcome> {
-  const purchase = await prisma.jadeClubPurchase.findUnique({ where: { id: purchaseId } })
-  if (!purchase) return { outcome: 'NOT_READY' }
-
-  if (purchase.activationStatus === 'ACTIVATED') return { outcome: 'ALREADY_ACTIVATED' }
-  if (purchase.activationStatus !== 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING') return { outcome: 'NOT_READY' }
-
-  // Re-check payment status immediately before every attempt — a refund
-  // landing between payment confirmation and activation must stop
-  // activation cold (design doc scenario 7).
-  if (purchase.paymentStatus === 'REFUNDED') {
-    await markFailedPermanently(purchase.id, 'REFUNDED_BEFORE_ACTIVATION')
-    return { outcome: 'FAILED_PERMANENTLY', reason: 'REFUNDED_BEFORE_ACTIVATION' }
+  // Cheap, lock-free pre-check so a no-op call (already terminal) never
+  // bumps the attempt counter at all.
+  const precheck = await prisma.jadeClubPurchase.findUnique({ where: { id: purchaseId }, select: { activationStatus: true, failureReason: true } })
+  if (!precheck) return { outcome: 'NOT_READY' }
+  if (precheck.activationStatus === 'ACTIVATED') return { outcome: 'ALREADY_ACTIVATED' }
+  if (precheck.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION') {
+    return { outcome: 'REQUIRES_RECONCILIATION', reason: safeFailureReason(precheck.failureReason) }
   }
-  if (purchase.paymentStatus !== 'SUCCEEDED') return { outcome: 'NOT_READY' }
+  if (precheck.activationStatus !== 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING') return { outcome: 'NOT_READY' }
 
-  if (!isJadeCommercialTier(purchase.tier)) {
-    await markFailedPermanently(purchase.id, 'UNKNOWN_ACTIVATION_ERROR')
-    return { outcome: 'FAILED_PERMANENTLY', reason: 'UNKNOWN_ACTIVATION_ERROR' }
-  }
-
+  // Independent, always-committed statement — survives a later rollback
+  // of the main attempt below, so MAX_ACTIVATION_ATTEMPTS is enforced
+  // correctly even if the exact same technical failure repeats every time.
   const attemptRow = await prisma.jadeClubPurchase.update({
-    where: { id: purchase.id },
+    where: { id: purchaseId },
     data: { activationAttempts: { increment: 1 } },
     select: { activationAttempts: true },
   })
 
   try {
-    // Re-read the policy fresh. Its scalar fields are immutable once ACTIVE
-    // (see lib/jade-club/commercial-policy.ts), so this is not the same
-    // thing as re-resolving "the current ACTIVE policy for this scope" —
-    // we always activate against purchase.policyId, the exact policy the
-    // member paid for (see design doc, "why policyVersion is copied at
-    // checkout-creation time").
-    const policy = await prisma.jadeClubCommercialPolicy.findUnique({ where: { id: purchase.policyId } })
-    if (!policy) throw new Error('POLICY_ROW_MISSING')
-    if (policy.status !== 'ACTIVE') {
-      await markFailedPermanently(purchase.id, 'POLICY_NO_LONGER_ACTIVE')
-      return { outcome: 'FAILED_PERMANENTLY', reason: 'POLICY_NO_LONGER_ACTIVE' }
-    }
+    return await prisma.$transaction(async (tx) => {
+      // ── Step 1: lock the PURCHASE row FIRST (lock-order invariant). ──
+      await tx.$queryRaw`SELECT id FROM jade_club_purchases WHERE id = ${purchaseId} FOR UPDATE`
 
-    await applyPurchaseTierBump({ userId: purchase.userId, tier: purchase.tier as JadeClubTier, durationMonths: policy.durationMonths })
+      // ── Step 2: re-read authoritative purchase state, under the lock. ──
+      const purchase = await tx.jadeClubPurchase.findUnique({ where: { id: purchaseId } })
+      if (!purchase) return { outcome: 'NOT_READY' } as const
 
-    const membership = await prisma.jadeClubMembership.findUnique({ where: { userId: purchase.userId } })
-    if (!membership) throw new Error('MEMBERSHIP_ROW_MISSING_AFTER_TIER_BUMP')
+      if (purchase.activationStatus === 'ACTIVATED') return { outcome: 'ALREADY_ACTIVATED' } as const
+      if (purchase.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION') {
+        return { outcome: 'REQUIRES_RECONCILIATION', reason: safeFailureReason(purchase.failureReason) } as const
+      }
+      if (purchase.activationStatus !== 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING') return { outcome: 'NOT_READY' } as const
 
-    const activation = await activateMembershipTerms(
-      SYSTEM_ADMIN,
-      membership.id,
-      purchase.policyId,
-      `Jade Club purchase ${purchase.id} — payment verified via ${purchase.provider}:${purchase.providerReference}`,
-      'PURCHASE',
-    )
+      // ── Step 3 (Correction 2): direct, authoritative same-purchase lookup. ──
+      // purchaseId is @unique on JadeClubMembershipTerms — this is the
+      // SINGLE source of truth for "did THIS purchase already create its
+      // terms?". It does NOT depend on expiresAt (a purchase's terms can
+      // legitimately be historically expired and still be that exact
+      // purchase's own terms — see Test A), a reverse pointer on the
+      // purchase row, the membership's current tier, or any client/webhook
+      // state.
+      const ownTerms = await tx.jadeClubMembershipTerms.findFirst({ where: { purchaseId: purchase.id } })
+      if (ownTerms) {
+        // ── Step 4: idempotent same-purchase recovery — reconcile, never re-create. ──
+        // We only ever reach this branch with activationStatus still
+        // PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING (the ACTIVATED case
+        // already returned earlier above), so this row always needs its
+        // ACTIVATED/membershipTermsId reconciled here — a concurrent
+        // attempt for this exact purchase must have already created
+        // `ownTerms` without this row's own finalization step (step 12)
+        // having landed yet.
+        await tx.jadeClubPurchase.update({
+          where: { id: purchase.id },
+          data: {
+            activationStatus: 'ACTIVATED',
+            membershipId: ownTerms.membershipId,
+            membershipTermsId: ownTerms.id,
+            activatedAt: purchase.activatedAt ?? new Date(),
+          },
+        })
+        return { outcome: 'ACTIVATED', termsId: ownTerms.id } as const
+      }
 
-    const cas = await prisma.jadeClubPurchase.updateMany({
-      where: { id: purchase.id, activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
-      data: { activationStatus: 'ACTIVATED', membershipId: membership.id, membershipTermsId: activation.termsId, activatedAt: new Date() },
+      // ── Step 5: payment-status branch — NOT an exception. ──
+      if (purchase.paymentStatus === 'REFUNDED') {
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'REFUNDED_BEFORE_ACTIVATION' } })
+        await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchase.id, 'Activation permanently failed: REFUNDED_BEFORE_ACTIVATION', { reason: 'REFUNDED_BEFORE_ACTIVATION' })
+        return { outcome: 'FAILED_PERMANENTLY', reason: 'REFUNDED_BEFORE_ACTIVATION' } as const
+      }
+      if (purchase.paymentStatus !== 'SUCCEEDED') return { outcome: 'NOT_READY' } as const
+
+      if (!isJadeCommercialTier(purchase.tier)) {
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'UNKNOWN_ACTIVATION_ERROR' } })
+        await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchase.id, 'Activation permanently failed: UNKNOWN_ACTIVATION_ERROR (invalid tier)', { reason: 'UNKNOWN_ACTIVATION_ERROR' })
+        return { outcome: 'FAILED_PERMANENTLY', reason: 'UNKNOWN_ACTIVATION_ERROR' } as const
+      }
+
+      // Re-read the policy fresh. Its scalar fields are immutable once
+      // ACTIVE (see lib/jade-club/commercial-policy.ts), so this is NOT
+      // the same thing as re-resolving "the current ACTIVE policy for
+      // this scope" — we always activate against purchase.policyId, the
+      // exact policy the member paid for.
+      const policy = await tx.jadeClubCommercialPolicy.findUnique({ where: { id: purchase.policyId } })
+      if (!policy) {
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'UNKNOWN_ACTIVATION_ERROR' } })
+        await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchase.id, 'Activation permanently failed: UNKNOWN_ACTIVATION_ERROR (policy row missing)', { reason: 'UNKNOWN_ACTIVATION_ERROR' })
+        return { outcome: 'FAILED_PERMANENTLY', reason: 'UNKNOWN_ACTIVATION_ERROR' } as const
+      }
+      if (policy.status !== 'ACTIVE') {
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'POLICY_NO_LONGER_ACTIVE' } })
+        await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchase.id, 'Activation permanently failed: POLICY_NO_LONGER_ACTIVE', { reason: 'POLICY_NO_LONGER_ACTIVE' })
+        return { outcome: 'FAILED_PERMANENTLY', reason: 'POLICY_NO_LONGER_ACTIVE' } as const
+      }
+
+      // Bump the membership tier to match the purchased policy BEFORE the
+      // collision check — see lib/jade-club/membership.ts's own comment on
+      // why a would-be collision loser's tier bump is deliberately
+      // accepted (idempotent, convergent, reflects that money genuinely
+      // changed hands).
+      await applyPurchaseTierBump(tx, { userId: purchase.userId, tier: purchase.tier as JadeClubTier, durationMonths: policy.durationMonths })
+
+      const membership = await tx.jadeClubMembership.findUnique({ where: { userId: purchase.userId } })
+      if (!membership) {
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'UNKNOWN_ACTIVATION_ERROR' } })
+        await writeAuditLog(tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchase.id, 'Activation permanently failed: UNKNOWN_ACTIVATION_ERROR (membership row missing after tier bump)', { reason: 'UNKNOWN_ACTIVATION_ERROR' })
+        return { outcome: 'FAILED_PERMANENTLY', reason: 'UNKNOWN_ACTIVATION_ERROR' } as const
+      }
+
+      // ── Steps 6-11: shared core — same lock discipline, same validation
+      // order, same guard behavior as 2A's activateMembershipTerms. ──
+      const core = await createMembershipTermsCore(tx, {
+        membershipId: membership.id, policyId: purchase.policyId, source: 'PURCHASE', purchaseId: purchase.id,
+      })
+
+      if (!core.ok) {
+        // ── Step 8 (Correction 3): explicit branch — NO throw, commits normally. ──
+        const reason: JadePurchaseFailureReason = core.existingTerms.purchaseId ? 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' : 'DUPLICATE_ACTIVE_TERMS'
+        await tx.jadeClubPurchase.update({ where: { id: purchase.id }, data: { activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', failureReason: reason } })
+        await writeAuditLog(
+          tx, 'JADE_CLUB_PURCHASE_REQUIRES_RECONCILIATION', purchase.id,
+          core.existingTerms.purchaseId
+            ? `A different, distinct, already-SUCCEEDED purchase (${core.existingTerms.purchaseId}) activated this membership's terms first — this purchase was also paid but could not be activated. Requires financial reconciliation (normally a refund).`
+            : `This membership already has an unexpired commercial terms period from a non-purchase source — this purchase was paid but could not be activated. Requires reconciliation.`,
+          { winningPurchaseId: core.existingTerms.purchaseId, winningTermsId: core.existingTerms.id, reason },
+        )
+        await raiseDuplicatePaidPurchaseAlert(tx, purchase.id, core.existingTerms.purchaseId)
+        return { outcome: 'REQUIRES_RECONCILIATION', reason } as const
+      }
+
+      // ── Steps 9-12: finalize — SAME transaction, SAME commit. ──
+      await tx.jadeClubPurchase.update({
+        where: { id: purchase.id },
+        data: { activationStatus: 'ACTIVATED', membershipId: membership.id, membershipTermsId: core.termsId, activatedAt: new Date() },
+      })
+      await writeAuditLog(
+        tx, 'JADE_CLUB_PURCHASE_ACTIVATED', purchase.id,
+        `Activated ${purchase.tier} membership via purchase after ${attemptRow.activationAttempts} attempt(s).`,
+        { membershipId: membership.id, termsId: core.termsId },
+      )
+
+      return { outcome: 'ACTIVATED', termsId: core.termsId } as const
     })
-    if (cas.count !== 1) {
-      // A concurrent attempt for this SAME purchase finished first —
-      // harmless, not an error.
-      return { outcome: 'ALREADY_ACTIVATED' }
-    }
-
-    await writeAuditLog(
-      'JADE_CLUB_PURCHASE_ACTIVATED', purchase.id,
-      `Activated ${purchase.tier} membership via purchase after ${attemptRow.activationAttempts} attempt(s).`,
-      { membershipId: membership.id, termsId: activation.termsId },
-    )
-
-    return { outcome: 'ACTIVATED', termsId: activation.termsId }
   } catch (err) {
+    // Genuine, unexpected technical failure (Correction 3 — real
+    // throw/catch, reserved EXCLUSIVELY for this case): the transaction
+    // above rolled back completely — no terms, no snapshots, no
+    // entitlements, no purchase-row mutation from this attempt survive.
     const message = err instanceof Error ? err.message : String(err)
-
-    // activateMembershipTerms's OWN existing guard string (untouched) fires
-    // in TWO genuinely different situations that must NOT be collapsed
-    // into one outcome (HIGH-severity fix — see
-    // docs/jade-2b-purchase-state-machine.md's race-condition addendum):
-    //
-    //   CASE A — another worker processing THIS SAME purchase already won
-    //   the race and committed the full ACTIVATED CAS first. This purchase
-    //   is NOT a failure — it IS activated, just via the other call. It
-    //   must end as ALREADY_ACTIVATED, never FAILED_PERMANENTLY.
-    //
-    //   CASE B — a DIFFERENT, distinct, successfully-paid purchase for the
-    //   SAME membership won the race. THIS purchase can never activate —
-    //   but it must land in the distinct, non-retryable
-    //   PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION state (a human decision,
-    //   normally a refund), never a generic permanent-failure label that
-    //   would misleadingly suggest nothing happened financially.
-    if (message.includes(UNEXPIRED_TERMS_GUARD_MESSAGE)) {
-      return resolveUnexpiredTermsCollision(purchase.id, purchase.userId)
-    }
-
-    console.error('[jade-club/purchase-activation] attempt failed for', purchase.id, ':', message)
+    console.error('[jade-club/purchase-activation] attempt failed for', purchaseId, ':', message)
 
     if (attemptRow.activationAttempts >= MAX_ACTIVATION_ATTEMPTS) {
-      await markFailedPermanently(purchase.id, 'MAX_RETRIES_EXCEEDED')
+      const cas = await prisma.jadeClubPurchase.updateMany({
+        where: { id: purchaseId, activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
+        data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: 'MAX_RETRIES_EXCEEDED' },
+      })
+      if (cas.count === 1) {
+        await writeAuditLog(prisma as unknown as Tx, 'JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchaseId, 'Activation permanently failed: MAX_RETRIES_EXCEEDED', { reason: 'MAX_RETRIES_EXCEEDED' })
+      }
       return { outcome: 'FAILED_PERMANENTLY', reason: 'MAX_RETRIES_EXCEEDED' }
     }
     return { outcome: 'FAILED_RETRYABLE', error: message }
   }
 }
 
-async function markFailedPermanently(purchaseId: string, reason: JadePurchaseFailureReason): Promise<void> {
-  const cas = await prisma.jadeClubPurchase.updateMany({
-    where: { id: purchaseId, activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
-    data: { activationStatus: 'FAILED_PERMANENTLY', failureReason: reason },
-  })
-  if (cas.count === 1) {
-    await writeAuditLog('JADE_CLUB_PURCHASE_ACTIVATION_FAILED_PERMANENTLY', purchaseId, `Activation permanently failed: ${reason}`, { reason })
-  }
-}
-
-/**
- * Disambiguates activateMembershipTerms's "already has an unexpired
- * commercial terms period" guard into CASE A (same purchase, a concurrent
- * attempt already won) vs CASE B (a different, distinct, successfully-paid
- * purchase won). Never writes to a purchase row that isn't in
- * PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING (every CAS below is gated on
- * that), so an already-ACTIVATED row's activationStatus/membershipTermsId
- * can never be touched by this function — invariants #1/#2 hold
- * structurally, not just by convention.
- */
-async function resolveUnexpiredTermsCollision(purchaseId: string, userId: string): Promise<AttemptActivationOutcome> {
-  // Re-read fresh — the winning concurrent call (CASE A) may have already
-  // committed its CAS to ACTIVATED between our failed attempt and now.
-  const fresh = await prisma.jadeClubPurchase.findUnique({ where: { id: purchaseId } })
-  if (!fresh) return { outcome: 'NOT_READY' }
-  if (fresh.activationStatus === 'ACTIVATED') return { outcome: 'ALREADY_ACTIVATED' }
-  if (fresh.activationStatus !== 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING') {
-    // Already moved on (e.g. a concurrent call already routed it to
-    // REQUIRES_RECONCILIATION) — report that current state rather than
-    // re-deriving it.
-    return fresh.activationStatus === 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION'
-      ? { outcome: 'REQUIRES_RECONCILIATION', reason: (fresh.failureReason as JadePurchaseFailureReason) ?? 'DUPLICATE_ACTIVE_TERMS' }
-      : { outcome: 'NOT_READY' }
-  }
-
-  const membership = await prisma.jadeClubMembership.findUnique({ where: { userId } })
-  if (!membership) {
-    await markFailedPermanently(purchaseId, 'UNKNOWN_ACTIVATION_ERROR')
-    return { outcome: 'FAILED_PERMANENTLY', reason: 'UNKNOWN_ACTIVATION_ERROR' }
-  }
-
-  const winningTerms = await prisma.jadeClubMembershipTerms.findFirst({
-    where: { membershipId: membership.id, expiresAt: { gt: new Date() } },
-    orderBy: { activatedAt: 'desc' },
-  })
-
-  if (!winningTerms) {
-    // The guard tripped a moment ago but no unexpired terms exist now
-    // (e.g. it expired in the interim, or a transient read anomaly) —
-    // treat as retryable rather than guessing.
-    return { outcome: 'FAILED_RETRYABLE', error: 'Unexpired-terms guard fired but no unexpired terms found on re-read' }
-  }
-
-  const winningPurchase = await prisma.jadeClubPurchase.findFirst({ where: { membershipTermsId: winningTerms.id } })
-
-  if (winningPurchase && winningPurchase.id === purchaseId) {
-    // CASE A, caught at an unusual moment: the winning terms ARE this same
-    // purchase's own (a concurrent call for this exact purchase created
-    // them) but the final CAS to ACTIVATED on this row hasn't landed yet —
-    // self-heal by completing it, rather than reporting a false failure.
-    const cas = await prisma.jadeClubPurchase.updateMany({
-      where: { id: purchaseId, activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
-      data: { activationStatus: 'ACTIVATED', membershipId: membership.id, membershipTermsId: winningTerms.id, activatedAt: new Date() },
-    })
-    if (cas.count === 1) {
-      await writeAuditLog('JADE_CLUB_PURCHASE_ACTIVATED', purchaseId, 'Activated (self-healed after a concurrent-attempt race on the same purchase).', { membershipId: membership.id, termsId: winningTerms.id })
-    }
-    return { outcome: 'ACTIVATED', termsId: winningTerms.id }
-  }
-
-  // CASE B: a genuinely different claimant already holds the membership's
-  // one unexpired terms slot — either a distinct, different PURCHASE
-  // (DUPLICATE_PAID_MEMBERSHIP_PURCHASE — the scenario this fix targets),
-  // or a non-purchase source (ADMIN_GRANT/PROMOTION — DUPLICATE_ACTIVE_TERMS,
-  // kept for that narrower edge case). Either way this purchase can NEVER
-  // mechanically retry into activating — it needs a human financial/
-  // lifecycle decision, so it goes to PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION,
-  // NEVER FAILED_PERMANENTLY (that status is reserved for "retry might work").
-  const reason: JadePurchaseFailureReason = winningPurchase ? 'DUPLICATE_PAID_MEMBERSHIP_PURCHASE' : 'DUPLICATE_ACTIVE_TERMS'
-
-  const cas = await prisma.jadeClubPurchase.updateMany({
-    where: { id: purchaseId, activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' },
-    data: { activationStatus: 'PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION', failureReason: reason },
-  })
-  if (cas.count === 1) {
-    await writeAuditLog(
-      'JADE_CLUB_PURCHASE_REQUIRES_RECONCILIATION', purchaseId,
-      winningPurchase
-        ? `A different, distinct, already-SUCCEEDED purchase (${winningPurchase.id}) activated this membership's terms first — this purchase was also paid but could not be activated. Requires financial reconciliation (normally a refund).`
-        : `This membership already has an unexpired commercial terms period from a non-purchase source — this purchase was paid but could not be activated. Requires reconciliation.`,
-      { winningPurchaseId: winningPurchase?.id ?? null, winningTermsId: winningTerms.id, reason },
-    )
-    await raiseDuplicatePaidPurchaseAlert(purchaseId, winningPurchase?.id ?? null)
-  }
-
-  return { outcome: 'REQUIRES_RECONCILIATION', reason }
-}
-
 // Re-exported for the admin "Retry Activation" route, so a stuck row can be
 // reset out of FAILED_PERMANENTLY back into the retryable state by an
 // explicit, audited, reason-required staff action — never automatically.
 export async function adminResetForRetry(admin: AdminSession, purchaseId: string, reason: string): Promise<void> {
-  // Defense-in-depth (A5 remediation): the permission check now lives HERE
-  // too, not only in the calling route — matching entitlements.ts's own
-  // requireManage() convention, so this function is safe to call from any
-  // future call site without relying on that caller to have checked first.
+  // Defense-in-depth: the permission check lives HERE too, not only in the
+  // calling route — matching entitlements.ts's own requireManage()
+  // convention, so this function is safe to call from any future call
+  // site without relying on that caller to have checked first.
   requireManage(admin)
   const cleanReason = requireReason(reason)
 

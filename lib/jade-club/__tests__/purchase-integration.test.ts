@@ -85,9 +85,16 @@ function makeFakeDb() {
       findUnique: async ({ where }: any) => state.benefitsCatalog.get(where.key) ?? null,
     },
     jadeClubMembershipTerms: {
+      // Supports BOTH lookup shapes the real code uses:
+      //   { purchaseId } — Correction 2's direct, authoritative same-purchase lookup
+      //   { membershipId, expiresAt: { gt } } — the distinct-collision unexpired-terms recheck
       findFirst: async ({ where }: any) => {
+        if (where.purchaseId !== undefined) {
+          for (const t of state.terms.values()) if (t.purchaseId === where.purchaseId) return { ...t }
+          return null
+        }
         const rows = [...state.terms.values()].filter(t => t.membershipId === where.membershipId && (!where.expiresAt?.gt || t.expiresAt.getTime() > where.expiresAt.gt.getTime()))
-        return rows[0] ?? null
+        return rows[0] ? { ...rows[0] } : null
       },
       findUnique: async ({ where }: any) => state.terms.get(where.id) ?? null,
       create: async ({ data }: any) => {

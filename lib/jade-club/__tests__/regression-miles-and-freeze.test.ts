@@ -70,12 +70,32 @@ describe('Release 2B — purchase engine stays inside the same boundaries', () =
     expect(purchaseSrc).toMatch(/amountMinor: policy\.annualPriceMinor/)
   })
 
-  it('activateMembershipTerms is called with source PURCHASE only from the purchase-activation orchestrator, never re-implemented elsewhere', () => {
+  it('terms/entitlement creation with source PURCHASE goes through the shared createMembershipTermsCore only, never re-implemented elsewhere (structural remediation)', () => {
     const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
-    expect(activationSrc).toMatch(/activateMembershipTerms\(/)
-    // The entitlements.ts source itself is untouched — this file never
-    // duplicates its transaction/locking logic.
+    expect(activationSrc).toMatch(/createMembershipTermsCore\(/)
+    expect(activationSrc).toMatch(/source: 'PURCHASE'/)
+    // purchase-activation.ts never re-implements the membership lock or the
+    // terms/snapshot/slot creation itself — that logic lives ONLY in the
+    // shared core inside entitlements.ts.
+    expect(activationSrc).not.toMatch(/SELECT id FROM jade_club_memberships WHERE id/)
+    expect(activationSrc).not.toMatch(/jadeClubMembershipBenefitSnapshot\.create/)
+
+    // The shared core's own lock/guard behavior is unchanged.
     const entitlementsSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'entitlements.ts'), 'utf8')
-    expect(entitlementsSrc).toMatch(/SELECT id FROM jade_club_memberships WHERE id = \$\{membershipId\} FOR UPDATE/)
+    expect(entitlementsSrc).toMatch(/SELECT id FROM jade_club_memberships WHERE id = \$\{params\.membershipId\} FOR UPDATE/)
+    // Correction 3: the collision case is a RETURNED result, not a thrown
+    // exception, at the shared-core level.
+    expect(entitlementsSrc).toMatch(/ok: false, reason: 'UNEXPIRED_TERMS_EXISTS'/)
+  })
+
+  it('activateMembershipTerms (2A admin wrapper) still throws the exact same collision error string — its external contract is unaffected by the shared-core refactor', () => {
+    const entitlementsSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'entitlements.ts'), 'utf8')
+    expect(entitlementsSrc).toMatch(/This membership already has an unexpired commercial terms period — renewal is not implemented in Release 2A/)
+  })
+
+  it('lock order invariant is documented at the one call site that takes both the purchase and membership locks', () => {
+    const activationSrc = fs.readFileSync(path.join(JADE_CLUB_DIR, 'purchase-activation.ts'), 'utf8')
+    expect(activationSrc).toMatch(/LOCK ORDER INVARIANT/)
+    expect(activationSrc).toMatch(/ALWAYS acquired FIRST, the membership lock SECOND/)
   })
 })

@@ -23,7 +23,7 @@ import type { AdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import { generateMemberCode } from './member-code'
 import { createMembershipVerificationToken } from './qr-token'
-import { addMonths } from './entitlements'
+import { addMonths, type Tx } from './entitlements'
 import {
   type JadeClubTier, type JadeClubMembershipStatus, type JadeClubMembershipSource,
   isJadeClubTier, isJadeClubMembershipStatus,
@@ -275,33 +275,82 @@ export async function adminAdjustMembership(
 // change JadeClubMembership.tier/status. Deliberately NARROW: no
 // interactive admin, no free-text reason, no arbitrary tier/status
 // combination — it only ever moves a membership to
-// { tier: <purchased tier>, status: 'ACTIVE', source: 'PURCHASE' }, called
-// exactly once by the Jade Club purchase webhook handler
-// (app/api/webhooks/jade-club/route.ts) after payment has been verified,
-// immediately before activateMembershipTerms() is called for the same
-// purchase. It reuses validateResultingMembershipState — the EXACT same
-// "is this final state internally consistent" rule adminAdjustMembership
-// enforces — rather than duplicating that logic.
+// { tier: <purchased tier>, status: 'ACTIVE', source: 'PURCHASE' }.
+//
+// STRUCTURAL REMEDIATION: this function is now `tx`-aware and opens ZERO
+// transactions of its own — it is always called from INSIDE
+// lib/jade-club/purchase-activation.ts's attemptActivation, as one step of
+// that function's single top-level atomic transaction (which also creates
+// the JadeClubMembershipTerms row and finalizes the purchase, all in the
+// SAME commit — see that file for the full sequence and its lock-order
+// comment). It never opens its own transaction, mirroring
+// lib/jade-club/entitlements.ts::createMembershipTermsCore's own "takes
+// tx, opens nothing" contract.
+//
+// It reuses validateResultingMembershipState — the EXACT same "is this
+// final state internally consistent" rule adminAdjustMembership enforces
+// — rather than duplicating that logic.
 //
 // Idempotent by design (safe for the reconciliation job's retries): if the
 // membership is already at the target tier and ACTIVE, this is a pure
 // no-op read — it never re-writes the row or re-emits an ActivityLog entry
 // for a retry that already succeeded.
 //
+// A NOTE ON THE "COLLISION LOSER STILL BUMPS TIER" CASE: this function is
+// called BEFORE the caller knows whether a distinct-purchase collision
+// will be found (that check happens moments later, inside
+// createMembershipTermsCore, because the policy's tier must already match
+// the membership's tier for that shared core's own guard to pass — see
+// its header). If a collision IS found and the caller commits the
+// PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION branch normally (Correction 3
+// — no rollback for an expected business outcome), this tier bump commits
+// too. This is deliberate, not an oversight: the member genuinely paid
+// for this tier via this purchase, so the membership correctly reflects
+// paying-member status regardless of which specific purchase's terms
+// period ultimately backs the entitlements — and the bump is idempotent/
+// convergent (the winning purchase's own bump, for the same tier, lands
+// on the identical target state).
+//
 // `durationMonths` is passed by the caller from the SAME
-// JadeClubCommercialPolicy row that activateMembershipTerms will then read
-// via `purchase.policyId` — never re-derived independently, so the
+// JadeClubCommercialPolicy row that createMembershipTermsCore will then
+// read via `purchase.policyId` — never re-derived independently, so the
 // membership-level `expiresAt` shown on the customer's dashboard and the
-// authoritative JadeClubMembershipTerms.expiresAt that
-// activateMembershipTerms computes a moment later are computed the same
-// way, from the same policy, moments apart.
+// authoritative JadeClubMembershipTerms.expiresAt are computed the same
+// way, from the same policy, moments apart, in the same transaction.
 
 export interface PurchaseTierBumpResult {
   membership: JadeClubMembershipRecord
   changed: boolean
 }
 
-export async function applyPurchaseTierBump(params: {
+/**
+ * tx-aware get-or-create, mirroring ensureJadeClubMembership's shape
+ * exactly but scoped to the caller's transaction. Kept PRIVATE and
+ * separate from the widely-used, non-transactional ensureJadeClubMembership
+ * (used by many read-only display call sites that have no need for — and
+ * should not be forced to open — a transaction) rather than changing that
+ * shared helper's signature.
+ */
+async function ensureMembershipInTx(tx: Tx, userId: string): Promise<JadeClubMembershipRecord> {
+  const existing = await tx.jadeClubMembership.findUnique({ where: { userId } })
+  if (existing) return toRecord(existing)
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const created = await tx.jadeClubMembership.create({
+        data: { userId, memberCode: generateMemberCode(), tier: 'FREE', status: 'FREE', source: 'DEFAULT' },
+      })
+      return toRecord(created)
+    } catch (err: unknown) {
+      const again = await tx.jadeClubMembership.findUnique({ where: { userId } })
+      if (again) return toRecord(again)
+      if (attempt === 4) throw err
+    }
+  }
+  throw new Error('[jade-club] failed to create membership after retries')
+}
+
+export async function applyPurchaseTierBump(tx: Tx, params: {
   userId: string
   tier: JadeClubTier
   durationMonths: number
@@ -313,7 +362,7 @@ export async function applyPurchaseTierBump(params: {
     throw new Error('applyPurchaseTierBump requires a positive integer durationMonths')
   }
 
-  const before = await ensureJadeClubMembership(params.userId)
+  const before = await ensureMembershipInTx(tx, params.userId)
 
   // Idempotent no-op: a retry after an already-successful bump must not
   // re-write the row or emit a duplicate ActivityLog entry.
@@ -325,13 +374,16 @@ export async function applyPurchaseTierBump(params: {
   const resultingExpiresAt = addMonths(now, params.durationMonths)
   validateResultingMembershipState('ACTIVE', resultingExpiresAt)
 
-  const updated = await prisma.jadeClubMembership.update({
+  const updated = await tx.jadeClubMembership.update({
     where: { userId: params.userId },
     data: { tier: params.tier, status: 'ACTIVE', expiresAt: resultingExpiresAt, source: 'PURCHASE' },
   })
   const after = toRecord(updated)
 
-  await prisma.activityLog.create({
+  // Written via the SAME tx — co-committed atomically with the rest of
+  // the purchase-activation transaction, not a fire-and-forget top-level
+  // write.
+  await tx.activityLog.create({
     data: {
       staffId: null,
       staffName: 'Jade Club Purchase (system)',
@@ -344,7 +396,7 @@ export async function applyPurchaseTierBump(params: {
       before: { tier: before.tier, status: before.status, expiresAt: before.expiresAt, source: before.source },
       after: { tier: after.tier, status: after.status, expiresAt: after.expiresAt, source: after.source },
     },
-  }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
+  }).catch((e: unknown) => console.warn('[jade-club] activity log write failed:', e))
 
   return { membership: after, changed: true }
 }

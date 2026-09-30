@@ -13,17 +13,25 @@ const membershipCreate     = jest.fn()
 const membershipUpdate     = jest.fn()
 const activityLogCreate    = jest.fn()
 
+const fakeDbClient = {
+  jadeClubMembership: {
+    findUnique: (...args: unknown[]) => membershipFindUnique(...args),
+    create:     (...args: unknown[]) => membershipCreate(...args),
+    update:     (...args: unknown[]) => membershipUpdate(...args),
+  },
+  activityLog: { create: (...args: unknown[]) => activityLogCreate(...args) },
+}
+
 jest.mock('@/lib/db', () => ({
   __esModule: true,
-  default: {
-    jadeClubMembership: {
-      findUnique: (...args: unknown[]) => membershipFindUnique(...args),
-      create:     (...args: unknown[]) => membershipCreate(...args),
-      update:     (...args: unknown[]) => membershipUpdate(...args),
-    },
-    activityLog: { create: (...args: unknown[]) => activityLogCreate(...args) },
-  },
+  default: fakeDbClient,
 }))
+
+// applyPurchaseTierBump is `tx`-aware (structural remediation) — this
+// fake stands in for the transaction client its real caller
+// (attemptActivation) would pass. Same shape as the mocked module-level
+// default export above, since both need only jadeClubMembership.*/activityLog.create.
+const fakeTx = fakeDbClient as any
 
 import {
   ensureJadeClubMembership, getJadeClubMembership, adminAdjustMembership, rotateOwnVerificationToken,
@@ -272,7 +280,7 @@ describe('applyPurchaseTierBump — the ONLY other path besides adminAdjustMembe
     membershipFindUnique.mockResolvedValueOnce(fakeRow({ tier: 'FREE', status: 'FREE' }))
     membershipUpdate.mockResolvedValueOnce(fakeRow({ tier: 'CLUB', status: 'ACTIVE', source: 'PURCHASE' }))
 
-    const result = await applyPurchaseTierBump({ userId: 'user_1', tier: 'CLUB', durationMonths: 12 })
+    const result = await applyPurchaseTierBump(fakeTx, { userId: 'user_1', tier: 'CLUB', durationMonths: 12 })
 
     expect(result.changed).toBe(true)
     expect(result.membership.tier).toBe('CLUB')
@@ -288,7 +296,7 @@ describe('applyPurchaseTierBump — the ONLY other path besides adminAdjustMembe
   it('is idempotent — a retry after an already-successful bump is a pure no-op (no update, no duplicate audit log)', async () => {
     membershipFindUnique.mockResolvedValueOnce(fakeRow({ tier: 'CLUB', status: 'ACTIVE' }))
 
-    const result = await applyPurchaseTierBump({ userId: 'user_1', tier: 'CLUB', durationMonths: 12 })
+    const result = await applyPurchaseTierBump(fakeTx, { userId: 'user_1', tier: 'CLUB', durationMonths: 12 })
 
     expect(result.changed).toBe(false)
     expect(membershipUpdate).not.toHaveBeenCalled()
@@ -296,16 +304,16 @@ describe('applyPurchaseTierBump — the ONLY other path besides adminAdjustMembe
   })
 
   it('rejects FREE as a target tier — this function only ever bumps to a paid tier', async () => {
-    await expect(applyPurchaseTierBump({ userId: 'user_1', tier: 'FREE' as never, durationMonths: 12 })).rejects.toThrow('requires a paid tier')
+    await expect(applyPurchaseTierBump(fakeTx, { userId: 'user_1', tier: 'FREE' as never, durationMonths: 12 })).rejects.toThrow('requires a paid tier')
   })
 
   it('rejects a non-positive durationMonths', async () => {
-    await expect(applyPurchaseTierBump({ userId: 'user_1', tier: 'CLUB', durationMonths: 0 })).rejects.toThrow('positive integer')
+    await expect(applyPurchaseTierBump(fakeTx, { userId: 'user_1', tier: 'CLUB', durationMonths: 0 })).rejects.toThrow('positive integer')
   })
 
   it('never accepts adjustment.reason or an AdminSession — it is not adminAdjustMembership and cannot be called interactively', () => {
     // Type-level guarantee, asserted structurally: the function signature
-    // takes only { userId, tier, durationMonths } — no admin, no reason.
-    expect(applyPurchaseTierBump.length).toBe(1)
+    // takes (tx, { userId, tier, durationMonths }) — no admin, no reason.
+    expect(applyPurchaseTierBump.length).toBe(2)
   })
 })

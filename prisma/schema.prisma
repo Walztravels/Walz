@@ -4612,12 +4612,37 @@ model JadeClubMembershipTerms {
   source                    String                                       // matches JadeClubMembership.source: DEFAULT | ADMIN_GRANT | PROMOTION | PURCHASE
   createdAt                 DateTime  @default(now()) @map("created_at")
 
+  // ── Release 2B structural remediation: authoritative purchase provenance ──
+  // NOT the same relation as JadeClubPurchase.membershipTermsId (that one
+  // is a convenience forward-pointer set on the purchase row once
+  // activation succeeds — see that field's own comment). THIS field is
+  // the single authoritative fact used for same-purchase idempotency
+  // (Correction 2 of the structural remediation): "did purchase X already
+  // create its terms?" is answered by
+  // `findFirst({ where: { purchaseId: X } })` alone — it must NEVER depend
+  // on expiresAt (a purchase's terms can legitimately expire and still be
+  // that purchase's own terms), a reverse pointer on the purchase row, the
+  // membership's current tier, or any client/webhook state.
+  //
+  // @unique enforces "one purchase -> at most one purchased terms row" at
+  // the DB layer (database invariant #1), not just in application code.
+  //
+  // onDelete: Restrict (Correction 1) — NOT SetNull. JadeClubPurchase is a
+  // financial/audit record; once it backs real membership terms, deleting
+  // it must never be able to silently erase that terms row's provenance.
+  // This matches this exact model's OWN existing convention one field up:
+  // `policyId`'s FK to JadeClubCommercialPolicy also uses `onDelete: Restrict`
+  // for the identical reason ("traceability ONLY" that must never quietly
+  // disappear) — see that field's comment above.
+  purchaseId String? @unique @map("purchase_id")
+
   membership JadeClubMembership                @relation(fields: [membershipId], references: [id], onDelete: Cascade)
   policy     JadeClubCommercialPolicy           @relation(fields: [policyId], references: [id], onDelete: Restrict)
   benefits   JadeClubMembershipBenefitSnapshot[]
   slots      JadeClubEntitlementSlot[]
   discountApplications JadeClubServiceFeeDiscountApplication[]
-  purchases  JadeClubPurchase[]  // 2B: the purchase(s) that resulted in this terms row (normally exactly one)
+  purchases  JadeClubPurchase[] @relation("PurchaseDisplayPointer")  // 2B: purchase row(s) whose membershipTermsId display-pointer references this terms row (convenience only — never the idempotency source of truth)
+  originatingPurchase JadeClubPurchase? @relation("TermsOriginPurchase", fields: [purchaseId], references: [id], onDelete: Restrict)
 
   @@index([membershipId])
   @@index([expiresAt])
@@ -4802,7 +4827,18 @@ model JadeClubPurchase {
   user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   membership      JadeClubMembership?      @relation(fields: [membershipId], references: [id], onDelete: SetNull)
   policy          JadeClubCommercialPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
-  membershipTerms JadeClubMembershipTerms? @relation(fields: [membershipTermsId], references: [id], onDelete: SetNull)
+  // Convenience forward-pointer only ("which terms did I create?"), set
+  // once inside the SAME atomic transaction that creates the terms row —
+  // never the authoritative idempotency source (that is
+  // JadeClubMembershipTerms.purchaseId, the reverse pointer — see its
+  // comment). Kept SetNull (unchanged) since this field carries no
+  // financial/audit obligation of its own; it is purely a display
+  // convenience already backed by the authoritative reverse pointer.
+  membershipTerms JadeClubMembershipTerms? @relation("PurchaseDisplayPointer", fields: [membershipTermsId], references: [id], onDelete: SetNull)
+  // Reverse of JadeClubMembershipTerms.purchaseId — the terms row THIS
+  // purchase authoritatively originated, if any. No `fields`/`references`
+  // here: the FK itself lives on JadeClubMembershipTerms.purchaseId.
+  originatedTerms JadeClubMembershipTerms? @relation("TermsOriginPurchase")
 
   @@unique([provider, providerReference])
   @@index([userId])
