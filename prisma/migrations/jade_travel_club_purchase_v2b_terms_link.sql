@@ -77,6 +77,15 @@
 --   is a legitimate, permanent state, not a gap to backfill. NULL means
 --   "not purchase-originated." This migration seeds/backfills nothing.
 --
+-- ⚠️ DEFERRED ENGINEERING NOTE (not a release blocker — no code path
+--   deletes a User today): a future User-deletion/GDPR-erasure/account-
+--   deletion workflow must account for this RESTRICT FK interacting with
+--   User -> JadeClubPurchase (CASCADE) and User -> JadeClubMembership ->
+--   JadeClubMembershipTerms (CASCADE) on the SAME `DELETE FROM "User"`
+--   statement — see the purchase_id field's own comment in
+--   prisma/schema.prisma and docs/jade-2b-purchase-state-machine.md's
+--   "Purchase provenance" section for the full writeup.
+--
 -- CONVENTION: snake_case + @map/@@map, matching every other Jade Club
 --   migration in this repo.
 --

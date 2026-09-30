@@ -430,6 +430,72 @@ describe('Scenario 11 — provider reference uniqueness', () => {
   })
 })
 
+describe('purchaseIdHint crash-recovery self-heal (real recordCheckoutSessionPaid, forced crash window)', () => {
+  it('genuinely forces the crash window — the row STILL carries its "pending:" placeholder providerReference at the moment the webhook arrives with the real Stripe session id — and the real recordCheckoutSessionPaid heals it: correct purchase recovered, no duplicate created, payment attribution correct', async () => {
+    // Simulates createJadeClubCheckout's own crash window: the purchase
+    // row was created with the placeholder reference, but the process
+    // crashed BEFORE the follow-up `providerReference: session.id` patch
+    // landed — so by the time the REAL Stripe webhook arrives, this row
+    // is still sitting on `pending:...`, not the real session id.
+    const purchase = seedPurchase({
+      paymentStatus: 'PENDING', activationStatus: 'NOT_STARTED',
+      providerReference: 'pending:crashwindowplaceholder123',
+    })
+    const realStripeSessionId = 'cs_real_session_from_stripe_webhook'
+    const purchaseCountBefore = state.purchases.size
+
+    const result = await recordCheckoutSessionPaid({
+      providerReference: realStripeSessionId,
+      amountTotalMinor: purchase.amountMinor,
+      currency: purchase.currency,
+      purchaseIdHint: purchase.id, // sourced from Stripe's own verified session.metadata, never the browser
+    })
+
+    // The correct purchase is recovered and confirmed — not a fresh row.
+    expect(result).toEqual({ outcome: 'CONFIRMED_PENDING_ACTIVATION', purchaseId: purchase.id })
+
+    // No duplicate purchase was created by the heal.
+    expect(state.purchases.size).toBe(purchaseCountBefore)
+
+    // The SAME row is healed: providerReference patched to the real
+    // session id, payment attribution intact (amount/currency/userId all
+    // exactly as originally created), never a wrong association.
+    const healed = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchase.id } })
+    expect(healed.providerReference).toBe(realStripeSessionId)
+    expect(healed.paymentStatus).toBe('SUCCEEDED')
+    expect(healed.activationStatus).toBe('PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING')
+    expect(healed.userId).toBe(purchase.userId)
+    expect(healed.amountMinor).toBe(purchase.amountMinor)
+    expect(healed.currency).toBe(purchase.currency)
+
+    // The healed purchase is now correctly findable by (provider,
+    // providerReference) alone — a SECOND webhook delivery (e.g. a retry)
+    // no longer needs the hint at all, and is still a clean idempotent
+    // no-op, never a duplicate.
+    const secondDelivery = await recordCheckoutSessionPaid({
+      providerReference: realStripeSessionId, amountTotalMinor: purchase.amountMinor, currency: purchase.currency,
+    })
+    expect(secondDelivery.outcome).toBe('DUPLICATE_IGNORED')
+    expect(state.purchases.size).toBe(purchaseCountBefore) // still no duplicate
+  })
+
+  it('does NOT heal a row that no longer carries the placeholder prefix (the heal is a CAS — it can never hijack an already-real, already-healed, or unrelated row)', async () => {
+    const alreadyHealed = seedPurchase({ paymentStatus: 'PENDING', providerReference: 'cs_already_real_session' })
+    const purchaseCountBefore = state.purchases.size
+
+    const result = await recordCheckoutSessionPaid({
+      providerReference: 'cs_a_totally_different_session', amountTotalMinor: alreadyHealed.amountMinor, currency: alreadyHealed.currency,
+      purchaseIdHint: alreadyHealed.id, // stale/wrong hint — must be ignored, not blindly trusted
+    })
+
+    expect(result).toEqual({ outcome: 'PURCHASE_NOT_FOUND' })
+    const unchanged = await fakeDb.jadeClubPurchase.findUnique({ where: { id: alreadyHealed.id } })
+    expect(unchanged.providerReference).toBe('cs_already_real_session') // untouched
+    expect(unchanged.paymentStatus).toBe('PENDING') // untouched
+    expect(state.purchases.size).toBe(purchaseCountBefore) // no duplicate created
+  })
+})
+
 describe('Scenario 12 — exact currency/amount reconciliation', () => {
   it('an amount mismatch records SUCCEEDED truthfully but blocks activation with a safe reason', async () => {
     const p = seedPurchase({ paymentStatus: 'PENDING', amountMinor: 8_500_000, currency: 'NGN' })
@@ -438,6 +504,83 @@ describe('Scenario 12 — exact currency/amount reconciliation', () => {
     const after = await fakeDb.jadeClubPurchase.findUnique({ where: { id: p.id } })
     expect(after.activationStatus).toBe('FAILED_PERMANENTLY')
     expect(after.failureReason).toBe('AMOUNT_MISMATCH')
+  })
+})
+
+describe('POLICY_NO_LONGER_ACTIVE — real end-to-end attemptActivation orchestration (policy superseded between checkout and activation)', () => {
+  it('a policy that was ACTIVE at checkout but superseded before activation (exactly as activatePolicy() would do in production) is rejected safely: FAILED_PERMANENTLY/POLICY_NO_LONGER_ACTIVE, no tier mutation, no terms, no snapshots, no entitlement slots/events', async () => {
+    const userId = 'user_policy_superseded'
+    const policy = seedCrossTierPolicy('CLUB', 'jade-connect-superseded-test', 3)
+
+    // Checkout-time state: the membership exists at FREE, the purchase was
+    // created and paid while the policy was genuinely ACTIVE.
+    const membership = await fakeDb.jadeClubMembership.create({
+      data: { userId, memberCode: 'JW-SUP1', tier: 'FREE', status: 'FREE', source: 'DEFAULT' },
+    })
+    const purchase = seedPurchase({
+      userId, policyId: policy.id, tier: 'CLUB', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING',
+    })
+
+    // The policy is superseded AFTER checkout but BEFORE activation —
+    // exactly what lib/jade-club/commercial-policy.ts::activatePolicy()
+    // does in production when a new policy version is activated for the
+    // same (tier, market, currency) scope: the prior ACTIVE row flips to
+    // SUPERSEDED. purchase.policyId still points at THIS now-superseded
+    // row — activateMembershipTerms/createMembershipTermsCore never
+    // re-resolves "the current ACTIVE policy," it always activates
+    // against the exact policy the member paid for.
+    const policyRow = state.policies.get(policy.id)
+    policyRow.status = 'SUPERSEDED'
+
+    const termsCountBefore = state.terms.size
+    const snapshotsCountBefore = state.snapshots.size
+    const slotsCountBefore = state.slots.size
+    const eventsCountBefore = state.events.length
+
+    // Drives the REAL, top-level orchestration function end to end — not
+    // a lower-level helper in isolation.
+    const outcome = await attemptActivation(purchase.id)
+
+    expect(outcome).toEqual({ outcome: 'FAILED_PERMANENTLY', reason: 'POLICY_NO_LONGER_ACTIVE' })
+
+    // No accidental activation, no stale-policy benefit issuance.
+    const purchaseAfter = await fakeDb.jadeClubPurchase.findUnique({ where: { id: purchase.id } })
+    expect(purchaseAfter.activationStatus).toBe('FAILED_PERMANENTLY')
+    expect(purchaseAfter.failureReason).toBe('POLICY_NO_LONGER_ACTIVE')
+    expect(purchaseAfter.activationStatus).not.toBe('ACTIVATED')
+    expect(purchaseAfter.membershipTermsId).toBeNull()
+
+    // No tier mutation ever committed — the membership stays exactly as
+    // it was at checkout time (this check happens BEFORE the tier bump in
+    // attemptActivation's own sequence, so the bump never even runs).
+    const membershipAfter = await fakeDb.jadeClubMembership.findUnique({ where: { id: membership.id } })
+    expect(membershipAfter.tier).toBe('FREE')
+    expect(membershipAfter.status).toBe('FREE')
+
+    // No membership terms, no benefit snapshots, no entitlement slots/events.
+    expect(state.terms.size).toBe(termsCountBefore)
+    expect(state.snapshots.size).toBe(snapshotsCountBefore)
+    expect(state.slots.size).toBe(slotsCountBefore)
+    expect(state.events.length).toBe(eventsCountBefore)
+  })
+
+  it('is a genuine terminal failure — retrying the same purchase again does not somehow succeed once the policy is superseded (no route ever un-supersedes a policy)', async () => {
+    const userId = 'user_policy_superseded_2'
+    const policy = seedCrossTierPolicy('CLUB_PLUS', 'jade-connect-superseded-test-2', 6)
+    await fakeDb.jadeClubMembership.create({ data: { userId, memberCode: 'JW-SUP2', tier: 'FREE', status: 'FREE', source: 'DEFAULT' } })
+    const purchase = seedPurchase({ userId, policyId: policy.id, tier: 'CLUB_PLUS', paymentStatus: 'SUCCEEDED', activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' })
+    state.policies.get(policy.id).status = 'SUPERSEDED'
+
+    const first = await attemptActivation(purchase.id)
+    expect(first).toEqual({ outcome: 'FAILED_PERMANENTLY', reason: 'POLICY_NO_LONGER_ACTIVE' })
+
+    // Once FAILED_PERMANENTLY, the top-level precheck reports NOT_READY
+    // for any further call — it is never retried automatically, and this
+    // specific reason is also excluded from the admin "Retry Activation"
+    // action's reason-allowlist (POLICY_NO_LONGER_ACTIVE is not in
+    // RETRYABLE_ACTIVATION_FAILURE_REASONS).
+    const second = await attemptActivation(purchase.id)
+    expect(second).toEqual({ outcome: 'NOT_READY' })
   })
 })
 

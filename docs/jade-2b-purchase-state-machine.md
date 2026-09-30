@@ -1,9 +1,12 @@
-# Jade Travel Club 2B — Purchase State Machine Design
+# Jade Travel Club 2B — Purchase State Machine (final implementation)
 
-This document is a mandatory pre-implementation deliverable. It walks
-through the 12 required scenarios and names the exact mechanism — DB
-constraint, CAS transition, or guard clause — that resolves each one, in
-the actual code that was then built to match it.
+This document describes the **actual, current implementation** as built —
+not a design proposal, and not the intermediate designs superseded during
+independent review. It reflects the code in `lib/jade-club/purchase.ts`,
+`lib/jade-club/purchase-activation.ts`, `lib/jade-club/entitlements.ts`,
+`lib/jade-club/membership.ts`, and `prisma/schema.prisma` /
+`prisma/migrations/jade_travel_club_purchase_v2b*.sql` as they exist today.
+It does not propose or invent any new lifecycle rule.
 
 ## The two independent state fields
 
@@ -16,270 +19,333 @@ paymentStatus:     PENDING -> SUCCEEDED | FAILED | CANCELLED
 
 activationStatus:  NOT_STARTED
                     -> PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING
-                    -> ACTIVATED
-                    -> FAILED_PERMANENTLY (terminal, after N retries)
+                    -> ACTIVATED                                     (terminal, success)
+                    -> FAILED_PERMANENTLY                            (terminal — see "retryable vs not" below)
+                    -> PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION     (terminal — a different, distinct, paid purchase already won)
 ```
 
-`paymentStatus` is driven only by the payment provider (webhook events).
-`activationStatus` is driven only by our own activation logic
-(`activateMembershipTerms` via the new purchase-activation wrapper). A
-purchase can be `paymentStatus=SUCCEEDED` and
+`paymentStatus` is driven only by the payment provider (webhook events),
+via `recordCheckoutSessionPaid`/`recordCheckoutSessionFailed`/
+`recordRefund` — plain CAS transitions
+(`updateMany({ where: { id, paymentStatus: <expected> }, data: {...} })`
++ `.count === 1` check), each a single boolean-ish transition already
+correctly idempotent against duplicate/concurrent webhook delivery.
+
+`activationStatus` is driven only by `attemptActivation`, which — unlike
+the payment-side CAS functions — is **one single atomic
+`prisma.$transaction`** covering the full purchase-lock-through-purchase-
+finalization sequence (see below). A purchase can sit at
+`paymentStatus=SUCCEEDED` /
 `activationStatus=PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING` for an
 arbitrary length of time — that is not an error state, it is the normal
-transient state the reconciliation job scans for.
+transient state `lib/jade-club/purchase-reconciliation.ts` scans for.
 
-Every transition of either field is done with a CAS
-(`updateMany({ where: { id, <current-state-field>: <expected-value> }, data: {...} })`
-+ `.count === 1` check), never a blind `.update()`. This is the exact
-pattern already established by `lib/jade-club/entitlements.ts`.
+## The atomic activation transaction (the actual sequence, as implemented)
 
-## The 12 scenarios
+`attemptActivation(purchaseId)` in `lib/jade-club/purchase-activation.ts`:
+
+1. A cheap, lock-free pre-check (`prisma.jadeClubPurchase.findUnique`, no
+   transaction yet) short-circuits a no-op call (already `ACTIVATED`,
+   already `PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION`, or not in
+   `PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING`) before ever bumping the
+   attempt counter or opening a transaction.
+2. `activationAttempts` is incremented in its own small, **independently
+   committed** statement — deliberately *outside* the main transaction, so
+   a later rollback of that transaction (a genuine technical failure) does
+   not also erase the fact that an attempt was made. Without this, the
+   exact same technical failure could repeat forever without ever
+   tripping `MAX_ACTIVATION_ATTEMPTS`.
+3. Everything else happens inside **one** `prisma.$transaction`:
+   1. `SELECT id FROM jade_club_purchases WHERE id = ${purchaseId} FOR UPDATE`
+      — the purchase row lock, taken **first** (see "lock order
+      invariant" below).
+   2. Re-read the purchase's authoritative state under that lock.
+   3. **Direct, authoritative same-purchase idempotency lookup**:
+      `tx.jadeClubMembershipTerms.findFirst({ where: { purchaseId } })`
+      — `JadeClubMembershipTerms.purchaseId` is `@unique` at the DB layer
+      (`prisma/migrations/jade_travel_club_purchase_v2b_terms_link.sql`).
+      This is the *single* source of truth for "did this exact purchase
+      already create its terms?" — it does **not** depend on `expiresAt`
+      being in the future, a reverse pointer on the purchase row, the
+      membership's current tier, or any client/webhook state. A
+      purchase's own terms can be historically expired and this lookup
+      still correctly recognizes them as that purchase's own (proven by a
+      permanent regression test).
+   4. If found: idempotent same-purchase recovery. Reconcile the purchase
+      row to `ACTIVATED`/`membershipTermsId` if it isn't already (a
+      self-heal for the narrow window where a concurrent call for the
+      *same* purchase already created the terms but hadn't yet finalized
+      this row), and return — never re-creates anything.
+   5. If not found, require `paymentStatus === SUCCEEDED` — a plain
+      **branch**, not an exception: `REFUNDED` → `FAILED_PERMANENTLY` /
+      `REFUNDED_BEFORE_ACTIVATION`; anything else non-`SUCCEEDED` →
+      `NOT_READY` (no write).
+   6. Validate `purchase.tier` and re-read the policy fresh by
+      `purchase.policyId` (the *exact* policy the member paid for — never
+      "the current ACTIVE policy for this scope"). Missing/inactive
+      policy → `FAILED_PERMANENTLY` / `UNKNOWN_ACTIVATION_ERROR` or
+      `POLICY_NO_LONGER_ACTIVE` respectively, both branches, no throw.
+   7. Resolve (get-or-create, `ensureMembershipInTx`) the membership row.
+   8. **Winner-determination pre-check** (added in the narrow fix that
+      resolved a HIGH finding — see "why the tier bump is where it is"
+      below): lock the membership
+      (`SELECT id FROM jade_club_memberships WHERE id = ${membership.id} FOR UPDATE`
+      — the *same* lock statement `createMembershipTermsCore` itself uses
+      moments later) and re-check for an unexpired terms period on it.
+      **If a conflicting unexpired terms period exists** (this purchase
+      *loses*): branch — `activationStatus: PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION`,
+      `failureReason: DUPLICATE_PAID_MEMBERSHIP_PURCHASE` (or
+      `DUPLICATE_ACTIVE_TERMS` if the winner is a non-purchase source,
+      e.g. an admin grant) — commits normally, **membership tier is never
+      touched on this path**, a real staff alert is raised
+      (`raiseDuplicatePaidPurchaseAlert`).
+   9. **Only if no collision** (this purchase *wins*):
+      `applyPurchaseTierBump(tx, ...)` runs *now* — never before this
+      point — moving `JadeClubMembership.tier`/`status` to the purchased
+      tier/`ACTIVE` with `source: 'PURCHASE'`.
+   10. `createMembershipTermsCore(tx, { membershipId, policyId, source: 'PURCHASE', purchaseId })`
+       (`lib/jade-club/entitlements.ts`) — the **one** function anywhere
+       in this codebase that creates a `JadeClubMembershipTerms` row. It
+       re-locks the membership (already held, so this is a no-op
+       re-acquire within the same transaction), re-validates policy/tier
+       match, re-checks for a collision (structurally guaranteed to still
+       find none — the lock has been held continuously since step 8),
+       then creates the terms row (with `purchaseId` set — Correction 1/2
+       provenance), the benefit snapshots, and pre-issues every
+       `COUNT_PER_PERIOD` benefit's entitlement slots, all as one unit.
+   11. **Fail-closed invariant guard**: if `createMembershipTermsCore`
+       reports a collision *at this point* (step 10) despite step 8's
+       pre-check already having found none under the *same, continuously
+       held* lock, that is not a business outcome — it is proof an
+       assumption behind this design was wrong. The code **throws**
+       `JadePurchaseActivationInvariantError` (never writes anything,
+       never returns an outcome). This throw is not caught anywhere
+       inside the transaction callback; it propagates out of
+       `prisma.$transaction`, which rolls back **everything** the
+       transaction did — the tier bump from step 9, any purchase-row
+       mutation, any terms/snapshot/entitlement writes. The outer
+       `try/catch` (outside the transaction) then treats it as a generic
+       technical failure (`FAILED_RETRYABLE`, eventually
+       `FAILED_PERMANENTLY`/`MAX_RETRIES_EXCEEDED` after
+       `MAX_ACTIVATION_ATTEMPTS`) and, specifically for this error type,
+       raises a distinct staff operational alert (safe identifiers only —
+       purchase id, membership id, error code — after the rollback has
+       already completed, never from inside it).
+   12. Otherwise: finalize the *same* purchase row —
+       `activationStatus: ACTIVATED`, `membershipTermsId: <new terms id>`
+       — in the *same* transaction, the *same* commit as step 10. **No
+       post-commit purchase-attribution write exists anywhere.**
+4. If the transaction throws for any other genuine reason (a real DB
+   error, a missing-membership edge case, etc.), the same outer
+   `try/catch` applies the same `FAILED_RETRYABLE`/`FAILED_PERMANENTLY`
+   handling.
+
+### Why the tier bump is positioned where it is (step 9, not earlier)
+
+An earlier version of this code called `applyPurchaseTierBump` *before*
+the collision check (to satisfy `createMembershipTermsCore`'s own
+internal "policy tier must already match membership tier" guard).
+Independent review found this a HIGH-severity defect: with two
+*different-tier* purchases racing the same membership, the *losing*
+purchase's tier bump could still commit (the collision branch commits
+normally, it doesn't roll back), leaving `JadeClubMembership.tier`
+permanently diverged from the tier of the terms the *winner* actually got
+issued. The fix reordered the sequence — winner status is determined
+*first*, and the tier mutation is *conditioned* on having already
+confirmed this purchase wins. `applyPurchaseTierBump` has exactly **one**
+call site in the codebase (this one), verified by a permanent regression
+test that walks every `.ts`/`.tsx` file in the repo.
+
+## Retryable vs non-retryable failure reasons
+
+`activationStatus = FAILED_PERMANENTLY` does **not** uniformly mean "give
+up forever" — `failureReason` distinguishes two categories:
+
+- **Retryable** (`RETRYABLE_ACTIVATION_FAILURE_REASONS` in
+  `lib/jade-club/purchase-types.ts`): `MAX_RETRIES_EXCEEDED`,
+  `UNKNOWN_ACTIVATION_ERROR` — genuinely transient technical conditions. A
+  staff-triggered "Retry Activation" action
+  (`lib/jade-club/purchase-activation.ts::adminResetForRetry`) is CAS-gated
+  on `activationStatus: 'FAILED_PERMANENTLY'` **and**
+  `failureReason: { in: RETRYABLE_ACTIVATION_FAILURE_REASONS }` — a
+  structural/business reason can never be retried through this action even
+  if it somehow ended up under `FAILED_PERMANENTLY`.
+- **Non-retryable, structural**: `POLICY_NO_LONGER_ACTIVE`,
+  `REFUNDED_BEFORE_ACTIVATION`, `AMOUNT_MISMATCH`, `CURRENCY_MISMATCH` — a
+  mechanical retry against the *exact same* immutable
+  `purchase.policyId`/amount/currency will deterministically fail again.
+- **Structurally excluded from retry entirely**:
+  `activationStatus = PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION`
+  (`DUPLICATE_PAID_MEMBERSHIP_PURCHASE` / `DUPLICATE_ACTIVE_TERMS`) is a
+  *different activationStatus value*, not `FAILED_PERMANENTLY` at all —
+  `adminResetForRetry`'s CAS cannot match it, so "Retry Activation" is
+  never even offered for it in the admin UI. This is the deliberate
+  distinction between "an expected business collision, needs a human
+  financial decision (normally a refund)" and "a technical hiccup, a
+  mechanical retry might work."
+
+## Purchase provenance (`JadeClubMembershipTerms.purchaseId`)
+
+`purchaseId String? @unique` on `JadeClubMembershipTerms`, with
+`onDelete: Restrict` to `JadeClubPurchase` — matching this exact table's
+own pre-existing `policyId` FK precedent ("traceability that must never
+quietly disappear"). Nullable because every pre-2B (`ADMIN_GRANT`/
+`PROMOTION`/`DEFAULT`) terms row has no originating purchase; the unique
+index permits unlimited `NULL`s while enforcing uniqueness among non-`NULL`
+values. `RESTRICT`, never `SET NULL` — `JadeClubPurchase` is a financial/
+audit record; once it backs real membership terms, deleting it must never
+silently erase that terms row's provenance. See
+`prisma/migrations/jade_travel_club_purchase_v2b_terms_link.sql` for the
+full justification and the exact SQL.
+
+**⚠️ DEFERRED ENGINEERING NOTE — read before ever building account/User
+deletion.** No current code path deletes a `User` row, so this is not a
+release blocker for 2B. But when a future User-deletion / GDPR-erasure /
+account-deletion workflow is built, it **must** account for this
+interaction: `JadeClubMembershipTerms.purchaseId` is `ON DELETE RESTRICT`
+to `JadeClubPurchase`, while `JadeClubPurchase.userId` is (per
+`prisma/schema.prisma`) `ON DELETE CASCADE` from `User`, and
+`JadeClubMembership.userId` is *also* `ON DELETE CASCADE` from `User`
+(which cascades further into `JadeClubMembershipTerms` via
+`membershipId`). Depending on Postgres's own cascade-processing order for
+a single `DELETE FROM "User" WHERE id = ...`, a `User` delete could
+attempt to `CASCADE`-delete a `JadeClubPurchase` row at the same moment a
+`RESTRICT` FK from an existing `JadeClubMembershipTerms.purchaseId` row is
+still pointing at it — the delete would then correctly **fail** (Postgres
+respects `RESTRICT` regardless of cascade ordering elsewhere in the same
+statement), but that failure needs to be *anticipated and explicitly
+handled* by whatever future deletion workflow is built (e.g.
+deactivate/archive/anonymize the purchase record — never blindly force
+past the restriction) rather than discovered as a surprise runtime error
+in production. This same note also appears as a code comment on the
+`purchaseId` field in `prisma/schema.prisma`.
+
+## Refund/activation serialization
+
+`recordRefund(providerReference)` is also a single transaction: it locks
+the purchase row by its natural key directly
+(`SELECT id FROM jade_club_purchases WHERE provider = 'STRIPE' AND provider_reference = ${providerReference} FOR UPDATE`
+— avoiding a separate lookup-then-lock TOCTOU gap), re-reads under that
+lock, applies the `SUCCEEDED -> REFUNDED` transition (no-op if not
+currently `SUCCEEDED`), and — if `activationStatus` is already `ACTIVATED`
+at that moment — raises `raiseRefundAfterActivationAlert` (a real
+`StaffNotification`, never just a passive row). `recordRefund` never also
+locks `JadeClubMembership`, so it trivially satisfies the lock-order
+invariant below on its own.
+
+## Lock order invariant
+
+Whenever a transaction in this codebase holds **both** a `JadeClubPurchase`
+row lock and the `JadeClubMembership` row lock, the **purchase lock is
+always acquired first, the membership lock second** — never the reverse.
+`attemptActivation` is the only function that ever takes both (purchase
+lock at the top of its transaction; membership lock moments later, inside
+its own winner-determination pre-check and again inside
+`createMembershipTermsCore`). `recordRefund` only ever takes the purchase
+lock. Documented as an explicit code comment at the top of
+`lib/jade-club/purchase-activation.ts` — any future feature that needs
+both locks in one transaction must follow this same order or it can
+deadlock against `attemptActivation`.
+
+## The 12 (+2) scenarios, as actually implemented
 
 ### 1. Checkout created but abandoned (never completed)
-**Row state:** `paymentStatus=PENDING`, `activationStatus=NOT_STARTED`,
-forever, unless the customer returns.
-**Mechanism:** No special handling is needed — a `PENDING` row with no
-webhook delivery is simply inert. It never blocks a retry: the
-checkout-creation route's pre-check for "already has an unexpired terms
-period" only looks at `JadeClubMembershipTerms`, never at
-`JadeClubPurchase.paymentStatus`, so the same user can create a fresh
-`JadeClubPurchase` + a fresh Stripe Checkout Session at any time. Old
-abandoned `PENDING` rows are harmless, queryable history. (An optional
-future cleanup job could mark very old `PENDING` rows `CANCELLED`, but
-nothing in 2B depends on that — it is explicitly not required for
-correctness.)
+A `PENDING`/`NOT_STARTED` row with no webhook delivery is simply inert —
+`createJadeClubCheckout`'s own pre-check for "already has an unexpired
+terms period" only looks at `JadeClubMembershipTerms`, never at
+`JadeClubPurchase.paymentStatus`, so the same user can always create a
+fresh purchase + a fresh Stripe Checkout Session. No cleanup job exists or
+is required for correctness.
 
 ### 2. Payment failed
-**Mechanism:** Stripe fires `checkout.session.expired` or
-`payment_intent.payment_failed` (session-mode Checkout with a card decline
-surfaces as the session never reaching `payment_status: 'paid'`; Stripe
-also emits `checkout.session.expired` after the session's timeout). The
-webhook handler CAS-transitions:
-`updateMany({ where: { id: purchaseId, paymentStatus: 'PENDING' }, data: { paymentStatus: 'FAILED', failureReason: <safe string> } })`.
-`activationStatus` is untouched — it stays `NOT_STARTED` and no activation
-is ever attempted for a `FAILED` purchase (the activation code path is only
-reachable from the `SUCCEEDED` branch).
+`recordCheckoutSessionFailed`: CAS
+`updateMany({ where: { id, paymentStatus: 'PENDING' }, data: { paymentStatus: 'FAILED', failureReason } })`.
+`activationStatus` is never touched.
 
 ### 3. Payment confirmed
-**Mechanism:** `checkout.session.completed` with
-`session.payment_status === 'paid'`. CAS:
-`updateMany({ where: { id: purchaseId, paymentStatus: 'PENDING' }, data: { paymentStatus: 'SUCCEEDED', paidAt: now } })`.
-Only on `cas.count === 1` do we proceed to activation — a second delivery
-of the same event, or a delivery that lost a race to another worker, sees
-`cas.count === 0` and no-ops (see scenario 9/10).
+`recordCheckoutSessionPaid`: CAS `PENDING -> SUCCEEDED` (with the exact
+amount/currency check — see scenario 12), then a best-effort CAS
+`NOT_STARTED -> PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING`.
 
 ### 4. Activation pending
-**Mechanism:** Immediately after the payment CAS succeeds, in the same
-webhook invocation, a second CAS moves `activationStatus`:
-`updateMany({ where: { id: purchaseId, activationStatus: 'NOT_STARTED' }, data: { activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' } })`.
-This is a deliberate, durable, committed intermediate state — not just an
-in-memory flag — so that if the process crashes or throws between here and
-scenario 5, the row is left in a state the reconciliation job
-(`lib/jade-club/purchase-reconciliation.ts`) can find and retry. The
-webhook handler always acks Stripe with 200 once the signature is verified
-and this write has landed, regardless of what happens next.
+A durable, committed intermediate state (not an in-memory flag) — the
+reconciliation job scans for exactly this value.
 
 ### 5. Activation succeeded
-**Mechanism:** The tier-bump function (`applyPurchaseTierBump`, new) is
-called first to move `JadeClubMembership.tier`/`status` to the purchased
-tier/ACTIVE with `source: 'PURCHASE'`, then `activateMembershipTerms` is
-called exactly as-is (its own internal `SELECT ... FOR UPDATE` transaction
-guard is untouched — see scenario 6/10 below for why that guard is what
-makes this safe under concurrency). On success, a final CAS:
-`updateMany({ where: { id: purchaseId, activationStatus: 'PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING' }, data: { activationStatus: 'ACTIVATED', membershipTermsId: terms.termsId, activatedAt: now } })`.
+The full atomic transaction described above, steps 1–12, ending with the
+`ACTIVATED` finalization in step 12.
 
 ### 6. Activation retry (after a transient failure)
-**Mechanism:** If `applyPurchaseTierBump` or `activateMembershipTerms`
-throws (DB blip, transient lock timeout, etc.), the webhook handler catches
-it, leaves the row at `activationStatus=PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING`
-(no partial state is ever written — both calls are individually
-transactional, and the final CAS to `ACTIVATED` is only reached after both
-succeed), increments `JadeClubPurchase.activationAttempts` (tracked
-in-memory by the reconciliation job via a scan + retry count column is not
-needed — see below), and returns 200 to Stripe regardless (signature was
-already verified; Stripe must not be asked to retry the whole webhook
-forever — retry is the reconciliation job's job, not Stripe's). The
-reconciliation job (`reconcilePendingActivations`) is the ONLY place that
-re-attempts activation for a
-`PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING` row, on a schedule, up to
-`MAX_ACTIVATION_ATTEMPTS`. Because `applyPurchaseTierBump` is itself an
-idempotent CAS (no-ops if the membership is already at the target
-tier/ACTIVE from a previous partial attempt) and `activateMembershipTerms`
-has its own "no unexpired terms already exists" guard (which now correctly
-recognizes the terms already created by an earlier successful attempt, if
-any), a retry after a partial success cannot double-activate.
+The independently-committed attempt counter (step 2 above) plus the outer
+`try/catch`'s `FAILED_RETRYABLE`/`FAILED_PERMANENTLY` handling. The
+reconciliation job (`reconcilePendingActivations`) is the only place that
+re-invokes `attemptActivation` on a schedule for rows still at
+`PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING`.
 
 ### 7. Refund before activation
-**Row state at time of refund:** `paymentStatus=SUCCEEDED`,
-`activationStatus` is either still `PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING`
-or has raced to `ACTIVATED`.
-**Mechanism:** `charge.refunded` webhook looks up the purchase by
-`(provider, providerReference)`, CAS:
-`updateMany({ where: { id: purchaseId, paymentStatus: 'SUCCEEDED' }, data: { paymentStatus: 'REFUNDED' } })`.
-If `activationStatus` is still `PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING`
-at this point, the reconciliation job's next pass will still attempt
-activation (payment and activation are independent state machines — see
-above) UNLESS the reconciliation job first re-checks `paymentStatus`
-immediately before each retry and skips (marking `FAILED_PERMANENTLY` with
-a `failureReason` of `REFUNDED_BEFORE_ACTIVATION`) any row whose
-`paymentStatus` is no longer `SUCCEEDED`. This check is implemented in
-`reconcilePendingActivations` as the very first guard per row.
+`recordRefund`'s own transaction (see "refund/activation serialization"
+above); the *next* `attemptActivation` attempt re-checks `paymentStatus`
+itself (step 5 of the sequence) and terminates as
+`FAILED_PERMANENTLY`/`REFUNDED_BEFORE_ACTIVATION` — never issues
+entitlements for a refunded purchase.
 
 ### 8. Refund after activation
-**Row state:** `paymentStatus=SUCCEEDED -> REFUNDED`,
-`activationStatus=ACTIVATED`, `membershipTermsId` set.
-**Mechanism:** The same `charge.refunded` handler CAS-transitions
-`paymentStatus` to `REFUNDED` as above. 2B deliberately does **not**
-auto-revoke `JadeClubMembershipTerms` or the membership tier on refund —
-`activateMembershipTerms`'s internals are explicitly off-limits (no
-revocation/cancellation path exists inside it, and building one is out of
-this scope), and a real "refund after benefits may already be consumed"
-policy is a business decision, not a code default. Instead: the refund is
-recorded truthfully (`paymentStatus=REFUNDED`), a real staff alert is
-raised (`raiseRefundAfterActivationAlert` — the repo's `StaffNotification`
-pattern, added in the A4 remediation — never just a passive row a human
-might happen to notice), and it is surfaced in the admin purchase view so a
-human can decide whether to run the *existing*, separately-audited
-`adminAdjustMembership` (e.g. set `status: CANCELLED`) — which remains the
-single source of truth for tier/status changes outside the purchase flow.
-This is a deliberate scope boundary, called out again
-in the "what remains for review" list.
+`recordRefund` records `REFUNDED` truthfully without touching
+`activationStatus`/`membershipTermsId`, and raises the operational alert.
+2B deliberately does **not** auto-revoke `JadeClubMembershipTerms` or the
+membership tier — that is a business decision outside this scope; a human
+follows up via the existing, separately-audited `adminAdjustMembership`.
 
 ### 9. Duplicate webhook delivery
-**Mechanism:** Two mechanisms stack:
-1. Every CAS above is a no-op the second time it runs (the `where` clause's
-   expected-current-state no longer matches, so `count === 0`).
-2. Belt-and-suspenders: before doing any state work, the handler checks
-   `purchase.paymentStatus !== 'PENDING'` (for a payment-succeeded event) or
-   `purchase.activationStatus === 'ACTIVATED'` (for anything downstream) and
-   returns 200 immediately with no writes attempted at all.
-Neither path ever throws on a duplicate — a duplicate is a clean, silent
-200.
+Every payment-side CAS is a no-op on a repeat (the `where` clause's
+expected value no longer matches). `attemptActivation`'s own top-level
+pre-check additionally short-circuits `ACTIVATED`/
+`PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION` rows before ever opening a
+transaction.
 
-### 10. Concurrent webhook delivery (two workers racing the same purchase)
-**Mechanism:** The CAS `updateMany` + `count === 1` check is itself the
-concurrency primitive — Postgres's row-level `UPDATE` is atomic, so of two
-simultaneous `updateMany` calls with the same `where: { id, paymentStatus:
-'PENDING' }`, exactly one sees `count === 1` and proceeds; the other sees
-`count === 0` and no-ops. For the activation step specifically, this
-codebase already has a *stronger* guarantee one layer down:
-`activateMembershipTerms` takes `SELECT ... FOR UPDATE` on the
-`jade_club_memberships` row as the first statement of its transaction, so
-a second concurrent activation attempt for the SAME membership blocks on
-that lock and then correctly sees the just-created unexpired terms row and
-throws its existing, unmodified "already has an unexpired commercial terms
-period" error.
-
-**RACE-CONDITION REMEDIATION (post-independent-review fix).** That guard
-string fires in TWO genuinely different situations, and the original
-implementation collapsed them into one incorrect outcome — this was found
-by independent review as a HIGH-severity bug and is fixed as follows
-(`lib/jade-club/purchase-activation.ts::resolveUnexpiredTermsCollision`):
-
-- **CASE A — two workers processing the SAME purchase** (a duplicate
-  webhook delivery, webhook-vs-reconciliation, or two reconciliation runs
-  racing the same row). One of the two calls wins the row lock inside
-  `activateMembershipTerms`, creates the terms row, and commits the outer
-  CAS to `activationStatus: 'ACTIVATED'` first. The LOSING call, upon
-  catching the guard error, re-reads the SAME purchase row: if it is now
-  `ACTIVATED`, this is correctly reported as `{ outcome: 'ALREADY_ACTIVATED' }`
-  — a clean idempotent success, **never** `FAILED_PERMANENTLY`. (A narrow
-  self-heal also exists for the sub-case where the winning terms row is
-  provably this SAME purchase's own but the final CAS hasn't landed on this
-  row yet — it completes that CAS itself rather than reporting a false
-  failure.) The original bug unconditionally called `markFailedPermanently`
-  here regardless of which case it was — mislabeling a purchase that HAD
-  succeeded (via the other racing call) as a permanent failure.
-
-- **CASE B — two DIFFERENT, distinct, successfully-paid purchases racing
-  for the SAME membership** (e.g. two browser tabs, two completed Stripe
-  Checkout Sessions before either side's webhook had activated anything).
-  The losing purchase's re-read shows it is NOT the purchase that owns the
-  winning terms row (`jadeClubPurchase.findFirst({ where: { membershipTermsId } })`
-  resolves to a *different* purchase id, or to no purchase at all, e.g. an
-  ADMIN_GRANT/PROMOTION terms row that landed in the same window). This
-  purchase can **never** be mechanically retried into activating — retrying
-  will hit the exact same guard again, deterministically, forever. It is
-  therefore CAS-transitioned to a **structurally distinct** activation
-  status, `PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION`, with a
-  machine-readable `failureReason` (`DUPLICATE_PAID_MEMBERSHIP_PURCHASE`
-  when the winner is a different purchase, `DUPLICATE_ACTIVE_TERMS` for the
-  narrower non-purchase-source edge case) — never `FAILED_PERMANENTLY`,
-  which is reserved for "a mechanical retry might still succeed." The admin
-  "Retry Activation" action is *structurally* unable to target this status
-  (its CAS only ever matches `activationStatus: 'FAILED_PERMANENTLY'`), so
-  it can never be offered for a purchase that can't possibly benefit from
-  it. A real staff alert is also raised (see
-  `raiseDuplicatePaidPurchaseAlert` — the repo's `StaffNotification`
-  pattern, not a passive DB row) so a human picks up the (normally: refund)
-  reconciliation promptly. The purchase itself remains fully visible and
-  queryable in the admin Purchases panel — never swallowed or hidden.
-
-**Defense-in-depth for "retry can actually succeed" (A2 invariant #8):**
-`adminResetForRetry` additionally CAS-gates on
-`failureReason: { in: RETRYABLE_ACTIVATION_FAILURE_REASONS }`
-(`MAX_RETRIES_EXCEEDED`, `UNKNOWN_ACTIVATION_ERROR` only) — so even a
-`FAILED_PERMANENTLY` row with a structural/business failure reason (e.g.
-`POLICY_NO_LONGER_ACTIVE`) cannot be retried through this action, on top of
-the structural status separation above.
-
-This is exercised in
-`lib/jade-club/__tests__/purchase-postgres-concurrency.test.ts` against a
-real Postgres instance, with tightened assertions that only the CORRECT
-outcome can pass (see that file's header for how to run it — it requires
-Docker; this implementation environment genuinely has no `docker` binary
-available, so the test compiles and is skipped, not silently green, and
-still needs to be executed with Docker available before independent
-sign-off).
+### 10. Concurrent webhook delivery / concurrent activation workers (two workers racing the same purchase — Case A)
+Structurally handled by step 3's direct `purchaseId` lookup: whichever
+call's transaction commits first creates the terms row (with `purchaseId`
+set); the losing call's own lookup at step 3 finds that row directly and
+reports `ACTIVATED` via the idempotent-recovery path (step 4) — never
+`FAILED_PERMANENTLY`. (A distinct, *different-purchase* collision — two
+genuinely separate paid purchases — is Case B, covered by step 8's
+winner-determination branch, `PAYMENT_CONFIRMED_REQUIRES_RECONCILIATION`.)
 
 ### 11. Provider reference uniqueness
-**Mechanism:** `@@unique([provider, providerReference])` on
-`JadeClubPurchase` at the DB layer. The webhook handler always looks the
-purchase up by `(provider, providerReference)` — the Stripe Checkout
-Session id — never by a client-echoed `purchaseId` from the redirect query
-string (the confirmation page also never trusts that). If two checkout
-sessions were somehow created for the same provider reference (should be
-structurally impossible — Stripe generates a fresh session id per
-`sessions.create()` call), the second insert would hit the unique
-constraint and fail loudly rather than silently overwriting.
+`@@unique([provider, providerReference])` on `JadeClubPurchase`.
+`recordCheckoutSessionPaid` looks up by `(provider, providerReference)`
+only; `purchaseIdHint` (from Stripe's own verified `session.metadata`,
+never the browser) is used *only* to self-heal the narrow crash window
+where a purchase row still carries its `pending:` placeholder reference at
+webhook-arrival time — and only via a CAS that patches a row *still*
+carrying that exact placeholder prefix, so it can never hijack an
+unrelated or already-healed row. Both the self-heal itself and its refusal
+to touch an already-healed/unrelated row are covered by executable
+regression tests that force the real crash window (not source inspection).
 
 ### 12. Exact currency/amount reconciliation
-**Mechanism:** Two checks, mirroring the Paystack
-exact-match-or-`reconciliation_required` precedent:
-1. **At checkout-creation time:** `amountMinor` and `currency` are read
-   from the resolved ACTIVE `JadeClubCommercialPolicy` row at the moment of
-   session creation — never from the client request body, which only ever
-   supplies `{ tier, market, currency }` (a *scope selector*, not a price).
-   This mirrors `app/api/esim/stripe-session/route.ts`'s
-   revalidate-immediately-before-charging pattern.
-2. **At webhook time:** the handler re-reads `session.amount_total` /
-   `session.currency` from the verified Stripe event and compares them,
-   with exact integer/lowercase-vs-uppercase-normalized equality, against
-   the `JadeClubPurchase.amountMinor`/`currency` recorded at checkout
-   creation (which is itself immutable once written — no route ever
-   updates those two columns). A mismatch never activates anything: the
-   purchase is CAS-transitioned to `paymentStatus=SUCCEEDED` (the money
-   really did move) but `activationStatus` is set straight to
-   `FAILED_PERMANENTLY` with `failureReason: 'AMOUNT_MISMATCH'`, and an
-   `ActivityLog` entry is written for staff to investigate — money is never
-   silently un-accounted-for, and a benefit is never silently granted for
-   less than the price a member actually paid.
+`amountMinor`/`currency` are frozen on the purchase row at
+checkout-creation time from the resolved ACTIVE policy — never
+client-supplied, never re-derived. `recordCheckoutSessionPaid` compares the
+verified Stripe event's `amount_total`/`currency` against those frozen
+values with exact equality; a mismatch records `paymentStatus: SUCCEEDED`
+truthfully (money did move) but routes straight to
+`activationStatus: FAILED_PERMANENTLY` / `AMOUNT_MISMATCH` or
+`CURRENCY_MISMATCH` — never silently activates a mismatched charge.
 
-## Why `policyVersion` is copied at checkout-creation time (not webhook time)
+## Why `policyVersion`/`amountMinor` are copied at checkout-creation time
 
-If an admin edits/supersedes the policy between checkout creation and
-webhook delivery, the member must get exactly what they were shown and
-charged for. `JadeClubPurchase.policyId`/`policyVersion`/`amountMinor` are
-frozen at checkout-creation time; `activateMembershipTerms` is then called
-against `purchase.policyId` — which, by construction, still points at the
-exact policy row (immutable scalar fields) the customer paid for, never a
-"current ACTIVE policy for this tier" re-lookup. If that specific policy
-row has since been superseded (status flips to `SUPERSEDED`, not deleted —
-see 2A's model), `activateMembershipTerms`'s own
-`policy.status !== 'ACTIVE'` guard fires, which the wrapper treats as
-`FAILED_PERMANENTLY` (`failureReason: 'POLICY_NO_LONGER_ACTIVE'`) rather
-than silently activating stale terms — this is the "policy/version race"
-edge case called out in the review checklist, and it fails safe (money
-collected, benefit not silently granted, staff-visible for manual
-resolution) rather than either double-charging or silently reprising an
-old price.
+If an admin supersedes the policy between checkout creation and webhook
+delivery, the member must get exactly what they were shown and charged
+for. `JadeClubPurchase.policyId`/`policyVersion`/`amountMinor` are frozen
+at checkout time; `attemptActivation` always activates against
+`purchase.policyId` — the exact, immutable policy row the member paid
+for — never "the current ACTIVE policy for this scope." If that specific
+policy has since been superseded (`status` flips to `SUPERSEDED`, never
+deleted), step 6 of the sequence above catches it and terminates the
+purchase as `FAILED_PERMANENTLY`/`POLICY_NO_LONGER_ACTIVE` — proven
+end-to-end (not just by inspecting the guard clause) by a permanent
+regression test that drives the real `attemptActivation` orchestration
+against a policy genuinely superseded between checkout and activation,
+asserting zero tier mutation, zero terms/snapshots/entitlements created.

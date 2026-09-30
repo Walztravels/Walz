@@ -4634,6 +4634,22 @@ model JadeClubMembershipTerms {
   // `policyId`'s FK to JadeClubCommercialPolicy also uses `onDelete: Restrict`
   // for the identical reason ("traceability ONLY" that must never quietly
   // disappear) — see that field's comment above.
+  //
+  // ⚠️ DEFERRED ENGINEERING NOTE — no current code path deletes a User row,
+  // so this is NOT a release blocker, but a FUTURE User-deletion / GDPR-
+  // erasure / account-deletion workflow MUST account for this: this field
+  // is ON DELETE RESTRICT to JadeClubPurchase, while JadeClubPurchase.userId
+  // AND JadeClubMembership.userId are both ON DELETE CASCADE from User (the
+  // latter cascading further into this very table via membershipId).
+  // Depending on Postgres's cascade-processing order for one
+  // `DELETE FROM "User"`, a cascade into JadeClubPurchase can collide with
+  // this RESTRICT while a live purchaseId still points at it — Postgres
+  // will correctly reject that delete rather than silently succeed, but
+  // that future workflow must explicitly anticipate and handle it (e.g.
+  // deactivate/archive/anonymize the purchase record first) rather than
+  // discover it as a surprise runtime error. See
+  // docs/jade-2b-purchase-state-machine.md's "Purchase provenance" section
+  // for the full writeup.
   purchaseId String? @unique @map("purchase_id")
 
   membership JadeClubMembership                @relation(fields: [membershipId], references: [id], onDelete: Cascade)
