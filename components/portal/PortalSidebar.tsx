@@ -8,8 +8,8 @@ import { BUSINESS, waLink } from '@/lib/config/business'
 import {
   LayoutDashboard, FileText, Upload, CreditCard,
   CheckSquare, Users, LogOut, Globe, ChevronRight,
-  UserCircle, MessageCircle, Shield, Compass, Sparkles, Package2, Bell,
-  Award, Map, Gem,
+  UserCircle, MessageCircle, Shield, Compass, ConciergeBell, Package2, Bell,
+  Award, Map, Gem, NotebookText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -18,12 +18,12 @@ const LOGO_CACHE_TTL  = 60 * 60 * 1000
 
 const NAV = [
   { href: '/dashboard',                label: 'Dashboard',        icon: LayoutDashboard },
-  { href: '/dashboard/jade',           label: 'Ask Jade',         icon: Sparkles        },
+  { href: '/dashboard/jade',           label: 'Ask Jade',         icon: ConciergeBell   },
   { href: '/dashboard/trips',         label: 'My Trips',         icon: Map             },
   { href: '/dashboard/miles',         label: 'Walz Miles',       icon: Award           },
   { href: '/dashboard/club',          label: 'Jade Travel Club', icon: Gem             },
   { href: '/plan/library',            label: 'Trip Planner',     icon: Compass         },
-  { href: '/dashboard/proposals',     label: 'My Itineraries',   icon: Sparkles        },
+  { href: '/dashboard/proposals',     label: 'My Itineraries',   icon: NotebookText    },
   { href: '/dashboard/bookings',      label: 'My Bookings',      icon: Package2        },
   { href: '/dashboard/travellers',    label: 'Travellers',       icon: Users           },
   { href: '/dashboard/notifications', label: 'Notifications',    icon: Bell            },

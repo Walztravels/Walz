@@ -14,7 +14,7 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { ArrowLeft, Sparkles, CreditCard, Plane, ShieldCheck, Gift, Award, Lock } from 'lucide-react'
+import { ArrowLeft, Gem, ConciergeBell, CreditCard, Plane, ShieldCheck, Gift, Award, Lock } from 'lucide-react'
 import { ensureJadeClubMembership } from '@/lib/jade-club/membership'
 import { listActiveBenefits } from '@/lib/jade-club/benefits'
 import { getMilesWalletData } from '@/lib/portal/miles-data'
@@ -58,7 +58,7 @@ export default async function JadeClubPage() {
         </Link>
 
         <div className="flex items-center gap-3 mb-2">
-          <Sparkles className="w-5 h-5 text-[#C9A84C]" />
+          <Gem className="w-5 h-5 text-[#C9A84C]" />
           <h1 className="text-white font-bold text-2xl">Jade Travel Club</h1>
         </div>
         <p className="text-white/40 text-sm mb-8">
@@ -161,7 +161,7 @@ export default async function JadeClubPage() {
         <Link href="/dashboard/jade?club=1"
           className="flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-[#C9A84C]/10 to-[#C9A84C]/5 border border-[#C9A84C]/20 hover:border-[#C9A84C]/40 transition-all mt-8">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-4 h-4 text-[#0B1F3A]" />
+            <ConciergeBell className="w-4 h-4 text-[#0B1F3A]" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white font-semibold text-sm">Ask Jade about Jade Travel Club</p>

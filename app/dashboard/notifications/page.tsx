@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
-import { ArrowLeft, Bell, CheckCheck, Plane, Sparkles, FileText, Package2, Wifi, User, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Bell, CheckCheck, Plane, NotebookText, FileText, Package2, Wifi, User, AlertCircle } from 'lucide-react'
 import prisma from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -14,7 +14,7 @@ type NotificationCategory = 'PROPOSAL' | 'PAYMENT' | 'BOOKING' | 'DOCUMENT' | 'T
 
 function CategoryIcon({ category }: { category: string }) {
   switch (category as NotificationCategory) {
-    case 'PROPOSAL': return <Sparkles className="w-4 h-4 text-[#C9A84C]" />
+    case 'PROPOSAL': return <NotebookText className="w-4 h-4 text-[#C9A84C]" />
     case 'PAYMENT':  return <Package2  className="w-4 h-4 text-green-400" />
     case 'BOOKING':  return <Plane     className="w-4 h-4 text-blue-400" />
     case 'DOCUMENT': return <FileText  className="w-4 h-4 text-orange-400" />

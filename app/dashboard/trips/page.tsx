@@ -10,7 +10,7 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { ArrowLeft, Compass, Sparkles, ChevronRight, MapPin, Calendar, Users } from 'lucide-react'
+import { ArrowLeft, Compass, ConciergeBell, ChevronRight, MapPin, Calendar, Users } from 'lucide-react'
 import prisma from '@/lib/db'
 import { groupTrips } from '@/lib/portal/trip-grouping'
 
@@ -87,7 +87,7 @@ function TripCard({ trip }: { trip: TripRow }) {
         </Link>
         <Link href={`/dashboard/jade?trip=${trip.id}`}
           className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-xs font-semibold text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
-          <Sparkles className="w-3 h-3" /> Ask Jade
+          <ConciergeBell className="w-3 h-3" /> Ask Jade
         </Link>
       </div>
     </div>

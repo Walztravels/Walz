@@ -5,7 +5,7 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { ArrowLeft, Globe, AlertCircle, Sparkles } from 'lucide-react'
+import { ArrowLeft, Globe, AlertCircle, NotebookText, ConciergeBell } from 'lucide-react'
 import prisma from '@/lib/db'
 import { proposalStatusLabel, proposalStatusColor, proposalNeedsAction } from '@/lib/portal/status-normalizers'
 
@@ -50,7 +50,7 @@ export default async function ProposalsPage() {
         </Link>
 
         <div className="flex items-center gap-3 mb-2">
-          <Sparkles className="w-5 h-5 text-[#C9A84C]" />
+          <NotebookText className="w-5 h-5 text-[#C9A84C]" />
           <h1 className="text-white font-bold text-2xl">My Itineraries</h1>
           {proposals.length > 0 && (
             <span className="text-xs bg-[#C9A84C] text-[#0B1F3A] px-2 py-0.5 rounded-full font-bold">
@@ -136,7 +136,7 @@ export default async function ProposalsPage() {
         <Link href="/dashboard/jade"
           className="mt-6 flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-r from-[#C9A84C]/10 to-[#C9A84C]/5 border border-[#C9A84C]/20 hover:border-[#C9A84C]/40 transition-all group">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-4 h-4 text-[#0B1F3A]" />
+            <ConciergeBell className="w-4 h-4 text-[#0B1F3A]" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white font-semibold text-sm">Ask Jade about your itineraries</p>

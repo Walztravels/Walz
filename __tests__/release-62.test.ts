@@ -342,8 +342,10 @@ describe('Release 6.2 source invariants', () => {
     expect(hasPattern('components/portal/PortalSidebar.tsx', '/dashboard/proposals')).toBe(true)
   })
 
-  test('PortalSidebar: Sparkles icon imported', () => {
-    expect(hasPattern('components/portal/PortalSidebar.tsx', 'Sparkles')).toBe(true)
+  test('PortalSidebar: NotebookText icon imported', () => {
+    // Icon updated from Sparkles to NotebookText as part of the Jade icon-identity
+    // polish (jade-icon-polish branch) — My Itineraries now uses NotebookText.
+    expect(hasPattern('components/portal/PortalSidebar.tsx', 'NotebookText')).toBe(true)
   })
 
   // NotificationsBell

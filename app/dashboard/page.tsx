@@ -10,8 +10,8 @@ import { format } from 'date-fns'
 import {
   Plane, Hotel, Map, FileText, Gift, Upload,
   MessageCircle, Shield, Globe, Compass, AlertCircle,
-  ChevronRight, Clock, ArrowRight, Sparkles, Package2,
-  Award, MapPin, Calendar, Wallet,
+  ChevronRight, Clock, ArrowRight, ConciergeBell, Package2,
+  Award, MapPin, Calendar, Wallet, NotebookText,
 } from 'lucide-react'
 import { getDashboardData } from '@/lib/portal/dashboard-data'
 import { deriveCustomerActions } from '@/lib/portal/customer-actions'
@@ -126,7 +126,7 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <Link href="/dashboard/jade"
               className="flex items-center gap-2 px-5 py-2.5 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors">
-              <Sparkles className="w-4 h-4" />
+              <ConciergeBell className="w-4 h-4" />
               Ask Jade
             </Link>
             <Link href="/plan/library"
@@ -251,7 +251,7 @@ export default async function DashboardPage() {
               </Link>
               <Link href={`/dashboard/jade?trip=${primaryTrip.id}`}
                 className="flex items-center gap-1 px-3 py-2 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-xs font-semibold text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
-                <Sparkles className="w-3 h-3" /> Ask Jade
+                <ConciergeBell className="w-3 h-3" /> Ask Jade
               </Link>
             </div>
           </Card>
@@ -303,7 +303,7 @@ export default async function DashboardPage() {
         {proposals.length > 0 && (
           <Card
             title="My Itineraries"
-            icon={<Sparkles className="w-4 h-4 text-[#C9A84C]" />}
+            icon={<NotebookText className="w-4 h-4 text-[#C9A84C]" />}
             count={proposals.filter(p => proposalNeedsAction(p.status)).length || undefined}
             viewAll="/dashboard/proposals"
           >
@@ -386,7 +386,7 @@ export default async function DashboardPage() {
                         <Link href={`/dashboard/jade?application=${app.id}`}
                           title="Ask Jade about this application"
                           className="flex items-center px-2 py-1.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
-                          <Sparkles className="w-3 h-3" />
+                          <ConciergeBell className="w-3 h-3" />
                         </Link>
                       </div>
                     </div>
@@ -468,7 +468,7 @@ export default async function DashboardPage() {
                     <Link href={`/dashboard/jade?booking=${b.id}`}
                       title="Ask Jade about this booking"
                       className="flex-shrink-0 flex items-center px-2 py-1.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] rounded-lg hover:bg-[#C9A84C]/15 transition-colors">
-                      <Sparkles className="w-3 h-3" />
+                      <ConciergeBell className="w-3 h-3" />
                     </Link>
                   </div>
                 )

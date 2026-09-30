@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link                                           from 'next/link'
-import { Send, X, Loader2, Sparkles, ChevronRight }  from 'lucide-react'
+import { Send, X, Loader2, ConciergeBell, ChevronRight }  from 'lucide-react'
 import { cn }                                         from '@/lib/utils'
 import type { PortalContextHint }                     from '@/lib/portal/portal-jade-context'
 import { SpeakToHuman }                               from '@/components/common/SpeakToHuman'
@@ -136,7 +136,7 @@ export default function PortalJadeChat({
       <div className="flex-shrink-0 bg-[#0B1F3A] border-b border-white/8 px-4 py-3">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0">
-            <Sparkles className="w-4 h-4 text-[#0B1F3A]" />
+            <ConciergeBell className="w-4 h-4 text-[#0B1F3A]" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-white font-semibold text-sm leading-tight">Jade</p>
@@ -170,9 +170,9 @@ export default function PortalJadeChat({
         {isEmpty && (
           <div className="flex flex-col items-center justify-center h-full min-h-[200px] text-center px-4">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#C9A84C]/20 to-[#C9A84C]/5 border border-[#C9A84C]/20 flex items-center justify-center mb-4">
-              <Sparkles className="w-7 h-7 text-[#C9A84C]" />
+              <ConciergeBell className="w-7 h-7 text-[#C9A84C]" />
             </div>
-            <h2 className="text-white font-semibold text-lg mb-1">Hi {displayName} 👋</h2>
+            <h2 className="text-white font-semibold text-lg mb-1">Hi {displayName}</h2>
             <p className="text-white/40 text-sm max-w-xs">
               I&apos;m Jade, your personal Walz Travels concierge. I can help with your trips, bookings, proposals, and more.
             </p>
@@ -183,7 +183,7 @@ export default function PortalJadeChat({
           <div key={i} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
             {msg.role === 'assistant' && (
               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
-                <Sparkles className="w-3.5 h-3.5 text-[#0B1F3A]" />
+                <ConciergeBell className="w-3.5 h-3.5 text-[#0B1F3A]" />
               </div>
             )}
             <div
@@ -204,7 +204,7 @@ export default function PortalJadeChat({
         {loading && (
           <div className="flex justify-start">
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#0B1F3A]" />
+              <ConciergeBell className="w-3.5 h-3.5 text-[#0B1F3A]" />
             </div>
             <div className="bg-[#0B1F3A] border border-white/8 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5" aria-label="Jade is thinking">
               <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:0ms]" />

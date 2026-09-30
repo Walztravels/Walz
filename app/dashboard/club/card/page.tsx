@@ -11,7 +11,7 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { ArrowLeft, Sparkles } from 'lucide-react'
+import { ArrowLeft, Gem } from 'lucide-react'
 import QRCode from 'qrcode'
 import { getJadeClubCardView } from '@/lib/jade-club/membership'
 import { JADE_CLUB_TIER_LABELS } from '@/lib/jade-club/types'
@@ -50,7 +50,7 @@ export default async function DigitalJadeCardPage() {
                 <p className="text-white/70 text-[11px] uppercase tracking-[0.2em]">Travel Club</p>
                 <p className="text-white/30 text-[10px] mt-0.5">by Walz Travels</p>
               </div>
-              <Sparkles className="w-6 h-6 text-[#C9A84C]/70" />
+              <Gem className="w-6 h-6 text-[#C9A84C]/70" />
             </div>
 
             <p className="text-white font-bold text-lg mb-1 truncate">{displayName}</p>

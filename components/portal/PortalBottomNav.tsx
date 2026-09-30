@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Package2, Users, Sparkles, UserCircle } from 'lucide-react'
+import { LayoutDashboard, Package2, Users, ConciergeBell, UserCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const ITEMS = [
   { href: '/dashboard',            label: 'Home',      icon: LayoutDashboard },
   { href: '/dashboard/bookings',   label: 'Bookings',  icon: Package2        },
-  { href: '/dashboard/jade',       label: 'Jade',      icon: Sparkles        },
+  { href: '/dashboard/jade',       label: 'Jade',      icon: ConciergeBell   },
   { href: '/dashboard/travellers', label: 'Travellers', icon: Users           },
   { href: '/portal/profile',       label: 'Account',   icon: UserCircle      },
 ]
