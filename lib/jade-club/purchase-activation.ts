@@ -72,7 +72,7 @@ async function writeAuditLog(action: string, purchaseId: string, detail: string,
       entityId: purchaseId,
       detail,
       before: Prisma.JsonNull,
-      after,
+      after: after as Prisma.InputJsonValue,
     },
   }).catch((e) => console.warn('[jade-club] activity log write failed:', e))
 }
