@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import { assertOrgScopedAccess } from '@/lib/business/authz'
+import { assertAgencyOrCorporateAccess } from '@/lib/business/org-type-gate'
 import { recordBusinessAudit } from '@/lib/business/audit'
 
 export const dynamic = 'force-dynamic'
@@ -21,7 +21,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string;
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
+  // R2.1 remediation: REFERRAL_PARTNER organizations are denied outright —
+  // naming a traveller on a request is client-traveller management.
+  const access = await assertAgencyOrCorporateAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
   if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status })
 
   const body = await req.json().catch(() => null)

@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import { assertOrgScopedAccess } from '@/lib/business/authz'
+import { assertAgencyOrCorporateAccess } from '@/lib/business/org-type-gate'
 import { recordBusinessAudit } from '@/lib/business/audit'
 
 export const dynamic = 'force-dynamic'
@@ -25,7 +25,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id)
+  // R2.1 remediation: REFERRAL_PARTNER organizations are denied outright —
+  // TravelRequest listing/creation is a booking/service-ownership endpoint
+  // on the explicit deny-list.
+  const access = await assertAgencyOrCorporateAccess(session.user.id, params.id)
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
@@ -65,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
+  const access = await assertAgencyOrCorporateAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }

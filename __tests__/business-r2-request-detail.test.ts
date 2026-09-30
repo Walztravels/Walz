@@ -8,6 +8,7 @@
  * approve route's CAS race still yields exactly one winner.
  */
 const mockPrisma = {
+  organization: { findUnique: jest.fn() },
   organizationMembership: { findUnique: jest.fn() },
   travelRequest: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
   travelApproval: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
@@ -64,6 +65,8 @@ beforeEach(() => {
   mockPrisma.user.findMany.mockResolvedValue([])
   mockPrisma.quote.findMany.mockResolvedValue([{ id: 'q1', reference: 'Q-1', title: 'Flights', status: 'sent', currency: 'NGN', totalMinor: BigInt(123456), validUntil: new Date('2026-10-10') }])
   mockPrisma.travelRequest.update.mockResolvedValue({})
+  // R2.1: lib/business/org-type-gate.ts consults organization.organizationType.
+  mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'CORPORATE' })
 })
 
 describe.each([

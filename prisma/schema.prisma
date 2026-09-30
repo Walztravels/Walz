@@ -2809,9 +2809,17 @@ model VisaCaseDocument {
   checksum      String?                       // sha256 of the bytes
   uploadedBy    String
   createdAt     DateTime @default(now())
+  // Walz Business R2.1 — schema-level placeholder boundary. No malware
+  // scanner exists anywhere in this codebase today; this field exists so
+  // uploaded files are explicitly treated as untrusted until one does.
+  // PENDING_SCAN | SCAN_UNAVAILABLE | CLEAN | QUARANTINED. Defaults to
+  // SCAN_UNAVAILABLE because no scanner exists yet — this is NOT a claim
+  // that any scanning happens today.
+  scanStatus    String   @default("SCAN_UNAVAILABLE")
 
   @@index([applicationId])
   @@index([checksum])
+  @@index([scanStatus])
 }
 
 /// One extracted, source-attributed evidence value for a visa case.
@@ -7616,15 +7624,100 @@ model Organization {
   accountManagerId   String?  @map("account_manager_id")
   defaultCurrency    String   @default("GBP") @map("default_currency")
   market             String?
+  // Walz Business R2.1 — CORPORATE | TRAVEL_AGENCY | REFERRAL_PARTNER.
+  // NOT NULL DEFAULT 'CORPORATE'. The ONLY path by which this may change
+  // after creation is app/api/admin/business/organizations/[id]/
+  // organization-type/route.ts (staff b2b.manage, reason-required,
+  // audited) — see lib/business/organization-type.ts. A bare
+  // `prisma.organization.update` touching this field anywhere else is a
+  // bug; grep the codebase for `organizationType` before adding one.
+  organizationType   String   @default("CORPORATE") @map("organization_type")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   memberships    OrganizationMembership[]
   travellers     BusinessTraveller[]
   travelRequests TravelRequest[]
+  invitations    OrganizationInvitation[]
+  brandSettings  OrganizationBrandSettings?
 
   @@index([status])
+  @@index([organizationType])
   @@map("organizations")
+}
+
+// ============================================================================
+// WALZ BUSINESS — RELEASE 2.1: organization-invitation bootstrap + convergence
+// ============================================================================
+// ONE converged invitation system covering (a) bootstrap — a Walz admin
+// creates an org and invites its first ADMIN/OWNER, where NO
+// OrganizationMembership row exists yet — and (b) subsequent members — an
+// existing ADMIN+ member invites another person, where an INVITED
+// OrganizationMembership is already created today (see
+// app/api/business/organizations/[id]/members/route.ts). This model is the
+// single source of truth for both; there must never be two parallel
+// invitation mechanisms.
+//
+// TOKEN SECURITY: follows the Quotes/Proposals SHA-256 precedent
+// (app/api/quote-proposal/[token]/route.ts's hashToken()), not the
+// traveller-claim flow's raw-unique-token precedent — this grants
+// organization administrative access and deserves the stronger pattern.
+// Only tokenHash (sha256 hex of a crypto.randomBytes(32) token) is ever
+// persisted; the raw token exists only in the outbound email and the
+// short-lived URL, never logged, never returned by any API response.
+//
+// See lib/business/invitations.ts for issue/accept logic (the CAS
+// consumption, the non-enumerating denial, the email-match hard
+// requirement).
+model OrganizationInvitation {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  // Case-insensitive compare everywhere — always stored lowercased/trimmed.
+  email          String
+  // The OrgRole being offered — same allow-list as OrganizationMembership.role.
+  role           String
+  // SHA-256 hex of the raw token. NEVER the raw token itself.
+  tokenHash      String   @unique @map("token_hash")
+  // Exactly one of these two is set: staff for bootstrap, a membership id
+  // for a subsequent-member invite issued by an existing ADMIN+ member.
+  invitedByStaffId      String? @map("invited_by_staff_id")
+  invitedByMembershipId String? @map("invited_by_membership_id")
+  expiresAt      DateTime  @map("expires_at")
+  consumedAt     DateTime? @map("consumed_at")
+  consumedByUserId String? @map("consumed_by_user_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([expiresAt])
+  @@map("organization_invitations")
+}
+
+// ============================================================================
+// WALZ BUSINESS — RELEASE 2.1: white-label presentation foundation
+// ============================================================================
+// PRESENTATION ONLY. whiteLabelEnabled never changes what legal, regulatory,
+// government-facing, or payment disclosures show — those ALWAYS show the
+// real Walz/operator identity regardless of this table's contents. No
+// custom domains. See app/api/business/organizations/[id]/brand-settings/
+// route.ts.
+model OrganizationBrandSettings {
+  organizationId         String   @id @map("organization_id")
+  displayName            String?  @map("display_name")
+  logoUrl                String?  @map("logo_url")
+  brandColor             String?  @map("brand_color")
+  supportEmail           String?  @map("support_email")
+  supportPhone           String?  @map("support_phone")
+  clientFacingSenderName String?  @map("client_facing_sender_name")
+  whiteLabelEnabled      Boolean  @default(false) @map("white_label_enabled")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_brand_settings")
 }
 
 model OrganizationMembership {
@@ -7648,6 +7741,7 @@ model OrganizationMembership {
   submittedRequests TravelRequest[]  @relation("SubmittedByMembership")
   approvals         TravelApproval[] @relation("ApproverMembership")
   capabilities      OrganizationMembershipCapability[]
+  attestations      TravelRequestServiceAttestation[]
 
   @@unique([organizationId, userId])
   @@index([userId])
@@ -7680,6 +7774,14 @@ model BusinessTraveller {
   // See prisma/migrations/walz_business_r2.sql.
   claimTokenExpiresAt    DateTime? @map("claim_token_expires_at")
 
+  // Walz Business R2.1 — EMPLOYEE | CLIENT. NOT NULL DEFAULT 'EMPLOYEE'.
+  // Does NOT introduce a new customer/client identity model: a claimed
+  // travellerKind:'CLIENT' row still points at the same canonical User via
+  // the exact same claimVerifiedAt/userId discipline as an employee row
+  // (see lib/business/services.ts::OWNERSHIP_CLAIMED_TRAVELLER, which is
+  // reused verbatim and never weakened for CLIENT rows).
+  travellerKind          String    @default("EMPLOYEE") @map("traveller_kind")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -7691,6 +7793,7 @@ model BusinessTraveller {
   @@index([organizationId])
   @@index([userId])
   @@index([email])
+  @@index([travellerKind])
   @@map("business_travellers")
 }
 
@@ -7756,6 +7859,7 @@ model TravelRequestService {
   createdAt DateTime @default(now()) @map("created_at")
 
   travelRequest TravelRequest @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+  attestations  TravelRequestServiceAttestation[]
 
   @@index([travelRequestId])
   @@index([linkedQuoteId])
@@ -7763,6 +7867,48 @@ model TravelRequestService {
   @@index([linkedItineraryId])
   @@index([linkedTripId])
   @@map("travel_request_services")
+}
+
+// ============================================================================
+// WALZ BUSINESS — RELEASE 2.1: append-only submission attestation
+// ============================================================================
+// Modeled directly on ConsentRecord/ConsentEvent's capture discipline
+// (lib/consent/capture.ts): server-captured IP/UA, a strict `=== true` gate
+// before ANY row is written, identity NEVER client-declared (membershipId
+// always comes from the caller's own authenticated, org-scoped session —
+// never from the request body). NEVER updated after creation — one row per
+// submission event. `attestationVersion` is a placeholder identifier only;
+// no legal wording is drafted here (see mission scope).
+//
+// This is also how the system always knows who actually SUBMITTED
+// information for a case (membershipId), distinct from who the case is
+// ABOUT (the traveller/BusinessTraveller linked via TravelRequestTraveller)
+// — the "submittedByMembershipId trace" requirement is satisfied by this
+// column rather than adding a duplicate field elsewhere.
+model TravelRequestServiceAttestation {
+  id                      String    @id @default(cuid())
+  travelRequestServiceId  String    @map("travel_request_service_id")
+  // Denormalized from the membership, matching the
+  // OrganizationMembershipCapability defense-in-depth convention.
+  organizationId          String    @map("organization_id")
+  // Who actually attested / submitted the information for this case.
+  membershipId            String    @map("membership_id")
+  visaApplicationId       String?   @map("visa_application_id")
+  // Placeholder version identifier only — no finalized legal wording.
+  attestationVersion      String    @map("attestation_version")
+  attestedAt              DateTime  @map("attested_at")
+  ipAddress               String?   @map("ip_address")
+  userAgent               String?   @map("user_agent")
+  createdAt               DateTime  @default(now()) @map("created_at")
+
+  travelRequestService TravelRequestService   @relation(fields: [travelRequestServiceId], references: [id], onDelete: Cascade)
+  membership           OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+
+  @@index([travelRequestServiceId])
+  @@index([organizationId])
+  @@index([membershipId])
+  @@index([visaApplicationId])
+  @@map("travel_request_service_attestations")
 }
 
 model TravelApproval {

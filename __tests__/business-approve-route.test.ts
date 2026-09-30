@@ -7,6 +7,7 @@
  * TravelApproval row must only let one through.
  */
 const mockPrisma = {
+  organization: { findUnique: jest.fn() },
   organizationMembership: { findUnique: jest.fn() },
   travelRequest: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
   travelApproval: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
@@ -42,6 +43,8 @@ beforeEach(() => {
   jest.clearAllMocks()
   getServerSession.mockResolvedValue({ user: { id: USER, email: 'u@x.com' } })
   mockPrisma.travelRequest.update.mockResolvedValue({})
+  // R2.1: lib/business/org-type-gate.ts consults organization.organizationType.
+  mockPrisma.organization.findUnique.mockResolvedValue({ organizationType: 'CORPORATE' })
 })
 
 describe('POST approve — access control', () => {

@@ -18,8 +18,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import { assertOrgScopedAccess } from '@/lib/business/authz'
+import { assertAgencyOrCorporateAccess } from '@/lib/business/org-type-gate'
 import { recordBusinessAudit } from '@/lib/business/audit'
+import { parseTravellerKind, VALID_TRAVELLER_KINDS } from '@/lib/business/traveller-kind'
+import { checkLength, FIELD_LIMITS } from '@/lib/business/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +31,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id, { minRole: 'COORDINATOR' })
+  // R2.1: layered REFERRAL_PARTNER deny-by-default — client-traveller
+  // management is on the explicit deny-list (see lib/business/org-type-gate.ts).
+  const access = await assertAgencyOrCorporateAccess(session.user.id, params.id, { minRole: 'COORDINATOR' })
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
@@ -47,6 +51,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       email: t.email,
       phone: t.phone,
       status: t.status,
+      travellerKind: t.travellerKind,
       // NEVER leak whether userId is set as a raw id — a boolean "linked"
       // flag is all the client needs.
       linked: !!t.userId,
@@ -61,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const access = await assertOrgScopedAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
+  const access = await assertAgencyOrCorporateAccess(session.user.id, params.id, { minRole: 'TRAVEL_MANAGER' })
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status })
   }
@@ -71,9 +76,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const lastName = typeof body?.lastName === 'string' ? body.lastName.trim() : ''
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
   const phone = typeof body?.phone === 'string' ? body.phone.trim() : null
+  // R2.1 — EMPLOYEE | CLIENT. Defaults to EMPLOYEE when omitted, matching
+  // the schema default and the R1 backfill for every pre-existing row.
+  const travellerKind = parseTravellerKind(body?.travellerKind)
 
   if (!firstName || !lastName || !email) {
     return NextResponse.json({ error: 'firstName, lastName and email are required' }, { status: 400 })
+  }
+  if (!travellerKind) {
+    return NextResponse.json({ error: `travellerKind must be one of: ${VALID_TRAVELLER_KINDS.join(', ')}` }, { status: 400 })
+  }
+  // B6 remediation: real server-side length caps, REJECTING an over-length
+  // value rather than silently truncating a name/email/phone.
+  for (const [label, value, max, min] of [
+    ['firstName', firstName, FIELD_LIMITS.PERSON_NAME, 1],
+    ['lastName', lastName, FIELD_LIMITS.PERSON_NAME, 1],
+    ['email', email, FIELD_LIMITS.EMAIL, 3],
+    ...(phone ? [['phone', phone, FIELD_LIMITS.PHONE, 1]] as const : []),
+  ] as const) {
+    const check = checkLength(value, label, max, min)
+    if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
   }
 
   const traveller = await prisma.businessTraveller.create({
@@ -83,6 +105,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       lastName,
       email,
       phone,
+      travellerKind,
       createdBy: session.user.email ?? session.user.id,
     },
   })
@@ -93,8 +116,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     action: 'traveller.create',
     entityType: 'BusinessTraveller',
     entityId: traveller.id,
-    after: { firstName, lastName, email },
+    after: { firstName, lastName, email, travellerKind },
   })
 
-  return NextResponse.json({ traveller: { id: traveller.id, firstName, lastName, email, phone, status: traveller.status } }, { status: 201 })
+  return NextResponse.json({ traveller: { id: traveller.id, firstName, lastName, email, phone, status: traveller.status, travellerKind: traveller.travellerKind } }, { status: 201 })
 }
