@@ -59,6 +59,7 @@ model User {
   walzRewards          WalzRewardsMembership?
   travellerProfiles    TravellerProfile[]
   jadeClubMembership   JadeClubMembership?
+  jadeClubPurchases    JadeClubPurchase[]
 
   // ── Walz Business (Release 1) ─────────────────────────────────────────────
   // Back-relations only — additive, does not change any existing field.
@@ -4439,6 +4440,7 @@ model JadeClubMembership {
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   physicalCard JadePhysicalCard?
   terms        JadeClubMembershipTerms[]
+  purchases    JadeClubPurchase[]
 
   @@index([userId])
   @@index([tier])
@@ -4553,6 +4555,7 @@ model JadeClubCommercialPolicy {
 
   benefits JadeClubPolicyBenefit[]
   terms    JadeClubMembershipTerms[]  // traceability only — see that model's `policyId` comment
+  purchases JadeClubPurchase[]        // 2B: the exact policy a purchase is priced/activated against
 
   @@unique([tier, market, currency, version])
   @@index([tier, market, currency])
@@ -4614,6 +4617,7 @@ model JadeClubMembershipTerms {
   benefits   JadeClubMembershipBenefitSnapshot[]
   slots      JadeClubEntitlementSlot[]
   discountApplications JadeClubServiceFeeDiscountApplication[]
+  purchases  JadeClubPurchase[]  // 2B: the purchase(s) that resulted in this terms row (normally exactly one)
 
   @@index([membershipId])
   @@index([expiresAt])
@@ -4736,6 +4740,75 @@ model JadeClubServiceFeeDiscountApplication {
   @@index([membershipTermsId])
   @@index([entityType, entityId])
   @@map("jade_club_service_fee_discount_applications")
+}
+
+// ===========================
+// Jade Travel Club — Release 2B: Paid Membership Purchase & Lifecycle
+//
+// ADDITIVE ONLY. Does not touch any 2A model or adminAdjustMembership's
+// contract. This is the ONE new table for the customer-facing paid
+// checkout flow — see docs/jade-2b-purchase-state-machine.md for the full
+// state-machine design (12 scenarios, each citing the exact DB constraint
+// or CAS transition that resolves it).
+//
+// Two independent state fields on one row, never conflated:
+//   paymentStatus:    PENDING -> SUCCEEDED | FAILED | CANCELLED ; SUCCEEDED -> REFUNDED
+//   activationStatus: NOT_STARTED -> PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING -> ACTIVATED | FAILED_PERMANENTLY
+// Every transition is a CAS (updateMany keyed on current status + count
+// check), never a blind update — matching lib/jade-club/entitlements.ts's
+// established pattern.
+//
+// amountMinor/currency/policyId/policyVersion are copied from the resolved
+// ACTIVE JadeClubCommercialPolicy at CHECKOUT-CREATION time and never
+// touched again — never client-supplied, never re-derived at webhook time.
+// activateMembershipTerms() is always called against THIS purchase's
+// policyId (the exact policy the member paid for), never a fresh "current
+// ACTIVE policy" re-lookup — see the design doc's "policy/version race"
+// section.
+//
+// @@unique([provider, providerReference]) is the structural duplicate-
+// checkout-session guard; combined with the CAS transitions above it makes
+// duplicate/concurrent webhook delivery for the same purchase a clean
+// no-op, never a double-activation (see lib/jade-club/__tests__/
+// purchase-postgres-concurrency.test.ts for a real-Postgres proof).
+//
+// TEXT + CHECK convention (not native Postgres ENUM), matching every other
+// Jade Club table — see lib/jade-club/types.ts's header for why. Valid
+// values are enforced in TypeScript via lib/jade-club/purchase-types.ts.
+// ===========================
+
+model JadeClubPurchase {
+  id                  String    @id @default(cuid())
+  userId              String    @map("user_id")
+  membershipId        String?   @map("membership_id")        // set once the purchase resolves to this user's membership
+  policyId            String    @map("policy_id")            // the EXACT policy the member paid for — never re-resolved at webhook time
+  policyVersion       Int       @map("policy_version")       // copied at checkout-creation time
+  tier                String                                  // CLUB | CLUB_PLUS
+  market              String
+  currency            String                                  // ISO 4217
+  amountMinor         Int       @map("amount_minor")          // copied from the resolved ACTIVE policy at checkout-creation time — NEVER client-supplied
+  provider            String    @default("STRIPE")            // STRIPE (only provider wired in 2B)
+  providerReference   String    @map("provider_reference")    // Stripe Checkout Session id
+  paymentStatus       String    @default("PENDING")    @map("payment_status")     // PENDING | SUCCEEDED | FAILED | CANCELLED | REFUNDED
+  activationStatus    String    @default("NOT_STARTED") @map("activation_status") // NOT_STARTED | PAYMENT_CONFIRMED_BUT_ACTIVATION_PENDING | ACTIVATED | FAILED_PERMANENTLY
+  activationAttempts  Int       @default(0) @map("activation_attempts")
+  membershipTermsId   String?   @map("membership_terms_id")   // set once activation succeeds
+  failureReason       String?   @map("failure_reason")        // safe machine string only — never a raw provider error
+  createdAt           DateTime  @default(now()) @map("created_at")
+  paidAt              DateTime? @map("paid_at")
+  activatedAt         DateTime? @map("activated_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership      JadeClubMembership?      @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+  policy          JadeClubCommercialPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  membershipTerms JadeClubMembershipTerms? @relation(fields: [membershipTermsId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, providerReference])
+  @@index([userId])
+  @@index([paymentStatus])
+  @@index([activationStatus])
+  @@map("jade_club_purchases")
 }
 
 // ===========================
