@@ -48,9 +48,17 @@ describe('createMembershipVerificationToken / verifyMembershipVerificationTokenS
     const rawDecoded = Buffer.from(blob, 'base64url').toString('utf8')
     expect(rawDecoded).not.toContain('membership_super_secret_id')
     expect(rawDecoded).not.toContain('membershipId')
-    // Sanity: the token also contains no email-shaped or other plainly
-    // recognizable PII substring.
-    expect(rawDecoded).not.toMatch(/@/)
+    // Deliberately NOT asserting "no '@' substring" here: rawDecoded is a
+    // utf8-decode of raw AES-GCM ciphertext bytes (IV + authTag + encrypted
+    // data), not plaintext — by design, those bytes are indistinguishable
+    // from random noise, so any single byte value (including 0x40, '@') can
+    // legitimately appear by chance. Such a check only means something
+    // against structured plaintext, which is exactly what a v2 token no
+    // longer is — that's the point of this upgrade. Asserting it here would
+    // be flaky (fails roughly 1 run in a few hundred, purely from random
+    // byte content) and would be testing randomness, not confidentiality.
+    // The two toContain() checks above are the real, deterministic proof
+    // that the membershipId itself isn't recoverable from the blob.
   })
 
   it('rejects a token with a tampered ciphertext byte', () => {
