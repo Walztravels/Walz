@@ -20,7 +20,33 @@ import { isJadeCommercialTier, type JadeCommercialTier } from './commercial-type
 
 const PENDING_REFERENCE_PREFIX = 'pending:'
 
+// ─── Phase 1 purchase kill switch ──────────────────────────────────────────
+//
+// Jade Club membership purchases are DISABLED in Phase 1 by product
+// decision: no paid purchase may activate, regardless of what commercial
+// policies exist. An ACTIVE JadeClubCommercialPolicy is necessary but must
+// NEVER be sufficient on its own to let a real charge happen — this gate is
+// the explicit, independent control for that.
+//
+// - Missing env var = disabled (fail closed).
+// - Only the exact string "true" enables purchases — not "1", "yes", "TRUE",
+//   or any other truthy-looking value. This is deliberate: it must take an
+//   unambiguous, explicit decision to flip, never an accidental truthy env
+//   value left over from another system.
+// - Checked server-side, inside this function, as the FIRST thing it does —
+//   before the commercial-policy lookup, before touching Stripe, before any
+//   other validation. There is no client-supplied field anywhere in
+//   CreateCheckoutParams that can influence this check, so no request body
+//   can bypass it. Every caller of createJadeClubCheckout (today: only
+//   app/api/jade-club/purchase/checkout/route.ts) is gated by virtue of
+//   calling this function — there is no second code path that creates a
+//   Jade Club Stripe Checkout Session.
+function isJadeClubPurchasesEnabled(): boolean {
+  return process.env.JADE_CLUB_PURCHASES_ENABLED === 'true'
+}
+
 export type CreateCheckoutFailureCode =
+  | 'PURCHASES_DISABLED'
   | 'UNAUTHENTICATED'
   | 'INVALID_TIER'
   | 'INVALID_SCOPE'
@@ -72,6 +98,15 @@ export async function listActivePoliciesForTier(tier: string) {
  * by this metadata; see app/api/webhooks/jade-club/route.ts).
  */
 export async function createJadeClubCheckout(params: CreateCheckoutParams): Promise<CreateCheckoutResult> {
+  // Phase 1 kill switch — checked first, before any other validation, DB
+  // lookup, or Stripe call. See isJadeClubPurchasesEnabled() above.
+  if (!isJadeClubPurchasesEnabled()) {
+    return {
+      ok: false,
+      code: 'PURCHASES_DISABLED',
+      message: 'Jade Club membership purchases are not currently available.',
+    }
+  }
   if (!params.userId) return { ok: false, code: 'UNAUTHENTICATED', message: 'Not signed in' }
   if (!isJadeCommercialTier(params.tier)) {
     return { ok: false, code: 'INVALID_TIER', message: 'Invalid membership tier' }

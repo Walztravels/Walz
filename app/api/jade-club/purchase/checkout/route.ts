@@ -22,6 +22,7 @@ const schema = z.object({
 })
 
 const STATUS_BY_CODE: Record<string, number> = {
+  PURCHASES_DISABLED: 503,
   UNAUTHENTICATED: 401,
   INVALID_TIER: 400,
   INVALID_SCOPE: 400,

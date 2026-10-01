@@ -12,7 +12,15 @@
  * unit tests in purchase-state-machine.test.ts) — its job is to prove the
  * real modules wire together correctly end to end, not to re-prove 2A's
  * already-tested entitlement-slot engine.
+ *
+ * TEST ONLY: the Phase 1 purchase kill switch (JADE_CLUB_PURCHASES_ENABLED,
+ * see purchase-gate.test.ts) is enabled below so this file can exercise the
+ * real checkout->webhook->activation flow end to end. Stripe itself is
+ * mocked throughout this suite — no real Checkout Session or network call
+ * is ever reachable from this file. The gate's own behavior is tested
+ * separately and exhaustively in purchase-gate.test.ts.
  */
+process.env.JADE_CLUB_PURCHASES_ENABLED = 'true'
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 

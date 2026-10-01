@@ -3,7 +3,16 @@
  * (lib/jade-club/purchase.ts::createJadeClubCheckout).
  * The full happy path is covered in purchase-integration.test.ts; this
  * file focuses on the reject-cleanly branches.
+ *
+ * TEST ONLY: the Phase 1 purchase kill switch (JADE_CLUB_PURCHASES_ENABLED,
+ * see purchase-gate.test.ts) is enabled below purely to isolate the
+ * mechanics this file actually tests from the gate itself — Stripe is fully
+ * mocked (see jest.mock('@/lib/stripe', ...) below), so no real Checkout
+ * Session is ever created anywhere in this file. The gate's own behavior
+ * (unset/false/client-bypass/etc.) is exhaustively covered separately in
+ * purchase-gate.test.ts.
  */
+process.env.JADE_CLUB_PURCHASES_ENABLED = 'true'
 
 function makeFakeDb() {
   const policies = new Map<string, any>()
