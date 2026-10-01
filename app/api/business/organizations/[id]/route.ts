@@ -34,6 +34,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       defaultCurrency: true,
       market: true,
       createdAt: true,
+      organizationType: true,
     },
   })
 

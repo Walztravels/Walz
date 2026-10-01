@@ -69,7 +69,10 @@ describe('Walz Business admin Organizations page — contrast regression guardra
   })
 
   it('did not change the API endpoints or HTTP methods called', () => {
-    expect(src).toMatch(/fetch\('\/api\/admin\/business\/organizations'\)/)
+    // R2.2 Slice A: the GET fetch is now a template literal so the list can
+    // be re-fetched with an additive `?type=` filter — same base endpoint,
+    // same resource, no new/different endpoint introduced.
+    expect(src).toMatch(/fetch\(`\/api\/admin\/business\/organizations/)
     expect(src).toMatch(/method: 'POST'/)
   })
 })

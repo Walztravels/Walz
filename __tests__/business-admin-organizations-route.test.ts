@@ -179,4 +179,99 @@ describe('POST create organization (staff-only path)', () => {
       }))
     })
   })
+
+  // R2.2 SLICE A: organization type at creation. Optional, defaults to
+  // DEFAULT_ORGANIZATION_TYPE (CORPORATE) when omitted or an empty string;
+  // rejected with 400 when present but not one of VALID_ORGANIZATION_TYPES.
+  describe('organizationType at creation', () => {
+    beforeEach(() => {
+      ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+      mockPrisma.organization.create.mockResolvedValue({
+        id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING', organizationType: 'CORPORATE',
+      })
+    })
+
+    it('defaults to CORPORATE when organizationType is omitted entirely', async () => {
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
+      expect(res.status).toBe(201)
+      expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ organizationType: 'CORPORATE' }),
+      }))
+    })
+
+    it('defaults to CORPORATE when organizationType is an empty string', async () => {
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', organizationType: '   ' }))
+      expect(res.status).toBe(201)
+      expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ organizationType: 'CORPORATE' }),
+      }))
+    })
+
+    it('accepts a valid, non-default organizationType (case/whitespace tolerant, like the reclassification route)', async () => {
+      mockPrisma.organization.create.mockResolvedValue({
+        id: 'org_1', legalName: 'Acme', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', status: 'ONBOARDING', organizationType: 'TRAVEL_AGENCY',
+      })
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', organizationType: ' travel_agency ' }))
+      expect(res.status).toBe(201)
+      expect(mockPrisma.organization.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ organizationType: 'TRAVEL_AGENCY' }),
+      }))
+    })
+
+    it('rejects an invalid organizationType with 400 and never calls create', async () => {
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', organizationType: 'AGENCY' }))
+      expect(res.status).toBe(400)
+      expect(mockPrisma.organization.create).not.toHaveBeenCalled()
+    })
+
+    it('rejects a non-string organizationType with 400', async () => {
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP', organizationType: 123 }))
+      expect(res.status).toBe(400)
+      expect(mockPrisma.organization.create).not.toHaveBeenCalled()
+    })
+
+    it('adds organizationType to the organization.create audit after payload (additive detail on the existing organization.create action)', async () => {
+      const res = await POST(postReq({ legalName: 'Acme', country: 'GB', businessEmail: 'a@acme.com', defaultCurrency: 'GBP' }))
+      expect(res.status).toBe(201)
+      expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'organization.create',
+        after: expect.objectContaining({ organizationType: 'CORPORATE' }),
+      }))
+    })
+  })
+})
+
+describe('GET organizations — ?type= filter (R2.2 Slice A)', () => {
+  beforeEach(() => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_WITH_MANAGE)
+    mockPrisma.organization.findMany.mockResolvedValue([])
+  })
+
+  it('with no ?type= param, filters nothing by organizationType', async () => {
+    const res = await GET(getReq())
+    expect(res.status).toBe(200)
+    const args = mockPrisma.organization.findMany.mock.calls[0][0]
+    expect(args.where).toBeUndefined()
+  })
+
+  it('with a valid ?type=, filters where.organizationType (case/whitespace tolerant)', async () => {
+    const res = await GET(getReq({ type: ' travel_agency ' }))
+    expect(res.status).toBe(200)
+    const args = mockPrisma.organization.findMany.mock.calls[0][0]
+    expect(args.where).toEqual(expect.objectContaining({ organizationType: 'TRAVEL_AGENCY' }))
+  })
+
+  it('with an invalid ?type=, fails closed with 400 and never queries', async () => {
+    const res = await GET(getReq({ type: 'AGENCY' }))
+    expect(res.status).toBe(400)
+    expect(mockPrisma.organization.findMany).not.toHaveBeenCalled()
+  })
+
+  it('combines ?query= and ?type= together', async () => {
+    const res = await GET(getReq({ query: 'acme', type: 'CORPORATE' }))
+    expect(res.status).toBe(200)
+    const args = mockPrisma.organization.findMany.mock.calls[0][0]
+    expect(args.where.organizationType).toBe('CORPORATE')
+    expect(args.where.OR).toBeDefined()
+  })
 })
