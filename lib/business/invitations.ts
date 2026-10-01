@@ -213,6 +213,38 @@ export async function acceptOrganizationInvitation(
           entityId: invitation.id,
           after: { membershipId: membership.id, role: membership.role, created: true },
         })
+
+        // RELEASE 2.2 Slice C: this is the organization's very first
+        // membership (the bootstrap case) — auto-flip ONBOARDING -> ACTIVE.
+        // CAS-guarded (same style as the organization-type/currency
+        // reclassification routes, NOT the status route's plain update()):
+        // fires once, only if the org is still exactly ONBOARDING at this
+        // instant, and never races a concurrent transition. Wrapped in its
+        // own try/catch so a failure here can NEVER turn an already-
+        // successful membership creation into a reported 'invalid' result.
+        try {
+          const activated = await prisma.organization.updateMany({
+            where: { id: invitation.organizationId, status: 'ONBOARDING' },
+            data: { status: 'ACTIVE' },
+          })
+          if (activated.count === 1) {
+            await recordBusinessAudit({
+              organizationId: invitation.organizationId,
+              actorUserId: userId,
+              action: 'organization.status_changed',
+              entityType: 'Organization',
+              entityId: invitation.organizationId,
+              before: { status: 'ONBOARDING' },
+              after: { status: 'ACTIVE', reason: 'First organization member accepted their invitation' },
+            })
+          }
+          // If activated.count === 0, the organization's status was not
+          // ONBOARDING at this moment (e.g. already changed by a staff
+          // action) — skip silently, per spec.
+        } catch (err) {
+          console.error('[OrganizationInvitation] onboarding auto-activation failed (non-fatal):', (err as Error).message)
+        }
+
         return { ok: true, organizationId: invitation.organizationId, membershipId: membership.id, role: membership.role, reactivated: false }
       } catch {
         // Lost a race to a concurrent path that created the membership

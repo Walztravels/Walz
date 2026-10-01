@@ -33,6 +33,8 @@ import { recordBusinessAudit } from '@/lib/business/audit'
 import { CREATION_STATUS } from '@/lib/business/organization-status'
 import { parseOrgCurrency, SUPPORTED_ORG_CURRENCIES } from '@/lib/business/currency'
 import { DEFAULT_ORGANIZATION_TYPE, parseOrganizationType, VALID_ORGANIZATION_TYPES } from '@/lib/business/organization-type'
+import { issueOrganizationInvitation } from '@/lib/business/invitations'
+import { sendOrganizationInvitationEmail } from '@/lib/business/invitation-email'
 
 export const dynamic = 'force-dynamic'
 // Every Organization is created in CREATION_STATUS ('ONBOARDING'),
@@ -188,6 +190,37 @@ export async function POST(req: NextRequest) {
       organizationType: organization.organizationType,
     },
   })
+
+  // RELEASE 2.2 Slice B: auto-trigger the bootstrap invitation for the
+  // organization's businessEmail as OWNER, right at creation — the same
+  // issueOrganizationInvitation()/sendOrganizationInvitationEmail() pair the
+  // standalone [id]/invitations/route.ts bootstrap route already uses, just
+  // invoked automatically instead of requiring a separate staff action.
+  // `role: 'OWNER'` is hardcoded for THIS call site only; the standalone
+  // route still accepts an admin-chosen role for subsequent/re-invitations.
+  // Deliberately non-fatal: a failure here must never fail or roll back the
+  // organization creation that already succeeded above.
+  try {
+    const issued = await issueOrganizationInvitation({
+      organizationId: organization.id,
+      email: organization.businessEmail,
+      role: 'OWNER',
+      invitedByStaffId: session.staffId ?? session.email,
+    })
+    if (issued.ok) {
+      await sendOrganizationInvitationEmail({
+        to: organization.businessEmail,
+        organizationName: organization.tradingName ?? organization.legalName,
+        role: 'OWNER',
+        token: issued.token,
+        expiresAt: issued.expiresAt,
+      })
+    } else {
+      console.error('[Organization] bootstrap invitation issue failed (non-fatal):', issued.error)
+    }
+  } catch (err) {
+    console.error('[Organization] bootstrap invitation failed (non-fatal):', (err as Error).message)
+  }
 
   return NextResponse.json({ organization }, { status: 201 })
 }

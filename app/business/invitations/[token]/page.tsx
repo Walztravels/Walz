@@ -13,6 +13,8 @@
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import Link from 'next/link'
+import prisma from '@/lib/db'
+import { hashInvitationToken, isWellFormedInvitationToken, normalizeInvitationEmail } from '@/lib/business/invitations'
 import AcceptInvitation from './AcceptInvitation'
 
 export const dynamic = 'force-dynamic'
@@ -23,6 +25,29 @@ export default async function OrganizationInvitationPage({ params }: { params: {
   const session = await getServerSession(authOptions)
   const token = typeof params.token === 'string' ? params.token.slice(0, 128) : ''
   const callbackUrl = `/business/invitations/${encodeURIComponent(token)}`
+
+  // RELEASE 2.2 Slice B: make the "sign in to continue" link invitation-
+  // aware. This is a presentational routing decision ONLY — it never
+  // changes who can accept the invitation (acceptOrganizationInvitation's
+  // own email-match verification is untouched) and never exposes whether a
+  // user exists anywhere in the markup, only which /login URL is linked.
+  // Still a server-side-only, simple existence check (findUnique + select
+  // id), reached only by someone who already holds this invitation's
+  // (secret, 64-hex) token — no enumeration surface is created.
+  let loginHref = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+  if (!session?.user?.id && isWellFormedInvitationToken(token)) {
+    const invitation = await prisma.organizationInvitation.findUnique({
+      where: { tokenHash: hashInvitationToken(token) },
+      select: { email: true },
+    })
+    if (invitation?.email) {
+      const email = normalizeInvitationEmail(invitation.email)
+      const user = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      if (!user) {
+        loginHref = `/login?signup=true&email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(callbackUrl)}`
+      }
+    }
+  }
 
   return (
     <div style={{ padding: 24, maxWidth: 560, margin: '48px auto' }}>
@@ -41,7 +66,7 @@ export default async function OrganizationInvitationPage({ params }: { params: {
         </>
       ) : (
         <Link
-          href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+          href={loginHref}
           style={{ display: 'inline-block', padding: '10px 20px', borderRadius: 8, background: '#0B1F3A', color: '#fff', textDecoration: 'none', fontWeight: 600 }}
         >
           Sign in to continue

@@ -18,10 +18,15 @@ export default function LoginForm() {
   const errorParam    = searchParams.get('error')
   const modeParam     = searchParams.get('signup')
   const verifiedParam = searchParams.get('verified')
+  // Presentational convenience only (e.g. arriving from an organization
+  // invitation link that already knows the invited email) — pre-fills the
+  // email input on both the sign-in and sign-up tabs. Never validated or
+  // trusted server-side here.
+  const emailParam    = searchParams.get('email') ?? ''
 
   const [tab, setTab]           = useState<'signin' | 'signup'>(modeParam === 'true' ? 'signup' : 'signin')
   const [name, setName]         = useState('')
-  const [email, setEmail]       = useState('')
+  const [email, setEmail]       = useState(emailParam)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm]   = useState('')
   const [showPw, setShowPw]     = useState(false)
