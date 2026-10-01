@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { SUPPORTED_ORG_CURRENCIES, orgCurrencyLabel } from '@/lib/business/currency'
 import { VALID_STATUSES } from '@/lib/business/organization-status'
+import { VALID_ORGANIZATION_TYPES } from '@/lib/business/organization-type'
 import {
   Panel, ErrorBanner, SuccessBanner, Badge, statusTone, fmtDate, fmtDateTime, postJson,
   ReasonForm, humanizeAction, inputCls, ghostButtonCls,
@@ -32,6 +33,7 @@ interface Overview {
     id: string; legalName: string; tradingName: string | null; registrationNumber: string | null; country: string
     billingAddress: string | null; businessEmail: string; businessPhone: string | null; status: string
     accountManagerId: string | null; defaultCurrency: string; market: string | null; createdAt: string
+    organizationType: string
   }
   accountManager: { name: string | null; email: string; isActive: boolean } | null
   counts: { members: number; invited: number; travellers: number; requests: number; pendingRequests: number }
@@ -77,6 +79,7 @@ export default function AdminOrganizationDetailPage({ params }: { params: { orgI
         <h1 className="text-white text-xl font-bold">{displayName}</h1>
         {org && <Badge tone={statusTone(org.status)}>{org.status}</Badge>}
         {org && <Badge tone="gold">{org.defaultCurrency}</Badge>}
+        {org && <Badge>{org.organizationType}</Badge>}
       </div>
       {org && org.tradingName && <p className="text-white/50 text-sm">Legal name: {org.legalName}</p>}
 
@@ -116,6 +119,7 @@ function OverviewTab({ base, data, reload }: { base: string; data: Overview; rel
   const { organization: org, accountManager, counts } = data
   const [status, setStatus] = useState(org.status)
   const [currency, setCurrency] = useState(org.defaultCurrency)
+  const [organizationType, setOrganizationType] = useState(org.organizationType)
   const [manager, setManager] = useState<StaffOption | null>(null)
 
   const rows: Array<[string, string]> = [
@@ -127,6 +131,7 @@ function OverviewTab({ base, data, reload }: { base: string; data: Overview; rel
     ['Business email', org.businessEmail],
     ['Business phone', org.businessPhone ?? '—'],
     ['Billing address', org.billingAddress ?? '—'],
+    ['Organization type', org.organizationType],
     ['Created', fmtDate(org.createdAt)],
   ]
 
@@ -208,6 +213,26 @@ function OverviewTab({ base, data, reload }: { base: string; data: Overview; rel
         >
           <select aria-label="New currency" value={currency} onChange={e => setCurrency(e.target.value)} className={`${inputCls} text-sm`}>
             {SUPPORTED_ORG_CURRENCIES.map(c => <option key={c} value={c} className="bg-[#0f1c33]">{orgCurrencyLabel(c)}</option>)}
+          </select>
+        </ReasonForm>
+      </Panel>
+
+      <Panel title="Organization type">
+        <p className="text-white/50 text-xs mb-3">
+          CORPORATE arranges travel for its own employees; TRAVEL_AGENCY runs cases on behalf of its own clients; REFERRAL_PARTNER is denied access to traveller/booking/visa-document management.
+        </p>
+        <ReasonForm
+          label="Change organization type"
+          submitLabel="Change type"
+          disabled={organizationType === org.organizationType}
+          onSubmit={async reason => {
+            const r = await postJson(`${base}/organization-type`, { organizationType, reason })
+            if (!r.ok) return r.data.error ?? 'Failed'
+            reload(); return null
+          }}
+        >
+          <select aria-label="New organization type" value={organizationType} onChange={e => setOrganizationType(e.target.value)} className={`${inputCls} text-sm`}>
+            {VALID_ORGANIZATION_TYPES.map(t => <option key={t} value={t} className="bg-[#0f1c33]">{t}</option>)}
           </select>
         </ReasonForm>
       </Panel>

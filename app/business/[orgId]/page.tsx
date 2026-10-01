@@ -57,7 +57,7 @@ export default async function BusinessOrganizationPage({ params }: { params: { o
   const [organization, members, requests, travellers, awaitingMe] = await Promise.all([
     prisma.organization.findUnique({
       where: { id: params.orgId },
-      select: { id: true, legalName: true, tradingName: true, status: true, defaultCurrency: true },
+      select: { id: true, legalName: true, tradingName: true, status: true, defaultCurrency: true, organizationType: true },
     }),
     seesRoster
       ? prisma.organizationMembership.findMany({
@@ -124,7 +124,7 @@ export default async function BusinessOrganizationPage({ params }: { params: { o
         {organization.tradingName ?? organization.legalName}
       </h1>
       <p style={{ color: '#666', marginBottom: 24 }}>
-        Status: {organization.status} &middot; Currency: {organization.defaultCurrency} &middot; Your role: {access.membership.role}
+        Status: {organization.status} &middot; Currency: {organization.defaultCurrency} &middot; Type: {organization.organizationType} &middot; Your role: {access.membership.role}
       </p>
 
       <section style={{ marginBottom: 32 }}>

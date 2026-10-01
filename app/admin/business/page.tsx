@@ -25,6 +25,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { SUPPORTED_ORG_CURRENCIES, orgCurrencyLabel } from '@/lib/business/currency'
+import { VALID_ORGANIZATION_TYPES, DEFAULT_ORGANIZATION_TYPE } from '@/lib/business/organization-type'
 
 interface OrganizationRow {
   id: string
@@ -34,6 +35,7 @@ interface OrganizationRow {
   businessEmail: string
   status: string
   defaultCurrency: string
+  organizationType: string
   createdAt: string
 }
 
@@ -42,13 +44,14 @@ export default function AdminBusinessPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({ legalName: '', country: '', businessEmail: '', defaultCurrency: '' })
+  const [form, setForm] = useState({ legalName: '', country: '', businessEmail: '', defaultCurrency: '', organizationType: DEFAULT_ORGANIZATION_TYPE as string })
+  const [typeFilter, setTypeFilter] = useState('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (filter: string) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/admin/business/organizations')
+      const res = await fetch(`/api/admin/business/organizations${filter ? `?type=${encodeURIComponent(filter)}` : ''}`)
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Failed to load organizations')
       const data = await res.json()
       setOrganizations(data.organizations ?? [])
@@ -59,7 +62,7 @@ export default function AdminBusinessPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(typeFilter) }, [load, typeFilter])
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -72,8 +75,8 @@ export default function AdminBusinessPage() {
         body: JSON.stringify(form),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Failed to create organization')
-      setForm({ legalName: '', country: '', businessEmail: '', defaultCurrency: '' })
-      await load()
+      setForm({ legalName: '', country: '', businessEmail: '', defaultCurrency: '', organizationType: DEFAULT_ORGANIZATION_TYPE })
+      await load(typeFilter)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -129,6 +132,17 @@ export default function AdminBusinessPage() {
             <option key={code} value={code} className="bg-[#0f1c33] text-white">{orgCurrencyLabel(code)}</option>
           ))}
         </select>
+        <select
+          required
+          aria-label="Organization type"
+          value={form.organizationType}
+          onChange={e => setForm(f => ({ ...f, organizationType: e.target.value }))}
+          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 focus:border-[#C9A84C]/50 flex-[1_1_160px]"
+        >
+          {VALID_ORGANIZATION_TYPES.map(t => (
+            <option key={t} value={t} className="bg-[#0f1c33] text-white">{t}</option>
+          ))}
+        </select>
         <button
           type="submit"
           disabled={creating || !form.defaultCurrency}
@@ -137,6 +151,22 @@ export default function AdminBusinessPage() {
           {creating ? 'Creating…' : 'Create organization'}
         </button>
       </form>
+
+      <div className="flex items-center gap-2 mb-3">
+        <label htmlFor="type-filter" className="text-white/50 text-xs">Filter by type</label>
+        <select
+          id="type-filter"
+          aria-label="Filter by organization type"
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 focus:border-[#C9A84C]/50"
+        >
+          <option value="" className="bg-[#0f1c33] text-white">All types</option>
+          {VALID_ORGANIZATION_TYPES.map(t => (
+            <option key={t} value={t} className="bg-[#0f1c33] text-white">{t}</option>
+          ))}
+        </select>
+      </div>
 
       {loading ? (
         <p className="text-white/50 text-sm">Loading…</p>
@@ -152,6 +182,7 @@ export default function AdminBusinessPage() {
                 <th className="text-left px-4 py-2">Email</th>
                 <th className="text-left px-4 py-2">Status</th>
                 <th className="text-left px-4 py-2">Currency</th>
+                <th className="text-left px-4 py-2">Type</th>
               </tr>
             </thead>
             <tbody>
@@ -167,6 +198,7 @@ export default function AdminBusinessPage() {
                   <td className="px-4 py-2 text-white/60">{org.businessEmail}</td>
                   <td className="px-4 py-2 text-white/60">{org.status}</td>
                   <td className="px-4 py-2 text-white/60">{org.defaultCurrency}</td>
+                  <td className="px-4 py-2 text-white/60">{org.organizationType}</td>
                 </tr>
               ))}
             </tbody>

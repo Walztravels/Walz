@@ -81,4 +81,41 @@ describe('GET organization profile', () => {
     const res = await GET(req(), { params: { id: ORG_A } })
     expect(res.status).toBe(404)
   })
+
+  // R2.2 SLICE A: organizationType is now part of this route's select. This
+  // route is NOT on the REFERRAL_PARTNER deny-list (see
+  // business-r2-1-referral-sweep.test.ts / business-r2-1-referral-gate
+  // .test.ts — neither covers this route), so a REFERRAL_PARTNER-org member
+  // can see their own org's type via this specific route exactly like any
+  // other org.
+  describe('organizationType exposure (R2.2 Slice A)', () => {
+    it('includes organizationType in the select and the response for a CORPORATE org', async () => {
+      mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow())
+      mockPrisma.organization.findUnique.mockResolvedValue({
+        id: ORG_A, legalName: 'Acme Ltd', tradingName: null, country: 'GB',
+        businessEmail: 'ops@acme.example', businessPhone: null, status: 'ACTIVE',
+        defaultCurrency: 'GBP', market: null, createdAt: new Date(), organizationType: 'CORPORATE',
+      })
+      const res = await GET(req(), { params: { id: ORG_A } })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.organization.organizationType).toBe('CORPORATE')
+      const selectArg = mockPrisma.organization.findUnique.mock.calls[0][0].select
+      expect(selectArg.organizationType).toBe(true)
+    })
+
+    it('a REFERRAL_PARTNER-org member CAN see their own org type through this route — not on the deny-list', async () => {
+      mockPrisma.organizationMembership.findUnique.mockResolvedValue(membershipRow({ role: 'OWNER' }))
+      mockPrisma.organization.findUnique.mockResolvedValue({
+        id: ORG_A, legalName: 'Referral Co', tradingName: null, country: 'GB',
+        businessEmail: 'ops@referral.example', businessPhone: null, status: 'ACTIVE',
+        defaultCurrency: 'GBP', market: null, createdAt: new Date(), organizationType: 'REFERRAL_PARTNER',
+      })
+      const res = await GET(req(), { params: { id: ORG_A } })
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.organization.organizationType).toBe('REFERRAL_PARTNER')
+      expect(body.membership.role).toBe('OWNER')
+    })
+  })
 })

@@ -264,6 +264,51 @@ describe('POST account-manager (search/select UI; server stays authoritative)', 
   })
 })
 
+// R2.2 SLICE A — organization type: admin overview surfaces + the
+// reclassification UI calling the EXISTING [id]/organization-type/route.ts
+// (never a second/replacement write path).
+describe('admin overview — organizationType (R2.2 Slice A)', () => {
+  beforeEach(() => {
+    ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_VIEW)
+  })
+
+  it('GET overview returns organizationType as part of the full organization record', async () => {
+    mockPrisma.organization.findUnique.mockResolvedValue({
+      id: ORG_A, legalName: 'Legal org_a', accountManagerId: null, defaultCurrency: 'GBP', organizationType: 'TRAVEL_AGENCY',
+    })
+    const res = await getOverview(getReq(), { params: { id: ORG_A } })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.organization.organizationType).toBe('TRAVEL_AGENCY')
+  })
+})
+
+describe('admin UI — organization-type reclassification panel (reuses the existing endpoint only)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'admin', 'business', '[orgId]', 'page.tsx'), 'utf8')
+
+  it('posts to the existing [id]/organization-type endpoint via the shared postJson/ReasonForm helpers', () => {
+    expect(src).toMatch(/postJson\(`\$\{base\}\/organization-type`, \{ organizationType, reason \}\)/)
+    expect(src).toMatch(/<ReasonForm/)
+  })
+
+  it('does not introduce any other write path for organizationType (no raw fetch/PATCH to a different URL)', () => {
+    const panel = src.slice(src.indexOf('Panel title="Organization type"'))
+    const nextPanelEnd = panel.indexOf('</Panel>')
+    const panelBody = panel.slice(0, nextPanelEnd === -1 ? undefined : nextPanelEnd)
+    expect(panelBody).not.toMatch(/fetch\(/)
+    expect(panelBody.match(/organization-type/g)?.length).toBe(1)
+  })
+
+  it('offers exactly the closed list of organization types in the reclassification select', () => {
+    expect(src).toMatch(/VALID_ORGANIZATION_TYPES\.map\(t => <option/)
+  })
+
+  it('displays organizationType as a Badge in the header, alongside status/currency', () => {
+    const header = src.slice(src.indexOf('<h1 className="text-white text-xl font-bold">'), src.indexOf('</div>', src.indexOf('<h1 className="text-white text-xl font-bold">')))
+    expect(header).toMatch(/org\.organizationType/)
+  })
+})
+
 describe('GET staff-search', () => {
   it('denies view-only staff', async () => {
     ;(getAdminSession as jest.Mock).mockResolvedValue(SESSION_VIEW)
