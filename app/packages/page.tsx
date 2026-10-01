@@ -60,11 +60,31 @@ function coverPhoto(pkg: { photos: string[]; imageUrl: string | null }): string 
 
 const HERO_FALLBACK = 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1600&q=85'
 
+type PackageRow = Awaited<ReturnType<typeof prisma.tourListing.findMany>>
+
+// Build-time/database-outage fallback, modeled on app/careers/page.tsx's
+// getOpenings(): without this, Next tries to statically evaluate (ISR) this
+// page at BUILD time, which requires DATABASE_URL to exist in whichever
+// environment runs the build — breaking Preview, where it deliberately
+// doesn't. An empty list (not fabricated packages/prices) is the correct
+// fallback: the page already renders a safe, user-facing "No packages
+// available right now" empty state for zero results below, so this reuses
+// an already-handled condition rather than inventing fake listing data for
+// a page that leads directly to bookings.
+async function getPackages(): Promise<PackageRow> {
+  try {
+    return await prisma.tourListing.findMany({
+      where: { active: true, type: 'package' },
+      orderBy: { order: 'asc' },
+    })
+  } catch (err) {
+    console.error('[packages] DB read failed, using fallback content:', err)
+    return []
+  }
+}
+
 export default async function PackagesPage() {
-  const packages = await prisma.tourListing.findMany({
-    where: { active: true, type: 'package' },
-    orderBy: { order: 'asc' },
-  })
+  const packages = await getPackages()
 
   const heroImage =
     (packages[0] ? coverPhoto(packages[0]) : null) ?? HERO_FALLBACK
