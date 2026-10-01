@@ -32,8 +32,8 @@ export function RotateQrButton() {
       <button
         onClick={handleRotate}
         disabled={loading}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] text-sm font-semibold rounded-xl hover:bg-[#C9A84C]/15 transition-colors disabled:opacity-50">
-        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] text-sm font-semibold rounded-xl hover:bg-[#C9A84C]/15 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#060e1c]">
+        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
         {loading ? 'Generating…' : 'Generate new QR code'}
       </button>
       {error && <p className="text-red-400 text-xs mt-2 text-center">{error}</p>}
