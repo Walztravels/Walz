@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { RefreshCw } from 'lucide-react'
+import { JADE_FOCUS_RING } from '@/lib/jade-club/ui'
 
 // Customer-triggered QR rotation — invalidates every previously issued QR
 // for this membership (see lib/jade-club/qr-token.ts). Session-scoped API
@@ -32,7 +33,7 @@ export function RotateQrButton() {
       <button
         onClick={handleRotate}
         disabled={loading}
-        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] text-sm font-semibold rounded-xl hover:bg-[#C9A84C]/15 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#060e1c]">
+        className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] text-sm font-semibold rounded-xl hover:bg-[#C9A84C]/15 transition-colors disabled:opacity-50 ${JADE_FOCUS_RING}`}>
         <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
         {loading ? 'Generating…' : 'Generate new QR code'}
       </button>

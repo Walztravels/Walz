@@ -28,12 +28,9 @@ import { listActiveBenefits } from '@/lib/jade-club/benefits'
 import { getMilesWalletData } from '@/lib/portal/miles-data'
 import { listActivePoliciesForTier } from '@/lib/jade-club/purchase'
 import { JADE_CLUB_TIER_LABELS, JADE_CLUB_STATUS_LABELS } from '@/lib/jade-club/types'
+import { JADE_FOCUS_RING as FOCUS_RING } from '@/lib/jade-club/ui'
 
 export const dynamic = 'force-dynamic'
-
-// Shared focus-visible treatment — same token established on the Digital
-// Jade Card page, reused here for every interactive element on this page.
-const FOCUS_RING = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#060e1c]'
 
 // A single section rhythm for every major block on this page, replacing the
 // previous mix of mb-6/mb-8/mt-6/mt-8 with no consistent scale.

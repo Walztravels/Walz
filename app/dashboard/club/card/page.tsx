@@ -22,16 +22,12 @@ import { ArrowLeft, Gem } from 'lucide-react'
 import QRCode from 'qrcode'
 import { getJadeClubCardView } from '@/lib/jade-club/membership'
 import { JADE_CLUB_TIER_LABELS } from '@/lib/jade-club/types'
+import { JADE_FOCUS_RING as FOCUS_RING } from '@/lib/jade-club/ui'
 import { RotateQrButton } from './RotateQrButton'
 
 export const dynamic = 'force-dynamic'
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
-
-// A focus-visible ring consistent with the pattern already established in
-// PortalJadeChat.tsx — the one interactive-element treatment this page
-// previously had none of.
-const FOCUS_RING = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#060e1c]'
 
 export default async function DigitalJadeCardPage() {
   const session = await getServerSession(authOptions)
@@ -53,7 +49,7 @@ export default async function DigitalJadeCardPage() {
 
   return (
     <div className="min-h-screen bg-[#060e1c] px-5 sm:px-6 lg:px-8 py-8 pb-24">
-      <div className="max-w-lg">
+      <div className="max-w-lg md:max-w-xl">
         <Link
           href="/dashboard/club"
           className={`flex items-center gap-2 text-white/50 hover:text-white text-sm mb-6 transition-colors w-fit rounded-md ${FOCUS_RING}`}

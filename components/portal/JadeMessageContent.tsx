@@ -1,4 +1,5 @@
 import { Fragment, ReactNode } from 'react'
+import { JADE_FOCUS_RING } from '@/lib/jade-club/ui'
 
 /**
  * Jade Customer Experience Polish — safe markdown renderer for Ask Jade
@@ -143,7 +144,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
           <a
             key={key}
             href={t.href}
-            className="text-[#C9A84C] underline hover:text-[#b8943d]"
+            className={`text-[#C9A84C] underline hover:text-[#b8943d] rounded-sm ${JADE_FOCUS_RING}`}
             target="_blank"
             rel="noopener noreferrer"
           >
