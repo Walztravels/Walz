@@ -507,7 +507,7 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
                     <button onClick={addDay} className="flex items-center gap-2 px-4 py-2.5 bg-[#C9A84C] text-[#0B1F3A] rounded-xl font-bold text-sm hover:bg-[#dbb95a]">
                       <Plus className="w-4 h-4" /> Add first day
                     </button>
-                    <button onClick={() => setPanel('jade')} className="flex items-center gap-2 px-4 py-2.5 bg-purple-600/20 border border-purple-500/20 text-purple-300 rounded-xl font-semibold text-sm hover:bg-purple-600/30">
+                    <button onClick={() => setPanel('jade')} className="flex items-center gap-2 px-4 py-2.5 bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] rounded-xl font-semibold text-sm hover:bg-[#C9A84C]/15 transition-colors">
                       <ConciergeBell className="w-4 h-4" /> Ask Jade to plan it
                     </button>
                   </div>

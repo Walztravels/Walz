@@ -32,6 +32,11 @@ describe('app/plan/[tripId]/page.tsx — Ask Jade now uses ConciergeBell', () =>
     expect(src).toContain('<ConciergeBell className="w-4 h-4" /> Ask Jade to plan it')
   })
 
+  it('the "Ask Jade to plan it" empty-state button uses the established Jade navy/gold language, not purple', () => {
+    expect(src).toContain('bg-[#C9A84C]/10 border border-[#C9A84C]/25 text-[#C9A84C] rounded-xl font-semibold text-sm hover:bg-[#C9A84C]/15')
+    expect(src).not.toMatch(/purple-600\/20|purple-500\/20|text-purple-300|purple-600\/30/)
+  })
+
   it('both chat-avatar ConciergeBell icons (message + thinking indicator) are present', () => {
     expect(src).toContain('<ConciergeBell className="w-4 h-4 text-[#C9A84C]" />')
     expect(src).toContain('<ConciergeBell className="w-4 h-4 text-[#C9A84C] animate-pulse" />')
