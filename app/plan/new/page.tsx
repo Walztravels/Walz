@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import {
-  Map, Sparkles, BookOpen, ArrowRight, ArrowLeft,
+  Map, ConciergeBell, BookOpen, ArrowRight, ArrowLeft,
   Loader2, Calendar, DollarSign, Globe,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -173,7 +173,7 @@ function NewTripInner() {
               onClick={() => setPath('template')}
             />
             <PathCard
-              icon={<Sparkles className="w-7 h-7" />}
+              icon={<ConciergeBell className="w-7 h-7" />}
               title="Let Jade plan it"
               description="Tell Jade where you're going and she'll build your itinerary with AI."
               color="from-purple-600/20"
@@ -235,10 +235,10 @@ function NewTripInner() {
             )}
 
             {path === 'ai' && (
-              <div className="flex items-start gap-3 bg-purple-600/10 border border-purple-500/20 rounded-xl p-4 mb-6">
-                <Sparkles className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl p-4 mb-6">
+                <ConciergeBell className="w-5 h-5 text-[#C9A84C] flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-purple-300">Jade AI will plan this</p>
+                  <p className="text-sm font-semibold text-[#C9A84C]">Jade AI will plan this</p>
                   <p className="text-xs text-white/40">After creating the trip, Jade will automatically generate a day-by-day itinerary based on your destination and dates.</p>
                 </div>
               </div>
@@ -309,7 +309,7 @@ function NewTripInner() {
                 {submitting ? (
                   <><Loader2 className="w-4 h-4 animate-spin" />Creating trip...</>
                 ) : (
-                  <>{path === 'ai' ? <><Sparkles className="w-4 h-4" />Create & let Jade plan</> : <><ArrowRight className="w-4 h-4" />Create trip</>}</>
+                  <>{path === 'ai' ? <><ConciergeBell className="w-4 h-4" />Create & let Jade plan</> : <><ArrowRight className="w-4 h-4" />Create trip</>}</>
                 )}
               </button>
             </div>

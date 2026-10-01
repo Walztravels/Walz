@@ -8,7 +8,7 @@ import Link from 'next/link'
 import {
   Plus, Trash2, Edit2, Check, X, ChevronDown, ChevronUp,
   Globe, Calendar, Clock, DollarSign, Share2, Loader2,
-  Sparkles, Send, Map, ArrowLeft, Settings, BookmarkCheck,
+  ConciergeBell, Send, Map, ArrowLeft, Settings, BookmarkCheck,
   Plane, Hotel, ActivitySquare, Utensils, Car, FileText, Tag,
   GripVertical, MoreHorizontal, ChevronRight, Lock, Unlock, Shield,
 } from 'lucide-react'
@@ -467,7 +467,7 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
           <div className="flex gap-1 bg-[#0B1F3A] border-b border-white/8 px-3 py-2 flex-shrink-0">
             {([
               { id: 'itinerary', label: 'Itinerary', icon: Map },
-              { id: 'jade',      label: 'Ask Jade',  icon: Sparkles },
+              { id: 'jade',      label: 'Ask Jade',  icon: ConciergeBell },
               { id: 'settings',  label: 'Settings',  icon: Settings },
             ] as { id: PanelTab; label: string; icon: React.FC<{ className?: string }> }[]).map(({ id, label, icon: Icon }) => (
               <button
@@ -508,7 +508,7 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
                       <Plus className="w-4 h-4" /> Add first day
                     </button>
                     <button onClick={() => setPanel('jade')} className="flex items-center gap-2 px-4 py-2.5 bg-purple-600/20 border border-purple-500/20 text-purple-300 rounded-xl font-semibold text-sm hover:bg-purple-600/30">
-                      <Sparkles className="w-4 h-4" /> Ask Jade to plan it
+                      <ConciergeBell className="w-4 h-4" /> Ask Jade to plan it
                     </button>
                   </div>
                 </div>
@@ -555,7 +555,7 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
                   <div key={i} className={cn('flex gap-3', msg.role === 'user' ? 'flex-row-reverse' : '')}>
                     {msg.role === 'assistant' && (
                       <div className="w-8 h-8 rounded-full bg-[#C9A84C]/20 border border-[#C9A84C]/30 flex items-center justify-center flex-shrink-0">
-                        <Sparkles className="w-4 h-4 text-[#C9A84C]" />
+                        <ConciergeBell className="w-4 h-4 text-[#C9A84C]" />
                       </div>
                     )}
                     <div className={cn(
@@ -571,7 +571,7 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
                 {jadeLoading && (
                   <div className="flex gap-3">
                     <div className="w-8 h-8 rounded-full bg-[#C9A84C]/20 border border-[#C9A84C]/30 flex items-center justify-center flex-shrink-0">
-                      <Sparkles className="w-4 h-4 text-[#C9A84C] animate-pulse" />
+                      <ConciergeBell className="w-4 h-4 text-[#C9A84C] animate-pulse" />
                     </div>
                     <div className="bg-[#0B1F3A] rounded-2xl rounded-tl-sm px-4 py-3">
                       <div className="flex gap-1">
