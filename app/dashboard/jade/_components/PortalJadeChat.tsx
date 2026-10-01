@@ -2,16 +2,17 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link                                           from 'next/link'
-import { Send, X, Loader2, ConciergeBell, ChevronRight }  from 'lucide-react'
+import { Send, X, Loader2, ConciergeBell, ChevronRight, ChevronDown, AlertCircle } from 'lucide-react'
 import { cn }                                         from '@/lib/utils'
 import type { PortalContextHint }                     from '@/lib/portal/portal-jade-context'
 import { SpeakToHuman }                               from '@/components/common/SpeakToHuman'
 import { BUSINESS }                                   from '@/lib/config/business'
 import JadeMessageContent                             from '@/components/portal/JadeMessageContent'
+import { isNearBottom }                               from '@/lib/jade-club/chat-scroll'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Message { role: 'user' | 'assistant'; content: string }
+interface Message { role: 'user' | 'assistant'; content: string; failed?: boolean }
 
 interface FocusEntity { type: 'trip' | 'booking' | 'proposal' | 'application'; id: string; label: string }
 
@@ -49,9 +50,13 @@ export default function PortalJadeChat({
   const [loading,    setLoading]    = useState(false)
   const [dismissed,  setDismissed]  = useState<boolean>(false)
   const [focus,      setFocus]      = useState<FocusEntity | undefined>(focusEntity)
+  const [stickToBottom, setStickToBottom] = useState(true)
+  const [hasNewMessage, setHasNewMessage] = useState(false)
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef       = useRef<HTMLTextAreaElement>(null)
+  const messagesEndRef     = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const inputRef            = useRef<HTMLTextAreaElement>(null)
+  const prevMessageCountRef = useRef(0)
 
   const prompts = getSuggestedPrompts({ hasBookings, hasProposals, hasActionsRequired, focusEntity: focus })
 
@@ -59,7 +64,33 @@ export default function PortalJadeChat({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
-  useEffect(() => { scrollToBottom() }, [messages, scrollToBottom])
+  // Guarded auto-scroll — only follow new messages down when the reader is
+  // already at/near the bottom; otherwise hold position and surface the
+  // "New message" affordance (see handleScroll / the pill button below).
+  useEffect(() => {
+    const grew = messages.length > prevMessageCountRef.current
+    prevMessageCountRef.current = messages.length
+    if (!grew) return
+    if (stickToBottom) {
+      scrollToBottom()
+    } else {
+      setHasNewMessage(true)
+    }
+  }, [messages, stickToBottom, scrollToBottom])
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const atBottom = isNearBottom(el)
+    setStickToBottom(atBottom)
+    if (atBottom) setHasNewMessage(false)
+  }, [])
+
+  const jumpToBottom = useCallback(() => {
+    setStickToBottom(true)
+    setHasNewMessage(false)
+    scrollToBottom()
+  }, [scrollToBottom])
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
@@ -69,6 +100,7 @@ export default function PortalJadeChat({
 
     const userMsg: Message = { role: 'user', content: trimmed }
     const nextMessages = [...messages, userMsg]
+    const failedIndex = nextMessages.length - 1
     setMessages(nextMessages)
     setInput('')
     setLoading(true)
@@ -97,12 +129,20 @@ export default function PortalJadeChat({
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply ?? "I couldn't process that. Please try again." }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: "I'm having a technical issue. Please try again in a moment." }])
+      // True client-side/network failure — mark this specific user message
+      // as failed (restrained inline retry affordance, no assistant-bubble
+      // apology, no banner). The backend's friendly 200-wrapped error
+      // replies are handled above via data.reply and are unaffected.
+      setMessages(prev => prev.map((m, i) => (i === failedIndex ? { ...m, failed: true } : m)))
     } finally {
       setLoading(false)
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [messages, loading, focus, initialContextHint])
+
+  const retryMessage = useCallback((text: string) => {
+    sendMessage(text)
+  }, [sendMessage])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -152,8 +192,11 @@ export default function PortalJadeChat({
       </div>
 
       {/* ── Messages ────────────────────────────────────────────────────────── */}
+      <div className="relative flex-1 min-h-0">
       <div
-        className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="absolute inset-0 overflow-y-auto px-4 py-4 space-y-4"
         role="log"
         aria-live="polite"
         aria-label="Conversation with Jade"
@@ -171,22 +214,45 @@ export default function PortalJadeChat({
         )}
 
         {messages.map((msg, i) => (
-          <div key={i} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
-            {msg.role === 'assistant' && (
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
-                <ConciergeBell className="w-3.5 h-3.5 text-[#0B1F3A]" />
+          <div key={i}>
+            <div className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+              {msg.role === 'assistant' && (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0 mr-2 mt-0.5">
+                  <ConciergeBell className="w-3.5 h-3.5 text-[#0B1F3A]" />
+                </div>
+              )}
+              <div
+                className={cn(
+                  'max-w-[85%] lg:max-w-[70%] px-4 py-3 rounded-2xl text-sm leading-relaxed',
+                  msg.role === 'user'
+                    ? 'bg-[#C9A84C] text-[#0B1F3A] font-medium rounded-br-sm'
+                    : 'bg-[#0B1F3A] border border-white/8 text-white/90 rounded-bl-sm',
+                )}
+              >
+                {msg.role === 'user' ? msg.content : <JadeMessageContent text={msg.content} />}
+              </div>
+            </div>
+
+            {/* Restrained, message-scoped failure affordance — client-side/
+                network failures only (see the sendMessage catch block).
+                No large red bubble, no full-width banner: a small error
+                line + a Retry action tied to this exact failed message. */}
+            {msg.role === 'user' && msg.failed && (
+              <div className="flex justify-end mt-1">
+                <div className="flex items-center gap-1.5 text-red-400 text-xs">
+                  <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                  <span>Failed to send</span>
+                  <button
+                    type="button"
+                    onClick={() => retryMessage(msg.content)}
+                    aria-label="Retry sending message"
+                    className="underline hover:text-red-300 font-semibold focus:outline-none focus-visible:ring-1 focus-visible:ring-red-400/60 rounded-sm"
+                  >
+                    Retry
+                  </button>
+                </div>
               </div>
             )}
-            <div
-              className={cn(
-                'max-w-[85%] lg:max-w-[70%] px-4 py-3 rounded-2xl text-sm leading-relaxed',
-                msg.role === 'user'
-                  ? 'bg-[#C9A84C] text-[#0B1F3A] font-medium rounded-br-sm'
-                  : 'bg-[#0B1F3A] border border-white/8 text-white/90 rounded-bl-sm',
-              )}
-            >
-              {msg.role === 'user' ? msg.content : <JadeMessageContent text={msg.content} />}
-            </div>
           </div>
         ))}
 
@@ -204,6 +270,17 @@ export default function PortalJadeChat({
         )}
 
         <div ref={messagesEndRef} />
+      </div>
+
+      {hasNewMessage && (
+        <button
+          type="button"
+          onClick={jumpToBottom}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#C9A84C] text-[#0B1F3A] text-xs font-semibold shadow-lg shadow-black/30 hover:bg-[#b8943d] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/60"
+        >
+          <ChevronDown className="w-3.5 h-3.5" /> New message
+        </button>
+      )}
       </div>
 
       {/* ── Suggested prompts ──────────────────────────────────────────────── */}

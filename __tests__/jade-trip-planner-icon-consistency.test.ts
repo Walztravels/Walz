@@ -37,9 +37,17 @@ describe('app/plan/[tripId]/page.tsx — Ask Jade now uses ConciergeBell', () =>
     expect(src).not.toMatch(/purple-600\/20|purple-500\/20|text-purple-300|purple-600\/30/)
   })
 
-  it('both chat-avatar ConciergeBell icons (message + thinking indicator) are present', () => {
-    expect(src).toContain('<ConciergeBell className="w-4 h-4 text-[#C9A84C]" />')
-    expect(src).toContain('<ConciergeBell className="w-4 h-4 text-[#C9A84C] animate-pulse" />')
+  it('both chat-avatar ConciergeBell icons (message + thinking indicator) are present, using the Jade Conversation Polish pass\'s PortalJadeChat-aligned size/fill treatment', () => {
+    // Updated by the Jade Conversation Polish pass (item 3: avatar
+    // size/fill parity with PortalJadeChat.tsx, the reference surface).
+    // ConciergeBell itself was already correct (not Sparkles) — only the
+    // avatar's size/fill classes changed, so both occurrences (the message
+    // avatar and the thinking-indicator avatar) now use the exact same
+    // aligned treatment as PortalJadeChat's.
+    const matches = src.match(/<ConciergeBell className="w-3\.5 h-3\.5 text-\[#0B1F3A\]" \/>/g) ?? []
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+    expect(src).not.toContain('<ConciergeBell className="w-4 h-4 text-[#C9A84C]" />')
+    expect(src).not.toContain('<ConciergeBell className="w-4 h-4 text-[#C9A84C] animate-pulse" />')
   })
 })
 

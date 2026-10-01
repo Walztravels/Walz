@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
@@ -11,8 +11,11 @@ import {
   ConciergeBell, Send, Map, ArrowLeft, Settings, BookmarkCheck,
   Plane, Hotel, ActivitySquare, Utensils, Car, FileText, Tag,
   GripVertical, MoreHorizontal, ChevronRight, Lock, Unlock, Shield,
+  AlertCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import JadeMessageContent from '@/components/portal/JadeMessageContent'
+import { isNearBottom } from '@/lib/jade-club/chat-scroll'
 
 // ── Types ─────────────────────────────────────────────────────────────────
 type TripItem = {
@@ -30,7 +33,7 @@ type Trip = {
   collaborators: { id: string; email: string; role: string; status: string }[]
   proposals: { id: string; title: string; status: string; totalCost: number | null; currency: string }[]
 }
-type Message = { role: 'user' | 'assistant'; content: string }
+type Message = { role: 'user' | 'assistant'; content: string; failed?: boolean }
 
 // ── Item type icons ────────────────────────────────────────────────────────
 const ITEM_ICONS: Record<string, React.FC<{ className?: string }>> = {
@@ -64,7 +67,11 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
   ])
   const [prompt, setPrompt]     = useState('')
   const [jadeLoading, setJadeLoading] = useState(false)
+  const [jadeStickToBottom, setJadeStickToBottom] = useState(true)
+  const [jadeHasNewMessage, setJadeHasNewMessage] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  const prevJadeMessageCountRef = useRef(0)
 
   // Share
   const [shareData, setShareData] = useState<{ isPublic: boolean; shareUrl: string | null }>({ isPublic: false, shareUrl: null })
@@ -87,9 +94,37 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
     if (status === 'authenticated') fetchTrip()
   }, [status, tripId])
 
-  useEffect(() => {
+  const scrollJadeChatToBottom = useCallback(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [])
+
+  // Guarded auto-scroll — only follow new messages down when the reader is
+  // already at/near the bottom; otherwise hold position and surface the
+  // "New message" affordance (see handleJadeScroll / the pill button below).
+  useEffect(() => {
+    const grew = messages.length > prevJadeMessageCountRef.current
+    prevJadeMessageCountRef.current = messages.length
+    if (!grew) return
+    if (jadeStickToBottom) {
+      scrollJadeChatToBottom()
+    } else {
+      setJadeHasNewMessage(true)
+    }
+  }, [messages, jadeStickToBottom, scrollJadeChatToBottom])
+
+  const handleJadeScroll = useCallback(() => {
+    const el = chatScrollRef.current
+    if (!el) return
+    const atBottom = isNearBottom(el)
+    setJadeStickToBottom(atBottom)
+    if (atBottom) setJadeHasNewMessage(false)
+  }, [])
+
+  const jumpToJadeBottom = useCallback(() => {
+    setJadeStickToBottom(true)
+    setJadeHasNewMessage(false)
+    scrollJadeChatToBottom()
+  }, [scrollJadeChatToBottom])
 
   async function fetchTrip() {
     setLoading(true)
@@ -222,8 +257,13 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
 
   // ── Jade AI ───────────────────────────────────────────────────────────────
   async function sendToJade() {
-    if (!prompt.trim() || jadeLoading) return
-    const userMsg = prompt.trim()
+    await sendJadeMessage(prompt)
+  }
+
+  async function sendJadeMessage(rawText: string) {
+    const userMsg = rawText.trim()
+    if (!userMsg || jadeLoading) return
+    const failedIndex = messages.length
     setPrompt('')
     setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setJadeLoading(true)
@@ -265,7 +305,11 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
         setMessages(prev => [...prev, { role: 'assistant', content: data.content ?? 'Sorry, I couldn\'t respond right now.' }])
       }
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Try again?' }])
+      // True client-side/network failure — mark this specific user message
+      // as failed (restrained inline retry affordance, no assistant-bubble
+      // apology, no banner). Backend-returned replies are handled above and
+      // are unaffected by this.
+      setMessages(prev => prev.map((m, i) => (i === failedIndex ? { ...m, failed: true } : m)))
     } finally {
       setJadeLoading(false)
     }
@@ -314,6 +358,9 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
 
   const currentDay = trip.days.find(d => d.id === selectedDay)
   const totalBudgetSpent = trip.days.flatMap(d => d.items).reduce((sum, i) => sum + (i.cost ?? 0), 0)
+  // Empty state = only the pre-seeded welcome message, no exchange yet —
+  // matches PortalJadeChat's isEmpty convention for gating suggested prompts.
+  const isJadeEmpty = messages.length <= 1
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -550,51 +597,94 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
           {/* ── Jade AI chat panel ── */}
           {panel === 'jade' && (
             <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="relative flex-1 min-h-0">
+              <div
+                ref={chatScrollRef}
+                onScroll={handleJadeScroll}
+                className="absolute inset-0 overflow-y-auto p-4 space-y-4"
+                role="log"
+                aria-live="polite"
+                aria-label="Conversation with Jade"
+              >
                 {messages.map((msg, i) => (
-                  <div key={i} className={cn('flex gap-3', msg.role === 'user' ? 'flex-row-reverse' : '')}>
-                    {msg.role === 'assistant' && (
-                      <div className="w-8 h-8 rounded-full bg-[#C9A84C]/20 border border-[#C9A84C]/30 flex items-center justify-center flex-shrink-0">
-                        <ConciergeBell className="w-4 h-4 text-[#C9A84C]" />
+                  <div key={i}>
+                    <div className={cn('flex gap-3', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                      {msg.role === 'assistant' && (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <ConciergeBell className="w-3.5 h-3.5 text-[#0B1F3A]" />
+                        </div>
+                      )}
+                      <div className={cn(
+                        'max-w-[85%] lg:max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed',
+                        msg.role === 'user'
+                          ? 'bg-[#C9A84C] text-[#0B1F3A] font-medium rounded-br-sm'
+                          : 'bg-[#0B1F3A] border border-white/8 text-white/90 rounded-bl-sm'
+                      )}>
+                        {msg.role === 'user' ? msg.content : <JadeMessageContent text={msg.content} />}
+                      </div>
+                    </div>
+
+                    {/* Restrained, message-scoped failure affordance —
+                        client-side/network failures only (see sendJadeMessage's
+                        catch block). No large red bubble, no full-width
+                        banner: a small error line + a Retry action tied to
+                        this exact failed message. */}
+                    {msg.role === 'user' && msg.failed && (
+                      <div className="flex justify-end mt-1">
+                        <div className="flex items-center gap-1.5 text-red-400 text-xs">
+                          <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                          <span>Failed to send</span>
+                          <button
+                            type="button"
+                            onClick={() => sendJadeMessage(msg.content)}
+                            aria-label="Retry sending message"
+                            className="underline hover:text-red-300 font-semibold focus:outline-none focus-visible:ring-1 focus-visible:ring-red-400/60 rounded-sm"
+                          >
+                            Retry
+                          </button>
+                        </div>
                       </div>
                     )}
-                    <div className={cn(
-                      'max-w-[75%] rounded-2xl px-4 py-3 text-sm',
-                      msg.role === 'user'
-                        ? 'bg-[#C9A84C]/20 text-white rounded-tr-sm'
-                        : 'bg-[#0B1F3A] text-white/80 rounded-tl-sm'
-                    )}>
-                      {msg.content}
-                    </div>
                   </div>
                 ))}
                 {jadeLoading && (
                   <div className="flex gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[#C9A84C]/20 border border-[#C9A84C]/30 flex items-center justify-center flex-shrink-0">
-                      <ConciergeBell className="w-4 h-4 text-[#C9A84C] animate-pulse" />
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#C9A84C] to-[#a87e38] flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <ConciergeBell className="w-3.5 h-3.5 text-[#0B1F3A]" />
                     </div>
-                    <div className="bg-[#0B1F3A] rounded-2xl rounded-tl-sm px-4 py-3">
-                      <div className="flex gap-1">
-                        {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 bg-white/30 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
-                      </div>
+                    <div className="bg-[#0B1F3A] border border-white/8 rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1.5" aria-label="Jade is thinking">
+                      {[0,1,2].map(i => <div key={i} className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />)}
                     </div>
                   </div>
                 )}
                 <div ref={chatEndRef} />
               </div>
 
-              {/* Quick suggestions */}
-              <div className="px-4 pb-2 flex gap-2 flex-wrap">
-                {[
-                  'Generate a full itinerary',
-                  `Best things to do in ${trip.destination.split(',')[0]}`,
-                  'What visa do I need?',
-                ].map(s => (
-                  <button key={s} onClick={() => setPrompt(s)} className="text-xs px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-white/50 hover:text-white hover:border-white/20 transition-all">
-                    {s}
-                  </button>
-                ))}
+              {jadeHasNewMessage && (
+                <button
+                  type="button"
+                  onClick={jumpToJadeBottom}
+                  className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#C9A84C] text-[#0B1F3A] text-xs font-semibold shadow-lg shadow-black/30 hover:bg-[#b8943d] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]/60"
+                >
+                  <ChevronDown className="w-3.5 h-3.5" /> New message
+                </button>
+              )}
               </div>
+
+              {/* Quick suggestions — gated to the empty state only */}
+              {isJadeEmpty && (
+                <div className="px-4 pb-2 flex gap-2 flex-wrap">
+                  {[
+                    'Generate a full itinerary',
+                    `Best things to do in ${trip.destination.split(',')[0]}`,
+                    'What visa do I need?',
+                  ].map(s => (
+                    <button key={s} onClick={() => setPrompt(s)} className="text-xs px-3 py-1.5 bg-white/5 border border-white/10 rounded-full text-white/50 hover:text-white hover:border-white/20 transition-all">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               <div className="flex-shrink-0 p-4 border-t border-white/8">
                 <div className="flex gap-2">
@@ -604,11 +694,20 @@ export default function TripPlannerPage({ params }: { params: { tripId: string }
                     onChange={e => setPrompt(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToJade() } }}
                     placeholder="Ask Jade anything about your trip..."
-                    className="flex-1 bg-[#0B1F3A] border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#C9A84C]/50 resize-none"
+                    aria-label="Message to Jade"
+                    disabled={jadeLoading}
+                    className="flex-1 bg-[#0B1F3A] border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#C9A84C]/50 resize-none max-h-32 overflow-y-auto leading-relaxed disabled:opacity-50"
+                    style={{ minHeight: '46px' }}
+                    onInput={e => {
+                      const t = e.currentTarget
+                      t.style.height = 'auto'
+                      t.style.height = `${Math.min(t.scrollHeight, 128)}px`
+                    }}
                   />
                   <button
                     onClick={sendToJade}
                     disabled={!prompt.trim() || jadeLoading}
+                    aria-label="Send message"
                     className="flex-shrink-0 w-10 h-10 rounded-xl bg-[#C9A84C] text-[#0B1F3A] flex items-center justify-center hover:bg-[#dbb95a] disabled:opacity-40 disabled:cursor-not-allowed transition-all self-end"
                   >
                     {jadeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
