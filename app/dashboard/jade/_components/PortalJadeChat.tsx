@@ -7,6 +7,7 @@ import { cn }                                         from '@/lib/utils'
 import type { PortalContextHint }                     from '@/lib/portal/portal-jade-context'
 import { SpeakToHuman }                               from '@/components/common/SpeakToHuman'
 import { BUSINESS }                                   from '@/lib/config/business'
+import JadeMessageContent                             from '@/components/portal/JadeMessageContent'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,16 +37,6 @@ function getSuggestedPrompts(p: Pick<Props, 'hasBookings' | 'hasProposals' | 'ha
   if (p.hasProposals)   base.push('Tell me about my proposals')
   base.push('Find airport transfer', 'Find activities')
   return base.slice(0, 5)
-}
-
-// ─── Message renderer ─────────────────────────────────────────────────────────
-
-function renderMarkdown(text: string): string {
-  return text
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-[#C9A84C] underline hover:text-[#b8943d]" target="_blank" rel="noopener noreferrer">$1</a>')
-    .replace(/\n/g, '<br/>')
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -193,10 +184,8 @@ export default function PortalJadeChat({
                   ? 'bg-[#C9A84C] text-[#0B1F3A] font-medium rounded-br-sm'
                   : 'bg-[#0B1F3A] border border-white/8 text-white/90 rounded-bl-sm',
               )}
-              // Note: renderMarkdown output is controlled server-returned text, not user HTML
-              dangerouslySetInnerHTML={msg.role === 'assistant' ? { __html: renderMarkdown(msg.content) } : undefined}
             >
-              {msg.role === 'user' ? msg.content : undefined}
+              {msg.role === 'user' ? msg.content : <JadeMessageContent text={msg.content} />}
             </div>
           </div>
         ))}
