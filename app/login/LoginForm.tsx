@@ -6,15 +6,27 @@ import { signIn } from 'next-auth/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Mail, Lock, User, Loader2, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react'
+import { safeLocalRedirect } from '@/lib/safe-redirect'
 
 export default function LoginForm() {
   const router       = useRouter()
   const searchParams = useSearchParams()
 
-  const rawCallback = searchParams.get('callbackUrl') ?? ''
-  const callbackUrl = rawCallback.startsWith('/')
-    ? rawCallback
-    : '/dashboard'
+  // CRITICAL FIX (2026-10-02): the previous check here was a raw
+  // single-character string-prefix test (only confirming the value began
+  // with a forward slash) — unsound because it does NOT reject
+  // protocol-relative payloads (`//evil.com`), backslash variants
+  // (`/\evil.com`, `/\/evil.com`), or embedded ASCII control characters
+  // (TAB/LF/CR), all of which a browser's URL parser can resolve to an
+  // external origin despite the string literally starting with a slash.
+  // This reuses the hardened, already-proven `safeLocalRedirect` primitive
+  // from Walz Business V1-A (lib/safe-redirect.ts) rather than
+  // reimplementing URL validation here. Consumer login must be able to
+  // return to ANY legitimate same-origin path (not just a `/business`-
+  // prefixed one), so this intentionally uses the general-purpose helper —
+  // not the Business-portal-scoped one that restricts to that prefix.
+  const rawCallback = searchParams.get('callbackUrl')
+  const callbackUrl = safeLocalRedirect(rawCallback, '/dashboard')
   const errorParam    = searchParams.get('error')
   const modeParam     = searchParams.get('signup')
   const verifiedParam = searchParams.get('verified')
