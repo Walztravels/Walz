@@ -7654,6 +7654,7 @@ model Organization {
   travelRequests TravelRequest[]
   invitations    OrganizationInvitation[]
   brandSettings  OrganizationBrandSettings?
+  linkTokens     BusinessServiceLinkToken[]
 
   @@index([status])
   @@index([organizationType])
@@ -7803,6 +7804,7 @@ model BusinessTraveller {
   user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   travelRequestLinks TravelRequestTraveller[]
+  linkTokens         BusinessServiceLinkToken[]
 
   @@index([organizationId])
   @@index([userId])
@@ -7831,6 +7833,7 @@ model TravelRequest {
   travellers TravelRequestTraveller[]
   services   TravelRequestService[]
   approvals  TravelApproval[]
+  linkTokens BusinessServiceLinkToken[]
 
   @@index([organizationId])
   @@index([submittedByMembershipId])
@@ -7874,6 +7877,7 @@ model TravelRequestService {
 
   travelRequest TravelRequest @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
   attestations  TravelRequestServiceAttestation[]
+  linkTokens    BusinessServiceLinkToken[]
 
   @@index([travelRequestId])
   @@index([linkedQuoteId])
@@ -7923,6 +7927,65 @@ model TravelRequestServiceAttestation {
   @@index([membershipId])
   @@index([visaApplicationId])
   @@map("travel_request_service_attestations")
+}
+
+// ============================================================================
+// WALZ BUSINESS — V1-C PHASE 1: recipient-facing visa-link tokens
+// ============================================================================
+// A short-lived, single-use link a TRAVEL_MANAGER+ staff/member issues for
+// ONE TravelRequestService (serviceType VISA), addressed to ONE
+// BusinessTraveller — WITHOUT that traveller needing a User account or an
+// OrganizationMembership (BusinessTraveller.userId stays nullable/untouched;
+// see lib/business/service-link-token.ts). This Phase only builds
+// issuance/reissue/revoke + the validation/CAS-consumption primitives; the
+// recipient-facing GET/submit route that will actually consume one of these
+// tokens is a LATER phase (not built here).
+//
+// TOKEN SECURITY: identical discipline to OrganizationInvitation/
+// OrganizationInvitation — crypto.randomBytes(32) (256-bit) raw token,
+// returned to the issuer exactly once (to build the recipient URL), never
+// logged; only sha256(rawToken) is ever persisted in tokenHash. Lookups
+// always hash-then-compare, never a raw-token WHERE clause.
+//
+// EXACTLY ONE LIVE TOKEN PER SERVICE: enforced at the DB layer by a partial
+// unique index on travel_request_service_id WHERE consumed_at IS NULL AND
+// revoked_at IS NULL (see the migration) — not just application logic.
+// Re-issuing a token for a service that already has a live one revokes/
+// replaces that prior token in the SAME operation (replacesTokenId points at
+// the row it replaced), so the old link dies the instant a new one exists.
+//
+// This table follows the WALZ BUSINESS snake_case @map/@@map convention
+// (matching OrganizationInvitation, TravelRequestServiceAttestation, etc.) —
+// NOT the un-mapped VisaApplication convention from the unrelated,
+// concurrently-running Refusal Letter Analyzer workstream.
+model BusinessServiceLinkToken {
+  id                      String    @id @default(cuid())
+  organizationId          String    @map("organization_id")
+  businessTravellerId     String    @map("business_traveller_id")
+  travelRequestId         String    @map("travel_request_id")
+  travelRequestServiceId  String    @map("travel_request_service_id")
+  tokenHash               String    @unique @map("token_hash")
+  issuedByMembershipId    String?   @map("issued_by_membership_id")
+  issuedByStaffId         String?   @map("issued_by_staff_id")
+  expiresAt               DateTime  @map("expires_at")
+  revokedAt               DateTime? @map("revoked_at")
+  revokedByMembershipId   String?   @map("revoked_by_membership_id")
+  consumedAt              DateTime? @map("consumed_at")
+  consumedIpAddress       String?   @map("consumed_ip_address")
+  consumedUserAgent       String?   @map("consumed_user_agent")
+  replacesTokenId         String?   @map("replaces_token_id")
+  createdAt               DateTime  @default(now()) @map("created_at")
+
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  businessTraveller     BusinessTraveller    @relation(fields: [businessTravellerId], references: [id], onDelete: Cascade)
+  travelRequest         TravelRequest        @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+  travelRequestService  TravelRequestService @relation(fields: [travelRequestServiceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([businessTravellerId])
+  @@index([travelRequestServiceId])
+  @@index([expiresAt])
+  @@map("business_service_link_tokens")
 }
 
 model TravelApproval {

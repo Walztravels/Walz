@@ -20,6 +20,7 @@ import { loadTravelRequestDetail } from '@/lib/business/request-detail'
 import ApprovalPanel from './ApprovalPanel'
 import ManageRequest from './ManageRequest'
 import VisaDocuments from './VisaDocuments'
+import IssueVisaLinkButton from './IssueVisaLinkButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -113,6 +114,18 @@ export default async function TravelRequestDetailPage({ params }: { params: { or
                     )}
                   </div>
                 ))}
+                {/* Independent of visaAccess/VISA_DOCUMENTS_VIEW — gated only
+                    on canManage (TRAVEL_MANAGER+). Lets an org manager send a
+                    traveller with no Walz account a link to submit visa
+                    documents for this service (V1-C Phase 1). */}
+                {s.serviceType === 'VISA' && canManage && (
+                  <IssueVisaLinkButton
+                    orgId={params.orgId}
+                    requestId={params.requestId}
+                    serviceId={s.id}
+                    travellers={detail.travellers.map(t => ({ id: t.id, name: `${t.firstName} ${t.lastName}` }))}
+                  />
+                )}
               </li>
             ))}
           </ul>

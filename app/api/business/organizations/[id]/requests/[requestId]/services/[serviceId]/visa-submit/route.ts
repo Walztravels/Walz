@@ -29,26 +29,29 @@
 // already does (type/size/checksum) — VisaCaseDocument.scanStatus defaults
 // to SCAN_UNAVAILABLE (no scanner exists). Files are never rendered inline;
 // see the content-download route for forced attachment disposition.
+//
+// V1-C PHASE 1 REFACTOR: this route is now a THIN WRAPPER around
+// lib/business/visa-intake.ts::submitVisaIntake(), which holds the
+// authorization-agnostic domain logic (resolve-or-create the
+// VisaApplication, store files). Authentication, authorization
+// (assertCanSubmitVisaDocuments — UNCHANGED, still called here, not moved),
+// the attestation gate/write (recordServiceAttestation — UNCHANGED, still
+// called here), the audit call, and the request/response contract are ALL
+// UNCHANGED from before this refactor. See
+// __tests__/business-r2-1-visa-submit.test.ts, which is run UNMODIFIED
+// against this refactored route as proof of byte-identical behavior.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import crypto from 'crypto'
-import prisma from '@/lib/db'
 import { assertCanSubmitVisaDocuments } from '@/lib/business/document-authz'
 import { recordServiceAttestation, extractRequestIp } from '@/lib/business/attestation'
 import { recordBusinessAudit } from '@/lib/business/audit'
-import { storeCaseDocument } from '@/lib/intelligence/document-store'
-import { checkLength, FIELD_LIMITS, isValidIso2 } from '@/lib/business/validation'
+import { submitVisaIntake } from '@/lib/business/visa-intake'
 
 export const dynamic = 'force-dynamic'
 
-const NOT_FOUND = () => NextResponse.json({ error: 'Not found' }, { status: 404 })
 const SUBMIT_MODES = ['FORM', 'CLIENT_DOCS', 'AGENCY_COMPLETED'] as const
-
-function generateVisaReference(): string {
-  return `B2B-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`
-}
 
 export async function POST(
   req: NextRequest,
@@ -86,107 +89,38 @@ export async function POST(
 
   const service = access.service
 
-  // Resolve (or create) the linked VisaApplication. Every intake mode
-  // converges here.
-  let visaApplicationId = service.linkedVisaApplicationId
-
-  if (!visaApplicationId) {
-    // Fall back to the request's first linked traveller for a name/email
-    // default — never required to already exist.
-    const travellerLink = await prisma.travelRequestTraveller.findFirst({
-      where: { travelRequestId: params.requestId },
-      include: { businessTraveller: { select: { firstName: true, lastName: true, email: true, userId: true } } },
-      orderBy: { createdAt: 'asc' },
-    })
-
-    const formFieldsRaw = formData.get('formFields')
-    let formFields: Record<string, unknown> = {}
-    if (typeof formFieldsRaw === 'string' && formFieldsRaw) {
-      try { formFields = JSON.parse(formFieldsRaw) } catch { /* ignore malformed JSON, fall back to traveller defaults */ }
-    }
-
-    // B6 remediation: destinationIso2 is validated strictly as a real
-    // ISO-3166-1 alpha-2 code — a 3-letter code (or anything else
-    // malformed) is REJECTED, never silently truncated down to 2 chars
-    // (which would silently change the destination to a wrong country).
-    const destinationIso2Raw = typeof formFields.destinationIso2 === 'string' ? formFields.destinationIso2.trim().toUpperCase() : ''
-    if (!destinationIso2Raw) {
-      return NextResponse.json({ error: 'destinationIso2 is required to start a new visa case' }, { status: 400 })
-    }
-    if (!isValidIso2(destinationIso2Raw)) {
-      return NextResponse.json({ error: 'destinationIso2 must be a 2-letter ISO-3166-1 country code' }, { status: 400 })
-    }
-    const destinationIso2 = destinationIso2Raw
-
-    const visaType = typeof formFields.visaType === 'string' && formFields.visaType.trim() ? formFields.visaType.trim() : 'tourist'
-    const firstName = typeof formFields.firstName === 'string' ? formFields.firstName.trim() : (travellerLink?.businessTraveller.firstName ?? null)
-    const lastName = typeof formFields.lastName === 'string' ? formFields.lastName.trim() : (travellerLink?.businessTraveller.lastName ?? null)
-    const email = typeof formFields.email === 'string' ? formFields.email.trim().toLowerCase() : (travellerLink?.businessTraveller.email ?? null)
-
-    // B6 remediation: real server-side length caps on every agency-
-    // submitted field — REJECT, never silently truncate.
-    for (const [label, value, max] of [
-      ['visaType', visaType, FIELD_LIMITS.VISA_TYPE],
-      ...(firstName ? [['firstName', firstName, FIELD_LIMITS.PERSON_NAME]] as const : []),
-      ...(lastName ? [['lastName', lastName, FIELD_LIMITS.PERSON_NAME]] as const : []),
-      ...(email ? [['email', email, FIELD_LIMITS.EMAIL]] as const : []),
-    ] as const) {
-      const check = checkLength(value, label, max)
-      if (!check.ok) return NextResponse.json({ error: check.error }, { status: 400 })
-    }
-
-    const created = await prisma.visaApplication.create({
-      data: {
-        referenceNumber: generateVisaReference(),
-        destinationIso2,
-        visaType,
-        firstName,
-        lastName,
-        email,
-        userId: travellerLink?.businessTraveller.userId ?? null,
-        status: 'draft',
-      },
-      select: { id: true },
-    })
-    visaApplicationId = created.id
-
-    // Freshly created — no exclusivity/ownership-gate check is needed here
-    // (unlike lib/business/services.ts's staff-only cross-record linking):
-    // this row cannot already belong to another organization, since this
-    // endpoint just created it.
-    await prisma.travelRequestService.update({
-      where: { id: service.id },
-      data: { linkedVisaApplicationId: visaApplicationId },
-    })
+  const formFieldsRaw = formData.get('formFields')
+  let formFields: Record<string, unknown> = {}
+  if (typeof formFieldsRaw === 'string' && formFieldsRaw) {
+    try { formFields = JSON.parse(formFieldsRaw) } catch { /* ignore malformed JSON, fall back to traveller defaults */ }
   }
+  const files = formData.getAll('files').filter((f): f is File => f instanceof File)
 
-  const documentsStored: string[] = []
-
-  if (mode === 'CLIENT_DOCS' || mode === 'AGENCY_COMPLETED') {
-    const files = formData.getAll('files').filter((f): f is File => f instanceof File)
-    if (files.length === 0) {
-      return NextResponse.json({ error: 'At least one file is required for this submission mode' }, { status: 400 })
-    }
-    const documentType = mode === 'AGENCY_COMPLETED' ? 'agency_completed_form' : 'client_collected_document'
-    for (const file of files) {
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const stored = await storeCaseDocument({
-        applicationId: visaApplicationId,
-        documentType,
-        fileName: file.name,
-        mimeType: file.type,
-        buffer,
-        uploadedBy: session.user.email ?? session.user.id,
-      })
-      if (!stored.ok) {
-        return NextResponse.json({ error: stored.error }, { status: 400 })
-      }
-      if (stored.doc.documentId) documentsStored.push(stored.doc.documentId)
-    }
+  // Domain logic (resolve-or-create the VisaApplication, store files) lives
+  // in the shared, authorization-agnostic lib/business/visa-intake.ts —
+  // authentication/authorization (above) and attestation/audit (below) stay
+  // here, UNCHANGED from before this extraction.
+  const result = await submitVisaIntake({
+    organizationId: params.id,
+    travelRequestId: params.requestId,
+    serviceId: service.id,
+    linkedVisaApplicationId: service.linkedVisaApplicationId,
+    mode: mode as 'FORM' | 'CLIENT_DOCS' | 'AGENCY_COMPLETED',
+    formFields,
+    files,
+    uploadedBy: session.user.email ?? session.user.id,
+    submittedBy: { kind: 'member', membershipId: access.membership.id },
+  })
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status })
   }
+  const { visaApplicationId, documentsStored } = result
 
   // Append-only attestation — recorded for every successful submission
-  // regardless of mode, capturing WHO submitted it.
+  // regardless of mode, capturing WHO submitted it. UNCHANGED: this route
+  // (never the shared function) writes TravelRequestServiceAttestation,
+  // because that write requires a membershipId that only an authenticated
+  // member's session can provide.
   const attestation = await recordServiceAttestation({
     travelRequestServiceId: service.id,
     organizationId: params.id,
