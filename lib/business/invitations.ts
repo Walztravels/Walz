@@ -36,6 +36,7 @@
 // win.
 
 import crypto from 'crypto'
+import { Prisma } from '@prisma/client'
 import prisma from '@/lib/db'
 import { isOrgRole, type OrgRole } from '@/lib/business/authz'
 import { recordBusinessAudit } from '@/lib/business/audit'
@@ -214,20 +215,52 @@ export async function acceptOrganizationInvitation(
           after: { membershipId: membership.id, role: membership.role, created: true },
         })
 
-        // RELEASE 2.2 Slice C: this is the organization's very first
-        // membership (the bootstrap case) — auto-flip ONBOARDING -> ACTIVE.
-        // CAS-guarded (same style as the organization-type/currency
-        // reclassification routes, NOT the status route's plain update()):
-        // fires once, only if the org is still exactly ONBOARDING at this
-        // instant, and never races a concurrent transition. Wrapped in its
-        // own try/catch so a failure here can NEVER turn an already-
-        // successful membership creation into a reported 'invalid' result.
+        // RELEASE 2.2 Slice B fix (MEDIUM finding remediation): this
+        // auto-activation must fire if and only if the ORGANIZATION
+        // genuinely had zero existing OrganizationMembership rows (any
+        // status) immediately before this acceptance created the first one
+        // — NOT merely "this particular user has no membership row yet"
+        // (that's all !existingBefore, above, proves). Those are different:
+        // an ACTIVE org with several existing members that staff has
+        // manually reverted to ONBOARDING, then invites a brand-new user via
+        // the bootstrap route — that new user also satisfies
+        // !existingBefore, but the org plainly is NOT on its first member,
+        // and auto-activating would silently override a deliberate staff
+        // decision with a misleading audit entry.
+        //
+        // Expressing "genuinely the organization's first-ever membership"
+        // as a separate COUNT read followed by a separate CAS write would
+        // itself be a TOCTOU race (another acceptance could create a second
+        // membership row in between). So instead the membership count is
+        // folded into the SAME atomic SQL statement as the status CAS: one
+        // UPDATE whose WHERE clause requires BOTH status = 'ONBOARDING' AND
+        // a correlated COUNT(*) over the existing organization_memberships
+        // table (no schema/migration change) for this organizationId equal
+        // to exactly 1 — i.e. the membership row just created above is the
+        // ONLY membership row that exists for this organization. Postgres
+        // evaluates the whole WHERE clause (including the subquery) against
+        // one consistent per-statement snapshot, and the row-level write
+        // lock it takes on the targeted `organizations` row — combined with
+        // EvalPlanQual re-checking the WHERE clause against fresh data if a
+        // concurrent writer is blocked on that same row — means at most one
+        // such UPDATE can ever flip the status: the exact same "fires at
+        // most once" guarantee as the plain-column CAS it replaces, now
+        // also covering the membership-count condition atomically instead
+        // of as a racy separate check. Wrapped in its own try/catch so a
+        // failure here can NEVER turn an already-successful membership
+        // creation into a reported 'invalid' result.
         try {
-          const activated = await prisma.organization.updateMany({
-            where: { id: invitation.organizationId, status: 'ONBOARDING' },
-            data: { status: 'ACTIVE' },
-          })
-          if (activated.count === 1) {
+          const activatedCount = await prisma.$executeRaw(Prisma.sql`
+            UPDATE organizations
+            SET status = 'ACTIVE', updated_at = NOW()
+            WHERE id = ${invitation.organizationId}
+              AND status = 'ONBOARDING'
+              AND (
+                SELECT COUNT(*) FROM organization_memberships
+                WHERE organization_id = ${invitation.organizationId}
+              ) = 1
+          `)
+          if (activatedCount === 1) {
             await recordBusinessAudit({
               organizationId: invitation.organizationId,
               actorUserId: userId,
@@ -238,9 +271,11 @@ export async function acceptOrganizationInvitation(
               after: { status: 'ACTIVE', reason: 'First organization member accepted their invitation' },
             })
           }
-          // If activated.count === 0, the organization's status was not
-          // ONBOARDING at this moment (e.g. already changed by a staff
-          // action) — skip silently, per spec.
+          // If activatedCount === 0, either the organization's status was
+          // not ONBOARDING at this moment (e.g. already changed by a staff
+          // action), OR this organization already had other membership
+          // rows before this one (not genuinely its first member) — skip
+          // silently either way, per spec.
         } catch (err) {
           console.error('[OrganizationInvitation] onboarding auto-activation failed (non-fatal):', (err as Error).message)
         }
