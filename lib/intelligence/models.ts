@@ -23,6 +23,9 @@ export const INTEL_MODELS = {
   conversationAnalysis: 'claude-sonnet-4-6',
   /** Cheap summarization of detected embassy-source diffs. */
   changeSummary: 'claude-haiku-4-5-20251001',
+  /** Refusal letter classification — staff-only, high-stakes; pinned to
+   *  the same model as other forensic document analysis tasks above. */
+  refusalLetterAnalysis: 'claude-sonnet-4-6',
 } as const
 
 export type IntelTask = keyof typeof INTEL_MODELS
