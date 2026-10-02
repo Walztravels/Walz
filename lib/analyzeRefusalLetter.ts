@@ -215,8 +215,25 @@ const FORBIDDEN_CLAIM_PATTERNS: RegExp[] = [
 // borrow/lend/loan/wire/"transfer in"/"ask a relative to..."; inflate/pad/
 // boost/"show a higher balance"/"make it look like"/"present as own";
 // backdate/pre-date/post-date) rather than literal phrases lifted from the
-// prompt, so it generalizes to wording nobody has written yet, not just
-// the exact test strings below.
+// prompt, so it also catches realistic rewordings that reuse one of these
+// recognizable action/target words, not just the exact test strings below.
+//
+// KNOWN, ACCEPTED LIMITATION — read before assuming this scan is complete:
+// this is a deterministic, lexical/concept-based layer, NOT a general
+// semantic-paraphrase detector and NOT a mathematically complete safety
+// mechanism. It only fires when the text contains a recognizable word from
+// one of the action-concept families above in proximity to a recognizable
+// target noun. Oblique or fully indirect phrasing that avoids those words
+// entirely — e.g. "adjust the figures," "clean up the numbers," or "a
+// print shop can help make it look more convincing" — will NOT be
+// detected by this layer. Expanding the regex/synonym lists indefinitely
+// to chase every conceivable paraphrase is out of scope for this module;
+// that is a known, documented limitation of a deterministic regex-based
+// approach, not a defect to be silently patched over. This scan is
+// defense-in-depth on top of the model's own instructions and the hard,
+// classification-based invariants in enforceHardInvariants() (which do
+// not depend on this scan succeeding), not a standalone guarantee that
+// every unsafe instruction a model could produce will be caught.
 
 function proximityPattern(a: string, b: string, maxChars = 100): RegExp {
   return new RegExp(`(?:${a})[\\s\\S]{0,${maxChars}}(?:${b})|(?:${b})[\\s\\S]{0,${maxChars}}(?:${a})`, 'i')
@@ -227,8 +244,20 @@ const ALTER_CONCEPT =
   '(?:alter(?:ed|ing|s)?|modif(?:y|ied|ying|ies)|edit(?:ed|ing|s)?|doctor(?:ed|ing)?|tamper(?:ed|ing|s)?|falsif(?:y|ied|ying|ies)|retouch(?:ed|ing)?|touch[- ]?up(?:ped|ping)?|photoshop(?:ped|ping)?|rewr(?:ite|ote|itten|iting)|white[- ]?out)'
 
 // Verbs/stems describing creating evidence/history that never happened.
+//
+// FIX (MEDIUM — "forge ahead" false positive): the bare stem "forg(?:e|ed|
+// ing|es)" previously matched the idiom "forge ahead" (e.g. "Forge ahead
+// with gathering your financial records"), which has nothing to do with
+// forgery. "forged"/"forging"/"forges" never appear in that idiom — only
+// bare "forge" immediately followed by "ahead" does — so the negative
+// lookahead below is scoped as narrowly as possible: it excludes ONLY
+// "forge" directly followed by "ahead", while "forge" followed by anything
+// else (e.g. "forge a bank statement", "forge the transaction history")
+// and every other inflection (forged/forging/forges) are untouched and
+// still match exactly as before. This does not weaken real forgery
+// detection in any way — see the confirming positive tests.
 const FABRICATE_CONCEPT =
-  '(?:fabricat(?:e|ed|ing|es)|manufactur(?:e|ed|ing|es)|generat(?:e|ed|ing|es)\\s+(?:a\\s+|fake\\s+)?(?:payments?|transactions?|deposits?|history)|forg(?:e|ed|ing|es)|invent(?:ed|ing|s)?|concoct(?:ed|ing|s)?|fake(?:d|ing)?|made[- ]up|make[- ]up|cook(?:ed|ing)?[- ]up|creat(?:e|ed|ing)\\s+(?:a\\s+)?false|never\\s+(?:actually\\s+|really\\s+)?happened)'
+  '(?:fabricat(?:e|ed|ing|es)|manufactur(?:e|ed|ing|es)|generat(?:e|ed|ing|es)\\s+(?:a\\s+|fake\\s+)?(?:payments?|transactions?|deposits?|history)|forg(?:e(?!\\s+ahead\\b)|ed|ing|es)|invent(?:ed|ing|s)?|concoct(?:ed|ing|s)?|fake(?:d|ing)?|made[- ]up|make[- ]up|cook(?:ed|ing)?[- ]up|creat(?:e|ed|ing)\\s+(?:a\\s+)?false|never\\s+(?:actually\\s+|really\\s+)?happened)'
 
 // Backdating/false-dating is specific and rare enough to flag standalone.
 const BACKDATE_CONCEPT =
@@ -264,6 +293,55 @@ export function containsForbiddenClaim(text: string): boolean {
   if (!text) return false
   if (FORBIDDEN_CLAIM_PATTERNS.some(re => re.test(text))) return true
   return FORBIDDEN_CONTENT_CONCEPT_PATTERNS.some(re => re.test(text))
+}
+
+// ── Adjacent-checklist-entry scan — DELIBERATELY NARROWER subset ─────────
+//
+// FIX (HIGH, field-split bypass, item 1's "adjacent entries" extension):
+// a dangerous instruction can in principle be split not just across a
+// single entry's item/reason fields (handled below by scanning
+// `item + " " + reason` through the FULL containsForbiddenClaim()), but
+// across TWO separate checklist entries — e.g. item1: "modify it before
+// resubmitting" / item2: "this relates to your bank statement".
+//
+// This was evaluated and is implemented, but ONLY with the three concept
+// pairs below (BACKDATE standalone, BORROW+INFLATE, MANIPULATE+account-
+// seasoning) — the ALTER+financial-noun and FABRICATE+financial-noun
+// pairs used for the single-entry scan are DELIBERATELY EXCLUDED here.
+// Reproduced and confirmed empirically (see the "adjacent-entry scan"
+// test block): joining two independently-written, entirely benign
+// checklist bullets — e.g. "Provide a letter explaining why you need to
+// alter your travel dates" (about travel dates, nothing to do with
+// finances) immediately followed by the unrelated, also-benign "Submit
+// your bank statements for the last 6 months" — produces a false
+// positive under the full scan, because ALTER_CONCEPT's "alter" and
+// FINANCIAL_DOC_NOUN's extremely generic nouns ("documents", "evidence",
+// "records", "statements", "figures", "numbers") are each so common in
+// ordinary, unrelated checklist text that two independent bullets will
+// coincidentally contain one of each far more often than one bullet's own
+// single, coherent instruction would. That coincidence risk is a
+// genuinely "excessive false-positive risk from unrelated-but-nearby
+// checklist items" per this task's own guidance, and wiping an entire
+// legitimate checklist on that basis would be a real cost to staff, not
+// a hypothetical one.
+//
+// The three pairs kept here require much more specific, two-sided
+// phrasing on BOTH concepts (e.g. "ask a relative/friend/cousin to
+// transfer/wire/lend", "looks like it has been there all along",
+// "manipulate ... account activity ... appear seasoned", or a bare
+// backdating verb) that is implausible to produce by coincidence across
+// two independently-written, genuinely benign bullets — see the positive
+// regression test proving a real split-across-entries case (BORROW+
+// INFLATE) is still caught.
+const ADJACENT_ENTRY_CONCEPT_PATTERNS: RegExp[] = [
+  new RegExp(BACKDATE_CONCEPT, 'i'),
+  proximityPattern(BORROW_CONCEPT, INFLATE_CONCEPT, 150),
+  proximityPattern(MANIPULATE_CONCEPT, ACCOUNT_SEASONING_TARGET, 90),
+]
+
+function containsForbiddenAdjacentEntryPattern(text: string): boolean {
+  if (!text) return false
+  return ADJACENT_ENTRY_CONCEPT_PATTERNS.some(re => re.test(text))
 }
 
 // ─── Evidence integrity — quote verification against extracted source text ──
@@ -355,12 +433,49 @@ export function enforceHardInvariants(opts: {
   //     Category A (DOCUMENTATION_OR_ELIGIBILITY) result could preserve
   //     unsafe guidance by placing it inside checklist content instead of
   //     the narrative fields. Reuses containsForbiddenClaim() — the SAME
-  //     code-level predicate used above, now extended with the
-  //     paraphrase-resistant concept scan (see its own comment) — rather
-  //     than building a second, parallel scanning system.
+  //     code-level predicate used above, now extended with the concept
+  //     scan (see its own comment, including its documented limitations)
+  //     — rather than building a second, parallel scanning system.
   //
-  //     DECISION: on any match, the WHOLE checklist for this analysis is
-  //     discarded, never just the offending item. This matches this
+  //     FIX (HIGH — field-split bypass): independently reproduced and
+  //     confirmed — for an entry with item "Ask a relative to transfer
+  //     funds into your account before the interview" and reason "This
+  //     way you can show a higher balance than you actually have",
+  //     containsForbiddenClaim(item) and containsForbiddenClaim(reason)
+  //     were EACH false (the BORROW concept lives only in item, the
+  //     INFLATE concept only in reason — the proximity scan never saw them
+  //     co-occur), while containsForbiddenClaim(item + reason) is true.
+  //     Scanning each field independently was therefore blind to unsafe
+  //     meaning that crosses the item/reason boundary. Below, EVERY entry
+  //     is ALSO scanned as the combined semantic unit `item + " " +
+  //     reason` — this closes that exact bypass (and its inverse: the verb
+  //     in `reason` and the object/purpose in `item`), and also catches an
+  //     instruction split across two sentences within the same field(s),
+  //     since the combined string still contains both sentences regardless
+  //     of which field each one was written in. The individual per-field
+  //     scans are KEPT alongside the combined one: they are a superset in
+  //     most cases, but produce a clearer warning (pointing at a single
+  //     field) when the unsafe content was never actually split, and guard
+  //     against any future change to the combined-string construction
+  //     (e.g. a different separator) accidentally missing a same-field
+  //     match.
+  //
+  //     ADJACENT-ENTRY EXTENSION: a dangerous instruction can also be
+  //     split across two separate checklist entries rather than within
+  //     one entry's own fields. This is scanned too, but — after empirical
+  //     testing confirmed an unacceptable false-positive rate for the
+  //     generic-noun concept pairs (ALTER/FABRICATE + a financial noun)
+  //     when applied across two independently-written, unrelated bullets —
+  //     the cross-entry join deliberately uses only the narrower subset of
+  //     concept pairs in ADJACENT_ENTRY_CONCEPT_PATTERNS (see that
+  //     constant's own comment for the full reasoning and the reproduced
+  //     false-positive example). This is a documented, deliberate
+  //     narrowing for the cross-entry case only — it does not narrow the
+  //     single-entry item+reason scan above.
+  //
+  //     DECISION: on any match (within a single entry's own fields, or
+  //     across an adjacent pair), the WHOLE checklist for this analysis is
+  //     discarded, never just the offending item/pair. This matches this
   //     module's existing all-or-nothing posture for the hard invariant in
   //     step 4 below (a MISREPRESENTATION_OR_FRAUD / REQUIRES_HUMAN_REVIEW
   //     classification empties the ENTIRE checklist, never a per-item
@@ -372,11 +487,25 @@ export function enforceHardInvariants(opts: {
   //     classification-based wipe in step 4, which still runs independently
   //     (and after this one) regardless of what this scan finds.
   let checklist: ChecklistItem[] = opts.parsed.checklist
-  const sawForbiddenChecklistContent = checklist.some(
-    c => containsForbiddenClaim(c.item) || containsForbiddenClaim(c.reason),
+  const sawForbiddenWithinEntry = checklist.some(c =>
+    containsForbiddenClaim(c.item)
+    || containsForbiddenClaim(c.reason)
+    || containsForbiddenClaim(`${c.item} ${c.reason}`),
   )
-  if (sawForbiddenChecklistContent) {
-    warnings.push('Forbidden fabrication/document-manipulation guidance detected in checklist content; the entire checklist was discarded for this analysis.')
+  let sawForbiddenAcrossAdjacentEntries = false
+  for (let i = 0; i < checklist.length - 1; i++) {
+    const joined = `${checklist[i].item} ${checklist[i].reason} ${checklist[i + 1].item} ${checklist[i + 1].reason}`
+    if (containsForbiddenAdjacentEntryPattern(joined)) {
+      sawForbiddenAcrossAdjacentEntries = true
+      break
+    }
+  }
+  if (sawForbiddenWithinEntry || sawForbiddenAcrossAdjacentEntries) {
+    warnings.push(
+      sawForbiddenAcrossAdjacentEntries && !sawForbiddenWithinEntry
+        ? 'Forbidden fabrication/document-manipulation guidance detected split across two adjacent checklist entries; the entire checklist was discarded for this analysis.'
+        : 'Forbidden fabrication/document-manipulation guidance detected in checklist content; the entire checklist was discarded for this analysis.',
+    )
     checklist = []
   }
 
