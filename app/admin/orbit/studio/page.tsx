@@ -21,11 +21,12 @@ import { CreativeStudioSection } from '../campaigns/[id]/CreativeStudioSection'
 import { STUDIO_SCOPE } from '@/lib/orbit/studio-scope'
 import { saveDraft, serializeDraft } from '@/lib/orbit/designer-draft'
 import type { DesignControls } from '@/lib/orbit/composer/design-controls'
+import { safeAdminCallback } from '@/lib/safe-redirect'
 
 function StudioInner() {
   const params = useSearchParams()
   const projectId = params.get('project')
-  const returnTo  = params.get('returnTo')
+  const returnTo  = safeAdminCallback(params.get('returnTo'))
   const brief     = params.get('brief')
   const [projectReady, setProjectReady] = useState(!projectId)
   const [projectError, setProjectError] = useState<string | null>(null)
@@ -72,7 +73,7 @@ function StudioInner() {
             className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors">
             Media Library →
           </Link>
-          {returnTo && returnTo.startsWith('/admin/') && (
+          {returnTo && (
             <Link href={returnTo}
               className="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-3 py-1.5 rounded-lg transition-colors">
               ← Back to campaign

@@ -120,8 +120,14 @@ describe('standalone studio page + navigation', () => {
     const src = read('app/admin/orbit/studio/page.tsx')
     expect(src).toContain('campaignId={STUDIO_SCOPE}')
     expect(src).not.toContain('orbitCampaign')
-    // returnTo is restricted to admin paths (no open redirect)
-    expect(src).toContain("returnTo.startsWith('/admin/')")
+    // returnTo is sanitized through the shared safeAdminCallback validator
+    // (parsed/normalized-path check, not a raw-string prefix test) before it
+    // is ever used as a Link href — see app/admin/orbit/studio/page.tsx and
+    // __tests__/orbit-studio-return-to-redirect.test.tsx for the adversarial
+    // regression coverage of this.
+    expect(src).toContain("import { safeAdminCallback } from '@/lib/safe-redirect'")
+    expect(src).toContain("safeAdminCallback(params.get('returnTo'))")
+    expect(src).not.toContain("returnTo.startsWith('/admin/')")
     expect(src).toContain('saved to the Media Library automatically')
   })
   it('Orbit navigation exposes Studio and Library', () => {
