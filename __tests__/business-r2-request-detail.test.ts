@@ -186,7 +186,11 @@ describe('approval CAS race (reusing the R1 pattern) — the loser gets 409', ()
   })
 
   it('the Approve/Reject UI treats 409 as an "already decided" state, not a raw error', () => {
-    const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'business', '[orgId]', 'requests', '[requestId]', 'ApprovalPanel.tsx'), 'utf8')
+    // Walz Business V1-A moved this page into the app/business/(portal)
+    // route group (see app/business/(portal)/layout.tsx) — the URL is
+    // unchanged (/business/[orgId]/requests/[requestId]), only the file's
+    // on-disk path moved.
+    const src = fs.readFileSync(path.join(__dirname, '..', 'app', 'business', '(portal)', '[orgId]', 'requests', '[requestId]', 'ApprovalPanel.tsx'), 'utf8')
     expect(src).toMatch(/res\.status === 409/)
     expect(src).toMatch(/already been decided/)
     expect(src).toMatch(/\/approve`/)

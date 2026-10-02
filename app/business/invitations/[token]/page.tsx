@@ -26,15 +26,19 @@ export default async function OrganizationInvitationPage({ params }: { params: {
   const token = typeof params.token === 'string' ? params.token.slice(0, 128) : ''
   const callbackUrl = `/business/invitations/${encodeURIComponent(token)}`
 
-  // RELEASE 2.2 Slice B: make the "sign in to continue" link invitation-
-  // aware. This is a presentational routing decision ONLY — it never
-  // changes who can accept the invitation (acceptOrganizationInvitation's
-  // own email-match verification is untouched) and never exposes whether a
-  // user exists anywhere in the markup, only which /login URL is linked.
-  // Still a server-side-only, simple existence check (findUnique + select
-  // id), reached only by someone who already holds this invitation's
-  // (secret, 64-hex) token — no enumeration surface is created.
-  let loginHref = `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+  // RELEASE 2.2 Slice B / Walz Business V1-A: make the "sign in to continue"
+  // link invitation-aware AND point at the dedicated Walz Business auth
+  // pages instead of the consumer /login. This is a presentational routing
+  // decision ONLY — it never changes who can accept the invitation
+  // (acceptOrganizationInvitation's own email-match verification is
+  // untouched) and never exposes whether a user exists anywhere in the
+  // markup, only which URL (and which label — see isNewUser below) is
+  // shown. Still a server-side-only, simple existence check (findUnique +
+  // select id), reached only by someone who already holds this
+  // invitation's (secret, 64-hex) token — no enumeration surface is
+  // created.
+  let loginHref = `/business/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+  let isNewUser = false
   if (!session?.user?.id && isWellFormedInvitationToken(token)) {
     const invitation = await prisma.organizationInvitation.findUnique({
       where: { tokenHash: hashInvitationToken(token) },
@@ -44,7 +48,8 @@ export default async function OrganizationInvitationPage({ params }: { params: {
       const email = normalizeInvitationEmail(invitation.email)
       const user = await prisma.user.findUnique({ where: { email }, select: { id: true } })
       if (!user) {
-        loginHref = `/login?signup=true&email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(callbackUrl)}`
+        isNewUser = true
+        loginHref = `/business/register?email=${encodeURIComponent(email)}&callbackUrl=${encodeURIComponent(callbackUrl)}`
       }
     }
   }
@@ -69,7 +74,7 @@ export default async function OrganizationInvitationPage({ params }: { params: {
           href={loginHref}
           style={{ display: 'inline-block', padding: '10px 20px', borderRadius: 8, background: '#0B1F3A', color: '#fff', textDecoration: 'none', fontWeight: 600 }}
         >
-          Sign in to continue
+          {isNewUser ? 'Create your Walz Business account' : 'Sign in to Walz Business'}
         </Link>
       )}
     </div>

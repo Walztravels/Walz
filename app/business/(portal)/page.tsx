@@ -26,7 +26,7 @@ function rank(role: string) {
 
 export default async function BusinessPortalPage() {
   const session = await getServerSession(authOptions)
-  if (!session?.user?.id) redirect('/login?callbackUrl=/business')
+  if (!session?.user?.id) redirect('/business/login?callbackUrl=/business')
   const userId = session.user.id
 
   const [memberships, invitations] = await Promise.all([

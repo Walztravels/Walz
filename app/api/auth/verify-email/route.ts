@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { Resend } from '@/lib/resend-hardened'
+import { isSafeLocalPath } from '@/lib/safe-redirect'
 
 const FROM = 'Walz Travels <noreply@walztravels.com>'
 
@@ -14,6 +15,19 @@ function getResend() {
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
   const baseUrl = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
+
+  // Walz Business (V1-A) — OPTIONAL pending callback threaded through from
+  // the signup step (see app/api/auth/signup/route.ts). Only ever honoured
+  // when it is a safe, same-origin, /business-prefixed local path; any other
+  // value (missing, malformed, or an open-redirect-shaped payload such as
+  // //evil.com) falls straight through to today's unchanged hardcoded
+  // consumer redirect below, so the existing consumer flow is completely
+  // unaffected.
+  const rawCallbackUrl = req.nextUrl.searchParams.get('callbackUrl')
+  const safeCallbackUrl =
+    rawCallbackUrl && isSafeLocalPath(rawCallbackUrl) && rawCallbackUrl.startsWith('/business')
+      ? rawCallbackUrl
+      : null
 
   if (!token) {
     return NextResponse.redirect(`${baseUrl}/login?error=InvalidToken`)
@@ -102,6 +116,9 @@ export async function GET(req: NextRequest) {
     }).catch(err => console.error('Welcome email error:', err))
   }
 
+  if (safeCallbackUrl) {
+    return NextResponse.redirect(`${baseUrl}/business/login?verified=true&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`)
+  }
   return NextResponse.redirect(`${baseUrl}/login?verified=true&callbackUrl=/portal/dashboard`)
 }
 

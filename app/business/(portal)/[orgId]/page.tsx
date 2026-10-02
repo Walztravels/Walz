@@ -35,7 +35,7 @@ function rank(role: string) {
 
 export default async function BusinessOrganizationPage({ params }: { params: { orgId: string } }) {
   const session = await getServerSession(authOptions)
-  if (!session?.user?.id) redirect(`/login?callbackUrl=/business/${params.orgId}`)
+  if (!session?.user?.id) redirect(`/business/login?callbackUrl=/business/${params.orgId}`)
 
   const access = await assertOrgScopedAccess(session.user.id, params.orgId)
   // Fail closed exactly like the API routes — a non-member sees the generic

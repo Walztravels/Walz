@@ -5,6 +5,7 @@ import prisma from '@/lib/db'
 import { Resend } from '@/lib/resend-hardened'
 import { signupRateLimit } from '@/lib/rate-limit'
 import { trackCommercialEvent } from '@/lib/commercial/track'
+import { isSafeLocalPath } from '@/lib/safe-redirect'
 
 const FROM  = 'Walz Travels <noreply@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
@@ -84,6 +85,22 @@ export async function POST(req: NextRequest) {
     // Referral code — may arrive as query param (?ref=) or request body field
     const ref: string | null =
       req.nextUrl?.searchParams?.get('ref') ?? body?.ref ?? null
+
+    // Walz Business (V1-A) — OPTIONAL, additive field. When the Business
+    // registration form (app/business/register/BusinessRegisterForm.tsx)
+    // sends a callbackUrl, it is threaded onto the verification email link
+    // below so the whole invitation -> register -> verify -> sign-in
+    // journey survives (see app/api/auth/verify-email/route.ts). Restricted
+    // to a safe, same-origin, /business-prefixed path — never trusted as an
+    // arbitrary redirect target. Absent or invalid for every other caller
+    // (including the unchanged consumer app/login/LoginForm.tsx signup
+    // flow, which never sends this field), so existing behaviour here is
+    // completely unaffected.
+    const rawCallbackUrl: unknown = body?.callbackUrl
+    const safeCallbackUrl =
+      typeof rawCallbackUrl === 'string' && isSafeLocalPath(rawCallbackUrl) && rawCallbackUrl.startsWith('/business')
+        ? rawCallbackUrl
+        : null
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
@@ -194,7 +211,9 @@ export async function POST(req: NextRequest) {
     } catch { /* non-fatal — don't block signup */ }
 
     const baseUrl    = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
-    const verifyUrl  = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`
+    const verifyUrl  = safeCallbackUrl
+      ? `${baseUrl}/api/auth/verify-email?token=${verificationToken}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
+      : `${baseUrl}/api/auth/verify-email?token=${verificationToken}`
 
     // ── Verification email ──────────────────────────────────────────────────
     if (resend) {

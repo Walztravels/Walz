@@ -17,10 +17,15 @@ const CurrencyConverter = dynamic(
 export function PublicShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? ''
   const isAdmin    = pathname.startsWith('/admin')
+  const isBusiness = pathname.startsWith('/business')
   const isForm     = ['/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/'].some(p => pathname.startsWith(p))
   const isHiveSlug = pathname.startsWith('/plan/group-hive/') || pathname.startsWith('/group-visa/hive/')
 
-  if (isAdmin || isForm) return <>{children}</>
+  // Walz Business (V1-A): the entire /business/** tree renders its own
+  // dedicated shell (see components/business/BusinessShell.tsx and
+  // app/business/(portal)/layout.tsx) — it must never receive the consumer
+  // Navbar/Footer/CurrencyConverter/ExitIntentPopup, exactly like /admin.
+  if (isAdmin || isBusiness || isForm) return <>{children}</>
 
   if (isHiveSlug) {
     return (
