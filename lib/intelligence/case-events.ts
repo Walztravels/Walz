@@ -23,18 +23,20 @@ export type CaseEventType =
   | 'financial_dna_run'
   | 'officer_sim_run'
   | 'readiness_run'
+  | 'refusal_letter_analyzed'
 
 export const CASE_EVENT_LABELS: Record<CaseEventType, string> = {
-  document_uploaded:  'Document uploaded',
-  document_analyzed:  'Document analyzed',
-  evidence_extracted: 'Evidence extracted',
-  cross_check_run:    'Form cross-check run',
-  letter_generated:   'Letter generated',
-  ticket_generated:   'Dummy ticket generated',
-  document_sent:      'Document sent to client',
-  financial_dna_run:  'Financial analysis run',
-  officer_sim_run:    'Officer simulation run',
-  readiness_run:      'Readiness review run',
+  document_uploaded:        'Document uploaded',
+  document_analyzed:        'Document analyzed',
+  evidence_extracted:       'Evidence extracted',
+  cross_check_run:          'Form cross-check run',
+  letter_generated:         'Letter generated',
+  ticket_generated:         'Dummy ticket generated',
+  document_sent:            'Document sent to client',
+  financial_dna_run:        'Financial analysis run',
+  officer_sim_run:          'Officer simulation run',
+  readiness_run:            'Readiness review run',
+  refusal_letter_analyzed:  'Refusal letter analyzed',
 }
 
 export async function recordCaseEvent(opts: {
