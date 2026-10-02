@@ -113,3 +113,18 @@ export function whatsappOtpSendRateLimit(ip: string): RateLimitResult {
 export function whatsappOtpVerifyRateLimit(ip: string): RateLimitResult {
   return rateLimit({ key: `whatsapp-otp-verify:${ip}`, limit: 20, windowMs: 10 * 60 * 1000 })
 }
+
+// Walz Business (V1-C Phase 2, Slice A) — public, token-gated visa-link
+// recipient preview (GET /api/business/link/[token]/preview). IMPORTANT:
+// this is a PER-INSTANCE, IN-MEMORY limiter only (the same `store` Map as
+// every other limiter in this file) — it is NOT a distributed/enforced
+// rate limit across multiple server instances or behind a CDN/edge
+// network, and it provides no guarantee under horizontal scaling. The
+// primary defence against token guessing is the 256-bit token space
+// itself (see lib/business/service-link-token.ts) — this limiter is
+// defense-in-depth, not the control that makes the endpoint safe. Sized
+// generously enough that a real recipient reloading the page a few times
+// on a slow connection is never blocked.
+export function visaLinkPreviewRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `visa-link-preview:${ip}`, limit: 30, windowMs: 10 * 60 * 1000 })
+}
