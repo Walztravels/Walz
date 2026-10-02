@@ -88,7 +88,7 @@ export default function AdminBusinessPage() {
     <div className="p-6 max-w-[960px] mx-auto">
       <h1 className="text-white text-xl font-bold mb-1">Walz Business — Organizations</h1>
       <p className="text-white/50 text-sm mb-6">
-        Release 1: create and view organizations. Staff is the only path to create one — no self-service signup.
+        Create and manage Corporate, Travel Agency, and Referral Partner organizations. Organizations are created by authorized Walz staff and onboarded through secure invitations.
       </p>
 
       {error && (
