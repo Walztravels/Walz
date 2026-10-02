@@ -412,15 +412,67 @@ describe('persistence degrades gracefully before the proposed migration is appli
 // ── No new DB relationship introduced ─────────────────────────────────────────
 
 describe('no new Prisma model/FK/relationship was introduced', () => {
-  it('prisma/schema.prisma has zero diff-relevant additions for this feature', () => {
+  // UPDATED per the approved persistence decision: three plain, additive,
+  // nullable fields were added directly ON the EXISTING VisaApplication
+  // model (no new model, no new relation, no @@map/@map added anywhere —
+  // see prisma/schema.prisma and prisma/migrations/
+  // visa_refusal_letter_analyzer_v1.sql). This test now asserts THAT
+  // shape specifically, rather than asserting no schema change at all.
+  it('prisma/schema.prisma adds the three persistence fields directly on VisaApplication — no new model, no @map/@@map', () => {
     const schema = read('prisma/schema.prisma')
     expect(schema).not.toContain('model RefusalLetter')
-    expect(schema).not.toMatch(/refusalLetter\w*\s+Json/i)
+    expect(schema).toMatch(/refusalLetterAnalysis\s+Json\?/)
+    expect(schema).toMatch(/refusalLetterAnalyzedAt\s+DateTime\?/)
+    expect(schema).toMatch(/refusalLetterUploadedBy\s+String\?/)
+    // These three fields must sit inside the VisaApplication model body,
+    // before its closing brace, not in some unrelated model.
+    const modelMatch = schema.match(/model VisaApplication \{[\s\S]*?\n\}/)
+    expect(modelMatch).not.toBeNull()
+    const modelBody = modelMatch![0]
+    expect(modelBody).toContain('refusalLetterAnalysis')
+    expect(modelBody).toContain('refusalLetterAnalyzedAt')
+    expect(modelBody).toContain('refusalLetterUploadedBy')
+    // No @map/@@map DIRECTIVE was added anywhere in this model (matches its
+    // existing, pre-feature no-map convention — Prisma default-maps to the
+    // quoted literal "VisaApplication" table / quoted camelCase columns).
+    // Checked on non-comment lines only, since this model's own code
+    // comments legitimately discuss "@map" in prose (explaining its ABSENCE).
+    const nonCommentLines = modelBody.split('\n').filter(l => !l.trim().startsWith('//'))
+    for (const line of nonCommentLines) {
+      expect(line).not.toMatch(/@map\(/)
+      expect(line).not.toMatch(/@@map\(/)
+    }
+    // No new relation field (e.g. `refusalLetterAnalyses RefusalLetter[]`)
+    // was introduced for these three fields.
+    expect(modelBody).not.toMatch(/refusalLetter\w*\s+RefusalLetter/i)
   })
 
   it('persistence uses raw SQL against the EXISTING VisaApplication table only — no new table name appears', () => {
     const lib = read('lib/analyzeRefusalLetter.ts')
     expect(lib).toContain('UPDATE "VisaApplication"')
     expect(lib).not.toMatch(/CREATE TABLE/i)
+  })
+
+  it('the hand-written migration is additive/nullable-only, idempotent, and touches only VisaApplication', () => {
+    const migration = read('prisma/migrations/visa_refusal_letter_analyzer_v1.sql')
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "refusalLetterAnalysis" jsonb')
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "refusalLetterAnalyzedAt" timestamptz')
+    expect(migration).toContain('ADD COLUMN IF NOT EXISTS "refusalLetterUploadedBy" text')
+    // "NOT NULL" / "UPDATE" / "CREATE TABLE" / "DROP ..." are only ever
+    // discussed in this file's prose comments (e.g. explaining there is NO
+    // NOT NULL constraint, NO UPDATE, and documenting a commented-out
+    // rollback) — never as live, executable DDL. Checked on non-comment
+    // lines only.
+    const nonCommentLines = migration.split('\n').filter(l => !l.trim().startsWith('--'))
+    const liveSql = nonCommentLines.join('\n')
+    // No column-level NOT NULL constraint is added by any ADD COLUMN
+    // statement (a validation query's own `IS NOT NULL` WHERE-clause check,
+    // expecting zero rows pre-backfill, is legitimate and unrelated).
+    expect(liveSql).not.toMatch(/ADD COLUMN IF NOT EXISTS "[^"]+"\s+\w+\s+NOT NULL/i)
+    expect(liveSql).not.toMatch(/^\s*UPDATE\s+"?VisaApplication"?/im)
+    expect(liveSql).not.toMatch(/CREATE TABLE/i)
+    expect(liveSql).not.toMatch(/DROP\s+(TABLE|COLUMN)/i)
+    // The rollback note itself exists, inside a comment.
+    expect(migration).toMatch(/--\s*ALTER TABLE "VisaApplication" DROP COLUMN IF EXISTS/)
   })
 })

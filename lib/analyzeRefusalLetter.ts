@@ -389,6 +389,36 @@ async function tryDb<T>(op: () => Promise<T>): Promise<T | null> {
   }
 }
 
+/**
+ * RE-ANALYSIS BEHAVIOR — explicit decision: single-slot, OVERWRITE.
+ *
+ * Re-running the analyzer against the same applicationId REPLACES whatever
+ * was previously stored in "refusalLetterAnalysis" / "refusalLetterAnalyzedAt"
+ * / "refusalLetterUploadedBy" via this plain UPDATE. There is no history
+ * table and no versioning — the most recent analysis is the only one ever
+ * retrievable via getRefusalLetterAnalysis().
+ *
+ * Why: this was chosen as the simpler, safer default per the persistence
+ * task's own instruction. The Bank Statement Analyzer (lib/
+ * analyzeBankStatement.ts), the closest sibling feature, has NO persistence
+ * of its own to follow as precedent — it returns its result for the current
+ * request only and never writes to the database. With no existing
+ * versioning precedent to match, and given this is a staff-only
+ * classification aid that never states a legal conclusion (see the module
+ * header), introducing a new history/versioning scheme would add
+ * complexity without a corresponding safety requirement. Overwrite also
+ * matches staff's actual expectation: "what does the letter look like
+ * NOW, after my most recent read" rather than an audit trail of every
+ * re-run. (The separate, append-only CaseIntelligenceEvent audit log —
+ * lib/intelligence/case-events.ts — already records every analysis run,
+ * including re-runs, with its own timestamp and actor, so the "was this
+ * re-analyzed, by whom, when" history is NOT lost by this column's
+ * overwrite — it just isn't the row that holds the full analysis payload.)
+ *
+ * Proven by __tests__/refusal-letter-analyzer-persistence.test.ts
+ * ("re-analysis overwrites the prior stored analysis (single-slot,
+ * documented decision)").
+ */
 export async function saveRefusalLetterAnalysis(
   applicationId: string,
   analysis: RefusalLetterAnalysis,

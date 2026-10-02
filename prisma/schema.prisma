@@ -344,6 +344,20 @@ model VisaApplication {
   // when present on inbound webhooks so phone-less routing works once adoption grows.
   whatsappBsuid String?
 
+  // ── Visa Refusal Letter Analyzer persistence (additive, nullable only) ──
+  // Plain fields on this EXISTING model — no new model, no new relation,
+  // no @@map/@map added anywhere (this model has none and these follow that
+  // same no-map convention, so Prisma default-maps the table to the quoted
+  // literal "VisaApplication" and each column to its quoted camelCase field
+  // name, e.g. "refusalLetterAnalysis"). Single-slot: a re-analysis
+  // OVERWRITES the prior value (see lib/analyzeRefusalLetter.ts
+  // saveRefusalLetterAnalysis() for the documented rationale). Populated by
+  // app/api/admin/intelligence/refusal-letter/route.ts only; never written
+  // to by any client-facing or Jade surface.
+  refusalLetterAnalysis    Json?
+  refusalLetterAnalyzedAt  DateTime?
+  refusalLetterUploadedBy  String?
+
   user            User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
   notes           VisaApplicationNote[]
   tokens          VisaApplicationToken[]
