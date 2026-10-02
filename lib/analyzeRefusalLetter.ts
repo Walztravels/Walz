@@ -187,9 +187,83 @@ const FORBIDDEN_CLAIM_PATTERNS: RegExp[] = [
   /(approval|refusal)\s+is\s+guaranteed/i,
 ]
 
+// ── Evidence-fabrication / document-manipulation concept scan ────────────
+//
+// buildSystemPrompt()'s own named prohibitions are: "manufactured
+// transaction history", "temporarily borrowed balances presented as owned
+// funds", "altered statements", "fabricated employment/business evidence",
+// and "manipulating account activity to appear seasoned" (see the
+// ABSOLUTE RULES block below). A PRIOR fix attempt covered these with
+// literal, phrase-anchored regexes (e.g. `alter(ed|ing)? (the )?(bank
+// )?statements?`) — a fresh reviewer found that trivially bypassed by
+// rewording (e.g. "submit a MODIFIED version of your bank statement" never
+// contains the word "alter" at all). This version instead scans for
+// CONCEPT CO-OCCURRENCE: a manipulation-type verb/stem from one synonym
+// set appearing within a bounded proximity window of a
+// financial/documentary-evidence target from a second synonym set. Both
+// sets are stems/synonym families, not exact phrases, so a realistic
+// paraphrase of the same underlying instruction still fires. Requiring
+// BOTH an action concept AND a target concept to co-occur (except
+// "backdate", which is specific enough on its own) is what keeps
+// genuinely benign content — "provide bank statements", "obtain an
+// employer letter", "submit tax returns" — from ever matching: those
+// contain a target noun but no manipulation verb/stem at all.
+//
+// This is deliberately broader than any one named example above: it is
+// built from synonym FAMILIES (alter/modify/edit/doctor/tamper/retouch/
+// photoshop; fabricate/manufacture/forge/invent/fake/concoct/"make up";
+// borrow/lend/loan/wire/"transfer in"/"ask a relative to..."; inflate/pad/
+// boost/"show a higher balance"/"make it look like"/"present as own";
+// backdate/pre-date/post-date) rather than literal phrases lifted from the
+// prompt, so it generalizes to wording nobody has written yet, not just
+// the exact test strings below.
+
+function proximityPattern(a: string, b: string, maxChars = 100): RegExp {
+  return new RegExp(`(?:${a})[\\s\\S]{0,${maxChars}}(?:${b})|(?:${b})[\\s\\S]{0,${maxChars}}(?:${a})`, 'i')
+}
+
+// Verbs/stems describing changing an existing genuine document/record.
+const ALTER_CONCEPT =
+  '(?:alter(?:ed|ing|s)?|modif(?:y|ied|ying|ies)|edit(?:ed|ing|s)?|doctor(?:ed|ing)?|tamper(?:ed|ing|s)?|falsif(?:y|ied|ying|ies)|retouch(?:ed|ing)?|touch[- ]?up(?:ped|ping)?|photoshop(?:ped|ping)?|rewr(?:ite|ote|itten|iting)|white[- ]?out)'
+
+// Verbs/stems describing creating evidence/history that never happened.
+const FABRICATE_CONCEPT =
+  '(?:fabricat(?:e|ed|ing|es)|manufactur(?:e|ed|ing|es)|generat(?:e|ed|ing|es)\\s+(?:a\\s+|fake\\s+)?(?:payments?|transactions?|deposits?|history)|forg(?:e|ed|ing|es)|invent(?:ed|ing|s)?|concoct(?:ed|ing|s)?|fake(?:d|ing)?|made[- ]up|make[- ]up|cook(?:ed|ing)?[- ]up|creat(?:e|ed|ing)\\s+(?:a\\s+)?false|never\\s+(?:actually\\s+|really\\s+)?happened)'
+
+// Backdating/false-dating is specific and rare enough to flag standalone.
+const BACKDATE_CONCEPT =
+  '(?:backdat(?:e|ed|ing|es)|pre[- ]?dat(?:e|ed|ing|es)\\s|post[- ]?dat(?:e|ed|ing|es)|falsify\\s+the\\s+date|change\\s+the\\s+date\\s+on)'
+
+// Moving/receiving money specifically to inflate what an account shows.
+const BORROW_CONCEPT =
+  '(?:borrow(?:ed|ing|s)?|lend(?:ing)?|lent|loan(?:ed|ing)?|wir(?:e|ed|ing)\\s+(?:money|funds|cash)|transfer(?:red|ring)?\\s+(?:money|funds|cash)\\s+in(?:to)?|send(?:ing)?\\s+(?:money|funds|cash)\\s+(?:in(?:to)?|to)\\s+(?:your|my|the)\\s+account|deposit(?:ed|ing)?\\s+temporarily|put(?:ting)?\\s+money\\s+in|slip(?:ped|ping)?\\s+(?:money|funds|cash)\\s+in|top(?:ped|ping)?\\s+up|fund(?:ed|ing)?\\s+(?:it\\s+)?(?:temporarily|short[- ]term|briefly)|ask(?:ed|ing)?\\s+(?:a|your)\\s+(?:relative|friend|family\\s+member|cousin|parent|colleague)\\s+to\\s+(?:transfer|send|wire|deposit|put|lend|loan))'
+
+// Making a balance/history look bigger, older or more "owned" than it is.
+const INFLATE_CONCEPT =
+  '(?:inflat(?:e|ed|ing|es)|pad(?:ded|ding)?|boost(?:ed|ing)?|bump(?:ed|ing)?\\s+up|top[- ]?up|show(?:ing)?\\s+a\\s+higher\\s+balance|higher\\s+balance\\s+than|balance\\s+(?:look|looks|looking|appear|appears|appearing)\\s+higher|look(?:s|ing)?\\s+higher|make\\s+it\\s+look|made\\s+it\\s+look|look(?:s|ing)?\\s+(?:like\\s+)?(?:it\\s+(?:has|is)\\s+)?(?:been\\s+there|legitimate|genuine|established|seasoned)|present(?:ed|ing)?\\s+(?:it\\s+)?as\\s+(?:your\\s+)?own|pass(?:ed|ing)?\\s+(?:it\\s+)?off\\s+as\\s+(?:your\\s+)?own|claim(?:ed|ing)?\\s+(?:it\\s+)?as\\s+(?:your\\s+)?own|represent(?:ed|ing)?\\s+(?:it\\s+)?as\\s+(?:your\\s+)?own|appear(?:s|ing)?\\s+(?:to\\s+be\\s+)?(?:your\\s+)?own|genuinely\\s+(?:available|owned|yours)|as\\s+(?:if\\s+it\\s+were\\s+)?(?:your\\s+)?own\\s+(?:funds|money))'
+
+// Target nouns: the financial/documentary evidence being manipulated.
+const FINANCIAL_DOC_NOUN =
+  '(?:bank\\s+statements?|transactions?(?:\\s+history)?|balances?|funds|bank\\s+account|account\\s+activity|financial\\s+(?:history|evidence|records?)|source[- ]of[- ]funds|pay\\s*slips?|payslips?|employment\\s+(?:letter|evidence|history)|business\\s+evidence|documents?|evidence|records?|statements?|figures?|numbers?)'
+
+// "manipulate ... to appear seasoned" style guidance targets an account's
+// activity/history specifically, not a generic document.
+const ACCOUNT_SEASONING_TARGET =
+  '(?:account\\s+activity|transactions?|appear(?:ing)?\\s+(?:more\\s+)?seasoned|look(?:s|ing)?\\s+(?:more\\s+)?seasoned|seasoned\\s+(?:account|funds|balance))'
+const MANIPULATE_CONCEPT = '(?:manipulat(?:e|ed|ing|es))'
+
+const FORBIDDEN_CONTENT_CONCEPT_PATTERNS: RegExp[] = [
+  proximityPattern(ALTER_CONCEPT, FINANCIAL_DOC_NOUN, 90),
+  proximityPattern(FABRICATE_CONCEPT, FINANCIAL_DOC_NOUN, 90),
+  new RegExp(BACKDATE_CONCEPT, 'i'),
+  proximityPattern(BORROW_CONCEPT, INFLATE_CONCEPT, 150),
+  proximityPattern(MANIPULATE_CONCEPT, ACCOUNT_SEASONING_TARGET, 90),
+]
+
 export function containsForbiddenClaim(text: string): boolean {
   if (!text) return false
-  return FORBIDDEN_CLAIM_PATTERNS.some(re => re.test(text))
+  if (FORBIDDEN_CLAIM_PATTERNS.some(re => re.test(text))) return true
+  return FORBIDDEN_CONTENT_CONCEPT_PATTERNS.some(re => re.test(text))
 }
 
 // ─── Evidence integrity — quote verification against extracted source text ──
@@ -275,10 +349,42 @@ export function enforceHardInvariants(opts: {
     warnings.push('A forbidden legal-conclusion pattern was detected; downgraded to REQUIRES_HUMAN_REVIEW regardless of the model\'s own classification.')
   }
 
+  // 3b. Checklist-content scan — step 3 above only ever looked at
+  //     summary/staffFacingDisclaimer/officerConcerns; it never looked at
+  //     the checklist's own "item"/"reason" text, which is exactly where a
+  //     Category A (DOCUMENTATION_OR_ELIGIBILITY) result could preserve
+  //     unsafe guidance by placing it inside checklist content instead of
+  //     the narrative fields. Reuses containsForbiddenClaim() — the SAME
+  //     code-level predicate used above, now extended with the
+  //     paraphrase-resistant concept scan (see its own comment) — rather
+  //     than building a second, parallel scanning system.
+  //
+  //     DECISION: on any match, the WHOLE checklist for this analysis is
+  //     discarded, never just the offending item. This matches this
+  //     module's existing all-or-nothing posture for the hard invariant in
+  //     step 4 below (a MISREPRESENTATION_OR_FRAUD / REQUIRES_HUMAN_REVIEW
+  //     classification empties the ENTIRE checklist, never a per-item
+  //     filter). Stripping only the flagged item would leave staff unable
+  //     to tell whether the remaining items were ever vetted at all; an
+  //     all-or-nothing wipe is the safer, consistent default. This is an
+  //     ADDITIONAL check that applies to Category A content specifically —
+  //     it does not touch, weaken, or replace the unconditional
+  //     classification-based wipe in step 4, which still runs independently
+  //     (and after this one) regardless of what this scan finds.
+  let checklist: ChecklistItem[] = opts.parsed.checklist
+  const sawForbiddenChecklistContent = checklist.some(
+    c => containsForbiddenClaim(c.item) || containsForbiddenClaim(c.reason),
+  )
+  if (sawForbiddenChecklistContent) {
+    warnings.push('Forbidden fabrication/document-manipulation guidance detected in checklist content; the entire checklist was discarded for this analysis.')
+    checklist = []
+  }
+
   // 4. HARD OUTPUT INVARIANT — unconditional, overwrites whatever the
   //    model generated. No UI code path renders a checklist for these two
   //    classifications (enforced separately in the admin component too).
-  let checklist: ChecklistItem[] = opts.parsed.checklist
+  //    Runs independently of, and after, the step 3b scan above — never
+  //    weakened or bypassed by it.
   if (classification === 'MISREPRESENTATION_OR_FRAUD' || classification === 'REQUIRES_HUMAN_REVIEW') {
     checklist = []
   }
@@ -381,10 +487,109 @@ export function parseModelResponse(raw: string): RefusalLetterAnalysisRaw | null
 // starts persisting automatically the moment the proposed migration (see
 // release report) is applied — same convention as document-store.ts. ──
 
+// ── tryDb() graceful-degradation scope — narrowed to genuine
+// "schema not migrated yet" failures ONLY ────────────────────────────────
+//
+// The ONLY two conditions this module ever treats as "the migration
+// hasn't run yet, keep working with zero persistence" are the Postgres
+// SQLSTATEs for "the referenced schema object genuinely does not exist":
+//   42703 = undefined_column, 42P01 = undefined_table/relation.
+// Every other error — permission denied (42501), ambiguous column
+// (42702), syntax errors, authentication/connection failures, constraint
+// violations, or anything else — PROPAGATES. The previous
+// `/does not exist|column|relation/i` regex was far too broad: it matched
+// the bare words "column"/"relation" anywhere in a message, so it also
+// silently swallowed things like `permission denied for relation
+// "VisaApplication"` and `column reference "id" is ambiguous` — both
+// genuinely unrelated to "not migrated yet", and both real production
+// failures that must be surfaced, not hidden as "persistence isn't live
+// yet".
+const SCHEMA_NOT_MIGRATED_SQLSTATES = new Set(['42703', '42P01'])
+
+/**
+ * Extract the underlying Postgres SQLSTATE from an error thrown by a
+ * Prisma raw-SQL call ($executeRaw/$queryRaw), if one is available.
+ *
+ * Verified empirically in this worktree against the installed
+ * @prisma/client (package.json pins ^5.19.0; node_modules has 5.22.0
+ * installed): constructing
+ *   new Prisma.PrismaClientKnownRequestError(msg, { code: 'P2010',
+ *     clientVersion, meta: { code: '<sqlstate>', message } })
+ * and inspecting the result confirms a raw-SQL failure is a
+ * `PrismaClientKnownRequestError` whose own `.code` is always the fixed
+ * string `'P2010'` ("Raw query failed") — NOT the SQLSTATE — and the real
+ * driver/Postgres error code lives on `.meta.code`. Only `.code === 'P2010'`
+ * is treated as "this is a raw-query failure with a nested Postgres code";
+ * any other PrismaClientKnownRequestError code (e.g. P2002 unique
+ * constraint, P2003 FK violation) is a DIFFERENT kind of structured error
+ * and is deliberately NOT given SQLSTATE treatment here, since this module
+ * only ever issues $executeRaw/$queryRaw (see saveRefusalLetterAnalysis /
+ * getRefusalLetterAnalysis above) — a constraint-violation error on this
+ * path would not carry a P2010 shape and will fall through to the
+ * "no structured code" branch and propagate, which is correct: a real
+ * constraint failure must never be treated as "not migrated yet".
+ *
+ * This codebase's one existing precedent for reading a SQLSTATE off an
+ * error (app/api/admin/itineraries/[id]/fulfilment/route.ts, `error.code
+ * === '42P01'`) is against the Supabase/PostgREST client, which surfaces
+ * the SQLSTATE directly on `.code` instead of nesting it under `.meta`;
+ * that bare-top-level shape is also accepted here defensively in case this
+ * module is ever pointed at a similarly-shaped client/driver error, but
+ * the primary, verified path for THIS module's actual Prisma calls is the
+ * P2010/meta.code shape above.
+ *
+ * Returns null when no structured code is available at all (unexpected
+ * error shape), in which case the caller falls back to narrow, anchored
+ * text matching rather than trusting an unverifiable structure.
+ */
+function getPostgresErrorCode(e: unknown): string | null {
+  if (!e || typeof e !== 'object') return null
+  const anyErr = e as { code?: unknown; meta?: { code?: unknown } }
+  if (anyErr.code === 'P2010' && anyErr.meta && typeof anyErr.meta.code === 'string') {
+    return anyErr.meta.code
+  }
+  if (typeof anyErr.code === 'string' && /^[0-9A-Z]{5}$/.test(anyErr.code)) {
+    return anyErr.code
+  }
+  return null
+}
+
+/**
+ * Text-only fallback — used ONLY when no structured error code could be
+ * read at all (e.g. a plain `Error` was thrown, as every pre-existing test
+ * in this suite's mocks does). Deliberately narrower than the old
+ * `/does not exist|column|relation/i` regex: it requires an actual "does
+ * not exist" condition anchored to a named schema-object word
+ * (column/relation/table), so it no longer matches unrelated errors that
+ * merely mention those words in passing — e.g. `permission denied for
+ * relation "VisaApplication"` or `column reference "id" is ambiguous`
+ * never match this, and correctly propagate instead.
+ */
+function isSchemaNotMigratedTextFallback(message: string): boolean {
+  return /(column|relation|table)\b[^.]{0,80}\bdoes not exist\b/i.test(message)
+    || /\bdoes not exist\b[^.]{0,80}\b(column|relation|table)\b/i.test(message)
+}
+
 async function tryDb<T>(op: () => Promise<T>): Promise<T | null> {
-  try { return await op() } catch (e) {
+  try {
+    return await op()
+  } catch (e) {
+    const sqlState = getPostgresErrorCode(e)
+    if (sqlState) {
+      // A structured Postgres error code is available — trust it
+      // completely. Only the two genuine "not migrated yet" codes
+      // degrade; every other code (permission denied, ambiguous column,
+      // syntax error, constraint violation, etc.) propagates as a real
+      // failure.
+      if (SCHEMA_NOT_MIGRATED_SQLSTATES.has(sqlState)) return null
+      throw e
+    }
+    // No structured code available at all — narrow, anchored text
+    // fallback only. Anything that doesn't match this anchored pattern
+    // (including connection/auth failures, which rarely mention
+    // "does not exist" at all) propagates.
     const msg = e instanceof Error ? e.message : ''
-    if (/does not exist|column|relation/i.test(msg)) return null
+    if (isSchemaNotMigratedTextFallback(msg)) return null
     throw e
   }
 }

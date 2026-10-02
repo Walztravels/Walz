@@ -18,14 +18,31 @@ jest.mock('@/lib/db', () => ({
 }))
 
 import prisma from '@/lib/db'
+import { Prisma } from '@prisma/client'
 import {
   ClassificationEnum, RefusalLetterAnalysisSchema, parseModelResponse,
   enforceHardInvariants, verifyQuoteAgainstSource, containsForbiddenClaim,
   resolveJurisdiction, isVerifiedIso2, buildFallbackAnalysis,
   CATEGORY_A_DISCLAIMER, CATEGORY_B_LEGAL_NOTICE, VERIFIED_JURISDICTIONS,
-  saveRefusalLetterAnalysis, buildSystemPrompt, buildUserPrompt,
+  saveRefusalLetterAnalysis, getRefusalLetterAnalysis, buildSystemPrompt, buildUserPrompt,
   type RefusalLetterAnalysisRaw,
 } from '@/lib/analyzeRefusalLetter'
+
+/**
+ * Construct a genuine PrismaClientKnownRequestError exactly the shape a
+ * real $executeRaw/$queryRaw failure takes — verified empirically in this
+ * worktree against the installed @prisma/client (package.json pins
+ * ^5.19.0; 5.22.0 is what's actually installed) by constructing this exact
+ * error class and inspecting `.code`/`.meta.code`. A raw-SQL failure is
+ * always `.code === 'P2010'` ("Raw query failed") with the real Postgres
+ * SQLSTATE nested on `.meta.code` — never the SQLSTATE directly on `.code`.
+ */
+function pgRawQueryError(sqlState: string, message: string): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(
+    `Raw query failed. Code: \`${sqlState}\`. Message: \`${message}\``,
+    { code: 'P2010', clientVersion: '5.22.0', meta: { code: sqlState, message } },
+  )
+}
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 
@@ -394,6 +411,108 @@ describe('Category A disclaimer is always attached to a non-empty DOCUMENTATION_
   })
 })
 
+// ── FIX 2 (MEDIUM) — checklist forbidden-content scan, paraphrase-resistant ──
+//
+// A prior fix attempt covered this with literal, phrase-anchored regexes
+// and a fresh reviewer bypassed it with 3 realistic paraphrases (listed
+// below, reproduced verbatim as required by the remediation task) with
+// zero false positives on the benign side. This version uses CONCEPT
+// CO-OCCURRENCE (synonym families + proximity), not literal phrases — the
+// tests below prove it catches the 3 bypasses PLUS fresh paraphrases of
+// each of the 5 named categories, while a solid benign set never triggers.
+
+function categoryAWithChecklistItem(item: string, reason = 'addresses the officer concern'): RefusalLetterAnalysisRaw {
+  return baseParsed({
+    classification: 'DOCUMENTATION_OR_ELIGIBILITY',
+    checklist: [{ item, reason }],
+  })
+}
+
+function runInvariants(parsed: RefusalLetterAnalysisRaw) {
+  return enforceHardInvariants({
+    parsed, extractedText: 'irrelevant', jurisdictionStatus: 'VERIFIED',
+    jurisdictionLabel: 'United Kingdom', jurisdictionIso2: 'GB', analysisEngine: 'test',
+  })
+}
+
+describe('FIX 2: checklist content is scanned for forbidden fabrication/manipulation guidance', () => {
+  // The exact 3 phrasings that bypassed the PRIOR fix attempt's narrower,
+  // phrase-anchored regexes — this fix must catch all of them.
+  describe('the 3 adversarial phrasings that bypassed the prior (superseded) fix attempt', () => {
+    const priorBypasses = [
+      'Show a higher balance than you actually have by borrowing money right before the interview',
+      'Ask a relative to transfer funds into your account temporarily to pad your statement',
+      'Submit a modified version of your real bank statement with a larger number',
+    ]
+    it.each(priorBypasses)('checklist item "%s" is detected and the whole checklist is discarded', (item) => {
+      const result = runInvariants(categoryAWithChecklistItem(item))
+      expect(result.checklist).toEqual([])
+      expect(result.categoryADisclaimer).toBeNull()
+      expect(result.warnings.some(w => /forbidden fabrication\/document-manipulation guidance/i.test(w))).toBe(true)
+    })
+
+    it('also fires when the forbidden content is in the "reason" field instead of "item"', () => {
+      const result = runInvariants(categoryAWithChecklistItem(
+        'Provide a bank statement for the last 6 months',
+        'Show a higher balance than you actually have by borrowing money right before the interview',
+      ))
+      expect(result.checklist).toEqual([])
+    })
+  })
+
+  // Fresh paraphrases, in this report's own words, covering each of the 5
+  // named categories from the remediation task — none copied from any
+  // existing test or from buildSystemPrompt()'s own wording.
+  describe('fresh paraphrases covering each of the 5 named forbidden categories', () => {
+    const freshParaphrases: Array<[string, string]> = [
+      ['fabricating bank history', 'Invent a series of deposits that never actually occurred and list them as your transaction history'],
+      ['altering statements/documents', 'Touch up your pay slip in an editor so the numbers look better before you submit it'],
+      ['manufacturing transaction history', 'Generate a run of payments into the account that never really happened and present it as your transaction history'],
+      ['presenting borrowed funds as genuinely owned (temporary borrowing to pad a balance)', 'Get a friend to wire cash into your account a week before the appointment so it looks like it has been there all along'],
+      ['presenting borrowed funds as genuinely owned (third-party funds to inflate)', "Have your uncle send money into your account temporarily so your balance looks higher for the interview"],
+      ['fabricated source-of-funds evidence', 'Make up a fake business to explain where the money came from for your source of funds declaration'],
+      ['other document/evidence manipulation (account activity manipulation)', "Deliberately manipulate the account's transaction activity over several months so it appears more seasoned than it really is"],
+      ['other document/evidence manipulation (backdating)', 'Backdate the employment letter so it looks like you started the job earlier than you actually did'],
+    ]
+    it.each(freshParaphrases)('%s: "%s" is detected', (_label, item) => {
+      const result = runInvariants(categoryAWithChecklistItem(item))
+      expect(result.checklist).toEqual([])
+    })
+  })
+
+  // Solid false-positive set — genuinely benign, realistic Category A
+  // checklist content that must NEVER trigger the new scan.
+  describe('benign Category A checklist content never triggers the scan', () => {
+    const benignItems: Array<[string, string]> = [
+      ['Provide six months of personal bank statements showing consistent income deposits', 'demonstrates ongoing financial stability'],
+      ['Obtain a letter from your employer confirming your position, salary, and length of employment', 'addresses the eligibility concern about income verification'],
+      ['Submit certified translations of your academic transcripts', 'the officer noted the submitted documents were not translated'],
+      ['Request an updated bank reference letter directly from your bank confirming the source of your savings', 'shows the funds are traceable and genuinely yours'],
+      ['Provide a detailed cover letter explaining the purpose and planned dates of your trip', 'clarifies the eligibility criteria the officer found unclear'],
+    ]
+    it.each(benignItems)('%s', (item, reason) => {
+      const result = runInvariants(categoryAWithChecklistItem(item, reason))
+      expect(result.checklist).toEqual([{ item, reason }])
+      expect(result.categoryADisclaimer).toBe(CATEGORY_A_DISCLAIMER)
+    })
+  })
+
+  it('does NOT weaken or bypass the existing unconditional Category B / REQUIRES_HUMAN_REVIEW checklist-empty invariant — it still applies even with a perfectly benign checklist', () => {
+    const parsed = baseParsed({
+      classification: 'MISREPRESENTATION_OR_FRAUD',
+      checklist: [{ item: 'Provide six months of bank statements', reason: 'benign content, irrelevant to this invariant' }],
+    })
+    const result = runInvariants(parsed)
+    expect(result.checklist).toEqual([])
+    expect(result.staffFacingDisclaimer).toBe(CATEGORY_B_LEGAL_NOTICE)
+  })
+
+  it('containsForbiddenClaim() itself is extended — directly proving the shared predicate, not a parallel mechanism, is what changed', () => {
+    expect(containsForbiddenClaim('Show a higher balance than you actually have by borrowing money right before the interview')).toBe(true)
+    expect(containsForbiddenClaim('Provide six months of bank statements')).toBe(false)
+  })
+})
+
 // ── Persistence — graceful pre-migration degradation (no new relationship) ───
 
 describe('persistence degrades gracefully before the proposed migration is applied', () => {
@@ -406,6 +525,119 @@ describe('persistence degrades gracefully before the proposed migration is appli
   it('an unrelated DB error is NOT swallowed (only the pre-migration shape is tolerated)', async () => {
     ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(new Error('connection terminated unexpectedly'))
     await expect(saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com')).rejects.toThrow('connection terminated')
+  })
+})
+
+// ── FIX 1 (HIGH) — tryDb() narrowed to genuine SQLSTATE 42703/42P01 ─────────
+//
+// Adversarial coverage required by the remediation task: a genuine
+// undefined-column/undefined-table failure degrades gracefully (both via a
+// real structured PrismaClientKnownRequestError AND via the no-structured-
+// code text fallback), while every other realistic DB failure — permission
+// denied, ambiguous column, syntax error, connection/auth failure,
+// constraint violation — propagates and is NEVER confused with "not
+// migrated yet".
+
+describe('FIX 1: tryDb() — structured Postgres SQLSTATE narrowing', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  it('genuine undefined-column error (SQLSTATE 42703, structured) gracefully degrades', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      pgRawQueryError('42703', 'column "refusalLetterAnalysis" of relation "VisaApplication" does not exist'),
+    )
+    const ok = await saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com')
+    expect(ok).toBe(false)
+  })
+
+  it('genuine undefined-table/relation error (SQLSTATE 42P01, structured) gracefully degrades', async () => {
+    ;(prisma.$queryRaw as jest.Mock).mockRejectedValueOnce(
+      pgRawQueryError('42P01', 'relation "VisaApplication" does not exist'),
+    )
+    const result = await getRefusalLetterAnalysis('app1')
+    expect(result).toBeNull()
+  })
+
+  it('undefined-column error via TEXT fallback (no structured code) still gracefully degrades', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      new Error('column "refusalLetterAnalysis" of relation "VisaApplication" does not exist'),
+    )
+    await expect(saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com')).resolves.toBe(false)
+  })
+
+  it('undefined-table error via TEXT fallback (no structured code) still gracefully degrades', async () => {
+    ;(prisma.$queryRaw as jest.Mock).mockRejectedValueOnce(
+      new Error('relation "VisaApplication" does not exist'),
+    )
+    await expect(getRefusalLetterAnalysis('app1')).resolves.toBeNull()
+  })
+
+  it('"permission denied for relation" (SQLSTATE 42501, structured) does NOT degrade — it propagates', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      pgRawQueryError('42501', 'permission denied for relation "VisaApplication"'),
+    )
+    await expect(
+      saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com'),
+    ).rejects.toThrow('permission denied')
+  })
+
+  it('"permission denied for relation" with NO structured code (bare Error) also does NOT degrade', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      new Error('permission denied for relation "VisaApplication"'),
+    )
+    await expect(
+      saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com'),
+    ).rejects.toThrow('permission denied')
+  })
+
+  it('"column reference ... is ambiguous" (SQLSTATE 42702, structured) does NOT degrade', async () => {
+    ;(prisma.$queryRaw as jest.Mock).mockRejectedValueOnce(
+      pgRawQueryError('42702', 'column reference "id" is ambiguous'),
+    )
+    await expect(getRefusalLetterAnalysis('app1')).rejects.toThrow('ambiguous')
+  })
+
+  it('"column reference ... is ambiguous" with NO structured code also does NOT degrade (this is the exact text the old broad regex incorrectly swallowed)', async () => {
+    ;(prisma.$queryRaw as jest.Mock).mockRejectedValueOnce(
+      new Error('column reference "id" is ambiguous'),
+    )
+    await expect(getRefusalLetterAnalysis('app1')).rejects.toThrow('ambiguous')
+  })
+
+  it('a SQL syntax error (SQLSTATE 42601) does NOT degrade', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      pgRawQueryError('42601', 'syntax error at or near "SELCT"'),
+    )
+    await expect(
+      saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com'),
+    ).rejects.toThrow('syntax error')
+  })
+
+  it('a connection/auth failure (no SQLSTATE at all — a network-level error) does NOT degrade', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      new Error('password authentication failed for user "walz_app"'),
+    )
+    await expect(
+      saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com'),
+    ).rejects.toThrow('authentication failed')
+  })
+
+  it('a constraint-violation error (SQLSTATE 23505, unique_violation) does NOT degrade', async () => {
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(
+      pgRawQueryError('23505', 'duplicate key value violates unique constraint "VisaApplication_pkey"'),
+    )
+    await expect(
+      saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com'),
+    ).rejects.toThrow('duplicate key')
+  })
+
+  it('an unrelated PrismaClientKnownRequestError code (e.g. P2002, a different kind of structured error than a raw-query P2010) does NOT degrade', async () => {
+    const err = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002', clientVersion: '5.22.0', meta: { target: ['id'] },
+    })
+    ;(prisma.$executeRaw as jest.Mock).mockRejectedValueOnce(err)
+    await expect(
+      saveRefusalLetterAnalysis('app1', buildFallbackAnalysis('x', 'test'), 'staff@walztravels.com'),
+    ).rejects.toThrow('Unique constraint failed')
   })
 })
 
