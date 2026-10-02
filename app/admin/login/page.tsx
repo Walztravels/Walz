@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, Lock, Fingerprint } from 'lucide-react'
 import Image from 'next/image'
+import { safeAdminCallback } from '@/lib/safe-redirect'
 
 export default function AdminLoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const from = searchParams.get('from') ?? '/admin/dashboard'
+  const from = safeAdminCallback(searchParams.get('from')) ?? '/admin/dashboard'
 
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')

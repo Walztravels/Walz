@@ -169,3 +169,28 @@ export function safeBusinessCallback(raw: unknown): string | null {
   }
   return null
 }
+
+// ── CRITICAL FIX (2026-10-02): /admin-scoped callback validation ───────────
+//
+// app/admin/login/page.tsx accepted an unvalidated `?from=` query param and
+// passed it straight to `router.push(from)` at two call sites (password
+// login success, biometric/WebAuthn login success) — a confirmed open
+// redirect (same bug family as the one fixed above for consumer login and
+// Business callbackUrl handling). Admin login additionally needs a narrower
+// guarantee than plain same-origin safety, mirroring `safeBusinessCallback`
+// exactly: the callback must resolve INTO the /admin namespace specifically,
+// and that check must run against the NORMALIZED, parsed pathname — never
+// the raw input string — for the same reason documented above
+// `safeBusinessCallback` (a raw-string prefix check lets a dot-segment
+// payload like `/admin/../../../etc` pass a naive `startsWith('/admin')`
+// test while actually resolving outside `/admin` entirely).
+export function safeAdminCallback(raw: unknown): string | null {
+  // '' can never be a valid safeLocalRedirect() success value (every real
+  // local path begins with '/'), so it's a safe "no value" sentinel here.
+  const normalized = safeLocalRedirect(raw, '')
+  if (!normalized) return null
+  if (normalized === '/admin' || normalized.startsWith('/admin/')) {
+    return normalized
+  }
+  return null
+}
