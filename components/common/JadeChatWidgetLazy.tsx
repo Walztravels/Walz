@@ -19,7 +19,7 @@ export default function JadeChatWidgetLazy() {
   // it. Walz Business (V1-A) is out of scope for any Jade tooling — suppress
   // the global widget on the entire /business/** tree here, independently.
   const pathname = usePathname() ?? ''
-  if (pathname.startsWith('/business')) return null
+  if (pathname === '/business' || pathname.startsWith('/business/')) return null
 
   return <JadeChatWidget />
 }

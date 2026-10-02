@@ -1,4 +1,6 @@
 /**
+ * @jest-environment jsdom
+ *
  * Walz Business V1-A — item 6 of the required test list (ADVERSARIAL):
  * a callbackUrl of `//evil.com` (and at least one other open-redirect-shaped
  * payload) is rejected/neutralized everywhere it is accepted in this
@@ -11,6 +13,23 @@
  * resolve a protocol-relative URL against the current origin), WITHOUT
  * touching or importing LoginForm.tsx itself (that file is explicitly out
  * of scope and must remain byte-for-byte unchanged in this slice).
+ *
+ * CRITICAL UPDATE (2026-10-02): an independent security review found, and
+ * reproduced, that the deny-list style check this file originally tested
+ * against (`startsWith('//')`, `startsWith('/\\')`) did NOT reject embedded
+ * ASCII control characters (TAB `\x09`, LF `\x0A`, CR `\x0D`). Per the
+ * WHATWG URL spec, those are silently stripped during URL parsing, so
+ * `/\t/evil.com` passed the old filter but a browser resolves
+ * `new URL('/\t/evil.com', 'https://www.walztravels.com')` to
+ * `https://evil.com/` — exploitable via BusinessLoginForm.tsx's post-sign-in
+ * `window.location.href = callbackUrl`. `lib/safe-redirect.ts` has since
+ * been rewritten to use robust positive URL-parsing/origin-comparison
+ * validation instead of a growing deny-list (see that file's own doc
+ * comment and `__tests__/safe-redirect.test.ts` for the full pure-function
+ * regression suite). This file is extended below with the additional
+ * adversarial cases and an integration-level test of the actual
+ * BusinessLoginForm post-login redirect, so a future mismatch between the
+ * helper and its caller can't silently reintroduce the bug.
  */
 import { isSafeLocalPath, safeLocalRedirect } from '@/lib/safe-redirect'
 
@@ -104,5 +123,158 @@ describe('Adversarial: the payload is neutralized at every NEW call site in this
     const registerSrc = fs.readFileSync(path.resolve(__dirname, '..', 'app/business/register/BusinessRegisterForm.tsx'), 'utf-8')
     expect(loginSrc).toContain('safeLocalRedirect(')
     expect(registerSrc).toContain('safeLocalRedirect(')
+  })
+})
+
+describe('CRITICAL regression — the exact exploit payload from the finding (/\\t/evil.com)', () => {
+  it('REPRODUCTION: proves the payload genuinely resolves to an external origin via real URL parsing (the finding\'s own repro script)', () => {
+    const payload = '/\t/evil.com'
+    const resolved = new URL(payload, 'https://www.walztravels.com')
+    expect(resolved.href).toBe('https://evil.com/')
+    expect(resolved.hostname).toBe('evil.com')
+  })
+
+  it('isSafeLocalPath now REJECTS /\\t/evil.com (was previously a false-positive "safe" path)', () => {
+    expect(isSafeLocalPath('/\t/evil.com')).toBe(false)
+  })
+
+  it('isSafeLocalPath also rejects the \\n and \\r variants of the same payload shape', () => {
+    expect(isSafeLocalPath('/\n/evil.com')).toBe(false)
+    expect(isSafeLocalPath('/\r/evil.com')).toBe(false)
+  })
+
+  it('safeLocalRedirect falls back to the safe default for the exploit payload', () => {
+    expect(safeLocalRedirect('/\t/evil.com', '/business')).toBe('/business')
+  })
+})
+
+describe('Adversarial — additional bypass shapes required by the hardened review', () => {
+  it('rejects the post-decode form of %09/%0A/%0D as they would arrive via searchParams.get()', () => {
+    const url = new URL('https://www.walztravels.com/business/login?callbackUrl=%2F%09%2Fevil.com')
+    const decoded = url.searchParams.get('callbackUrl')!
+    expect(decoded).toBe('/\t/evil.com')
+    expect(isSafeLocalPath(decoded)).toBe(false)
+  })
+
+  it('handles an encoded-slash variant (/%2F%2Fevil.com) safely as a literal local path, never a host switch', () => {
+    expect(isSafeLocalPath('/%2F%2Fevil.com')).toBe(true)
+    const result = safeLocalRedirect('/%2F%2Fevil.com', '/business')
+    expect(new URL(result, 'https://walztravels.com').hostname).toBe('walztravels.com')
+  })
+
+  it('rejects javascript: and data: payloads explicitly, not just "any non-matching-origin value"', () => {
+    expect(isSafeLocalPath('javascript:alert(1)')).toBe(false)
+    expect(isSafeLocalPath('data:text/html,<script>alert(1)</script>')).toBe(false)
+  })
+
+  it('still accepts every required valid callback shape unchanged', () => {
+    expect(isSafeLocalPath('/business')).toBe(true)
+    expect(isSafeLocalPath('/business/abc123')).toBe(true)
+    expect(isSafeLocalPath('/business/invitations/sometoken')).toBe(true)
+    expect(isSafeLocalPath('/business?x=1')).toBe(true)
+    expect(isSafeLocalPath('/business#section')).toBe(true)
+  })
+})
+
+describe('INTEGRATION: BusinessLoginForm post-login navigation with a malicious callbackUrl query param', () => {
+  it('a malicious ?callbackUrl=/\\t/evil.com on the actual login page results in window.location.href being set to the safe fallback, never the attacker origin', async () => {
+    jest.resetModules()
+    jest.doMock('next-auth/react', () => ({ signIn: jest.fn().mockResolvedValue({ ok: true, error: null }) }))
+    const mockParams = new URLSearchParams()
+    mockParams.set('callbackUrl', '/\t/evil.com')
+    jest.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+      useSearchParams: () => mockParams,
+    }))
+
+    const React = require('react')
+    const { createRoot } = require('react-dom/client')
+    const { act } = React
+    ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+    // jsdom doesn't implement real cross-origin navigation — capture the
+    // assignment BusinessLoginForm performs on success instead.
+    delete (window as any).location
+    ;(window as any).location = { href: '' }
+
+    const BusinessLoginForm = require('@/app/business/login/BusinessLoginForm').default
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => root.render(React.createElement(BusinessLoginForm)))
+
+    const emailInput = container.querySelector('input[type="email"]') as HTMLInputElement
+    const passwordInput = container.querySelector('input[type="password"]') as HTMLInputElement
+    const form = container.querySelector('form') as HTMLFormElement
+
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      nativeInputValueSetter.call(emailInput, 'attacker-target@acme.com')
+      emailInput.dispatchEvent(new Event('input', { bubbles: true }))
+      nativeInputValueSetter.call(passwordInput, 'correct-horse-battery-staple')
+      passwordInput.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // The component must have rejected the malicious callbackUrl and fallen
+    // back to '/business' — NOT navigated anywhere resolving to evil.com.
+    const finalHref = (window as any).location.href
+    expect(finalHref).toBe('/business')
+    expect(new URL(finalHref, 'https://www.walztravels.com').hostname).toBe('www.walztravels.com')
+    expect(finalHref).not.toContain('evil.com')
+
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it('a legitimate ?callbackUrl=/business/org_abc still navigates there exactly as before (no regression on valid callbacks)', async () => {
+    jest.resetModules()
+    jest.doMock('next-auth/react', () => ({ signIn: jest.fn().mockResolvedValue({ ok: true, error: null }) }))
+    const mockParams = new URLSearchParams()
+    mockParams.set('callbackUrl', '/business/org_abc')
+    jest.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+      useSearchParams: () => mockParams,
+    }))
+
+    const React = require('react')
+    const { createRoot } = require('react-dom/client')
+    const { act } = React
+    ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+    delete (window as any).location
+    ;(window as any).location = { href: '' }
+
+    const BusinessLoginForm = require('@/app/business/login/BusinessLoginForm').default
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => root.render(React.createElement(BusinessLoginForm)))
+
+    const emailInput = container.querySelector('input[type="email"]') as HTMLInputElement
+    const passwordInput = container.querySelector('input[type="password"]') as HTMLInputElement
+    const form = container.querySelector('form') as HTMLFormElement
+
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      nativeInputValueSetter.call(emailInput, 'legit@acme.com')
+      emailInput.dispatchEvent(new Event('input', { bubbles: true }))
+      nativeInputValueSetter.call(passwordInput, 'correct-horse-battery-staple')
+      passwordInput.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect((window as any).location.href).toBe('/business/org_abc')
+
+    act(() => root.unmount())
+    container.remove()
   })
 })
