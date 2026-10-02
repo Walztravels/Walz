@@ -178,6 +178,38 @@ describe('persistence: REQUIRES_HUMAN_REVIEW is stored with an EMPTY checklist',
   })
 })
 
+// ── 3b. FIX 2 — a Category A checklist carrying forbidden content cannot
+//      persist that content, at the PERSISTED layer, not just in memory ───
+
+describe('persistence: a Category A checklist containing forbidden fabrication guidance cannot persist it', () => {
+  it('the PERSISTED row has an empty checklist, and the forbidden text itself never reaches storage', async () => {
+    const parsed = baseParsed({
+      classification: 'DOCUMENTATION_OR_ELIGIBILITY',
+      checklist: [
+        { item: 'Show a higher balance than you actually have by borrowing money right before the interview', reason: 'attacker-controlled, placed in an otherwise-Category-A result' },
+      ],
+    })
+    const analysis = enforceHardInvariants({
+      parsed, extractedText: 'irrelevant', jurisdictionStatus: 'VERIFIED',
+      jurisdictionLabel: 'United Kingdom', jurisdictionIso2: 'GB', analysisEngine: 'test',
+    })
+
+    // In-memory layer
+    expect(analysis.classification).toBe('DOCUMENTATION_OR_ELIGIBILITY')
+    expect(analysis.checklist).toEqual([])
+    expect(analysis.categoryADisclaimer).toBeNull() // no disclaimer for an empty checklist
+
+    // Persisted layer — round-tripped through the real save/get functions
+    await saveRefusalLetterAnalysis('app_catA_forbidden', analysis, 'staff_e@walztravels.com')
+    const saved = await getRefusalLetterAnalysis('app_catA_forbidden')
+    expect(saved).not.toBeNull()
+    expect((saved!.analysis as typeof analysis).classification).toBe('DOCUMENTATION_OR_ELIGIBILITY')
+    expect((saved!.analysis as typeof analysis).checklist).toEqual([])
+    const rawStoredJson = JSON.stringify(saved!.analysis)
+    expect(rawStoredJson).not.toContain('borrowing money right before the interview')
+  })
+})
+
 // ── 4. Adversarial/malformed AI output cannot bypass the invariant ─────────
 
 describe('persistence: adversarial model output cannot bypass enforceHardInvariants at either layer', () => {
@@ -338,11 +370,14 @@ describe('persistence: fail-safe degradation — the analyzer continues to work 
       parsed: baseParsed(), extractedText: 'irrelevant', jurisdictionStatus: 'VERIFIED',
       jurisdictionLabel: 'United Kingdom', jurisdictionIso2: 'GB', analysisEngine: 'test',
     })
-    // tryDb() only tolerates "does not exist|column|relation" shaped errors;
-    // a genuinely unexpected error (not matching the pre-migration shape)
-    // still rejects, so a real outage is never confused with "columns not
-    // migrated yet" — this is the documented, intentional boundary of the
-    // graceful-degradation contract (see lib/analyzeRefusalLetter.ts tryDb()).
+    // tryDb() only tolerates the two genuine "schema not migrated yet"
+    // SQLSTATEs (42703/42P01), or — with no structured code available — an
+    // anchored "<column|relation|table> ... does not exist" text shape. A
+    // genuinely unexpected error (neither shape) still rejects, so a real
+    // outage is never confused with "columns not migrated yet" — this is
+    // the documented, intentional boundary of the graceful-degradation
+    // contract (see lib/analyzeRefusalLetter.ts tryDb(); FIX 1's own test
+    // block above covers the full structured-SQLSTATE narrowing).
     await expect(saveRefusalLetterAnalysis('app_x', analysis, 'staff@walztravels.com')).rejects.toThrow(
       'connection terminated',
     )
