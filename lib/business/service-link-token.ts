@@ -143,11 +143,56 @@ export async function issueOrReissueServiceLinkToken(
         select: { id: true },
       })
 
+      // revokedPriorToken tracks whether THIS call actually performed the
+      // revoke below (CAS count === 1) vs. found the prior token already
+      // dead by some other path (CAS count === 0). It feeds the audit event
+      // below — see the comment on that CAS for the full reasoning.
+      let revokedPriorToken = false
+
       if (existing) {
-        await tx.businessServiceLinkToken.update({
-          where: { id: existing.id },
+        // CAS, not a plain update — identical discipline to
+        // revokeServiceLinkToken()'s and consumeServiceLinkToken()'s own CAS
+        // writes: only flip revokedAt/revokedByMembershipId if the row is
+        // STILL live (consumedAt IS NULL AND revokedAt IS NULL) at the
+        // instant of this write.
+        //
+        // Why this matters even though we're inside one $transaction: under
+        // Postgres READ COMMITTED (Prisma's default), the findFirst above and
+        // this updateMany are two separate statements, each evaluated
+        // against the latest *committed* data at the time it runs — not a
+        // snapshot frozen at transaction start. So a concurrent, independent
+        // transaction (an explicit revokeServiceLinkToken() call, or, in a
+        // later phase, a concurrent consumeServiceLinkToken() call) can
+        // commit its own CAS on this exact row in the gap between our
+        // findFirst and our updateMany. If it does, our WHERE clause
+        // (id + consumedAt: null + revokedAt: null) simply won't match that
+        // row any more, so `count` comes back 0 and `data` is never applied
+        // — we never overwrite an already-set revokedAt/revokedByMembershipId
+        // (or a consumedAt set by a consume), so whoever actually performed
+        // that state transition keeps their attribution untouched.
+        const revokeCas = await tx.businessServiceLinkToken.updateMany({
+          where: { id: existing.id, consumedAt: null, revokedAt: null },
           data: { revokedAt: now, revokedByMembershipId: input.issuedByMembershipId ?? null },
         })
+        revokedPriorToken = revokeCas.count === 1
+
+        // ZERO-ROW DECISION: if the CAS above affected 0 rows, the prior
+        // token is dead one way or another (revoked by a concurrent explicit
+        // revoke, or consumed) — "no longer live" is exactly the
+        // precondition this function cares about, so we deliberately do NOT
+        // re-read the row to find out which happened, and we deliberately
+        // DO still proceed to create the new token below:
+        //   - An explicit revoke must never be capable of blocking a
+        //     subsequent reissue (the admin revoked a dead-end link; a fresh
+        //     one is still a valid thing to hand the traveller).
+        //   - A consumed token can never be "reissued from" in any
+        //     meaningful sense, but it also can't block a fresh token for
+        //     the same service — the new row simply becomes the service's
+        //     sole live token, and the consumed row is left completely
+        //     untouched (never retroactively marked revoked).
+        // The only thing this decision must NOT do is claim, in the audit
+        // trail, that this call performed a revoke it did not actually
+        // perform — see the `revokedPriorToken` audit field below.
       }
 
       const created = await tx.businessServiceLinkToken.create({
@@ -160,12 +205,19 @@ export async function issueOrReissueServiceLinkToken(
           issuedByMembershipId: input.issuedByMembershipId ?? null,
           issuedByStaffId: input.issuedByStaffId ?? null,
           expiresAt,
+          // Lineage, not an attribution claim: this records which row was
+          // the service's last-known live token, regardless of whether THIS
+          // call is what ended its life (see revokedPriorToken above). If a
+          // concurrent transaction's own new token is now live instead, the
+          // DB's partial unique index (uq_bslt_live_per_service) rejects
+          // this INSERT outright and the whole transaction rolls back — see
+          // the outer catch below.
           replacesTokenId: existing?.id ?? null,
         },
         select: { id: true },
       })
 
-      return { tokenId: created.id, previousTokenId: existing?.id ?? null }
+      return { tokenId: created.id, previousTokenId: existing?.id ?? null, revokedPriorToken }
     })
 
     if (result.previousTokenId) {
@@ -175,7 +227,13 @@ export async function issueOrReissueServiceLinkToken(
         action: 'visa_link_token.reissued',
         entityType: 'BusinessServiceLinkToken',
         entityId: result.tokenId,
-        before: { previousTokenId: result.previousTokenId },
+        // revokedPriorToken: true means THIS call's CAS actually revoked
+        // `previousTokenId` and its revokedByMembershipId is this call's
+        // actor. revokedPriorToken: false means the prior token was already
+        // dead (revoked or consumed by a concurrent, independent operation)
+        // by the time our CAS ran — this call did NOT touch that row, and
+        // this audit event must not be read as claiming it did.
+        before: { previousTokenId: result.previousTokenId, revokedPriorToken: result.revokedPriorToken },
         // Never the token itself.
         after: { businessTravellerId: input.businessTravellerId, travelRequestServiceId: input.travelRequestServiceId, expiresAt: expiresAt.toISOString() },
       })

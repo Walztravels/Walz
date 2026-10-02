@@ -164,9 +164,10 @@ describe('issueOrReissueServiceLinkToken', () => {
     if (!result.ok) return
     expect(result.reissued).toBe(true)
     expect(result.previousTokenId).toBe('tok_old')
-    expect(mockPrisma.businessServiceLinkToken.update).toHaveBeenCalledWith({
-      where: { id: 'tok_old' },
-      data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+    expect(mockPrisma.businessServiceLinkToken.update).not.toHaveBeenCalled()
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tok_old', consumedAt: null, revokedAt: null },
+      data: expect.objectContaining({ revokedAt: expect.any(Date), revokedByMembershipId: MEMBER_A }),
     })
     const createCall = mockPrisma.businessServiceLinkToken.create.mock.calls[0][0]
     expect(createCall.data.replacesTokenId).toBe('tok_old')
@@ -265,8 +266,155 @@ describe('issueOrReissueServiceLinkToken', () => {
     })
     expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'visa_link_token.reissued',
-      before: { previousTokenId: 'tok_old' },
+      before: { previousTokenId: 'tok_old', revokedPriorToken: true },
     }))
+  })
+
+  it('ordinary reissue: CAS succeeds, revokedByMembershipId is the reissuing actor', async () => {
+    mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValue({ id: 'tok_old' })
+    mockPrisma.businessServiceLinkToken.updateMany.mockResolvedValue({ count: 1 })
+    const result = await issueOrReissueServiceLinkToken({
+      organizationId: ORG_A, travelRequestId: REQ_A, travelRequestServiceId: SERVICE_A,
+      businessTravellerId: TRAVELLER_A, issuedByMembershipId: MEMBER_A,
+    })
+    expect(result.ok).toBe(true)
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tok_old', consumedAt: null, revokedAt: null },
+      data: { revokedAt: expect.any(Date), revokedByMembershipId: MEMBER_A },
+    })
+    expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'visa_link_token.reissued',
+      before: { previousTokenId: 'tok_old', revokedPriorToken: true },
+    }))
+  })
+
+  it('explicit revoke racing with reissue: CAS affects 0 rows, reissue does NOT overwrite the already-set revokedByMembershipId', async () => {
+    // Simulate: a different actor's explicit revoke already committed
+    // revokedAt/revokedByMembershipId on the prior token BEFORE this
+    // reissue's CAS runs (the findFirst above still returned it as "live"
+    // because it read a moment earlier — under READ COMMITTED that's exactly
+    // the window this CAS guards).
+    mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValue({ id: 'tok_old' })
+    mockPrisma.businessServiceLinkToken.updateMany.mockResolvedValue({ count: 0 })
+
+    const result = await issueOrReissueServiceLinkToken({
+      organizationId: ORG_A, travelRequestId: REQ_A, travelRequestServiceId: SERVICE_A,
+      businessTravellerId: TRAVELLER_A, issuedByMembershipId: MEMBER_A,
+    })
+
+    expect(result.ok).toBe(true)
+    // The CAS was attempted with OUR actor, but it affected 0 rows — the row
+    // itself (simulated here) keeps the OTHER actor's attribution, because
+    // the real DB's WHERE clause (consumedAt: null, revokedAt: null) never
+    // matched once the concurrent revoke had already landed.
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tok_old', consumedAt: null, revokedAt: null },
+      data: { revokedAt: expect.any(Date), revokedByMembershipId: MEMBER_A },
+    })
+    // Our code issued exactly one updateMany call for this row — it never
+    // retries or issues a second write that could clobber the other actor's
+    // attribution.
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledTimes(1)
+    // The audit event for this call must not claim it revoked the prior
+    // token — revokedPriorToken: false documents that the CAS lost the race.
+    expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'visa_link_token.reissued',
+      before: { previousTokenId: 'tok_old', revokedPriorToken: false },
+    }))
+  })
+
+  it('a consumed prior token is never retroactively marked revoked by reissue — CAS affects 0 rows, consumedAt/revokedAt stay as they were', async () => {
+    mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValue({ id: 'tok_old' })
+    // The prior token's consumedAt is already set (a recipient submitted via
+    // consumeServiceLinkToken() a moment earlier) — the CAS WHERE clause
+    // (consumedAt: null) can never match it, so updateMany reports 0 rows
+    // affected, exactly like the real DB would.
+    mockPrisma.businessServiceLinkToken.updateMany.mockResolvedValue({ count: 0 })
+
+    const result = await issueOrReissueServiceLinkToken({
+      organizationId: ORG_A, travelRequestId: REQ_A, travelRequestServiceId: SERVICE_A,
+      businessTravellerId: TRAVELLER_A, issuedByMembershipId: MEMBER_A,
+    })
+
+    expect(result.ok).toBe(true)
+    // The attempted CAS still carries consumedAt: null in its WHERE — a real
+    // DB simply won't match a row whose consumedAt is already set, which is
+    // exactly why this is modeled as count: 0 rather than ever writing to it.
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tok_old', consumedAt: null, revokedAt: null },
+      data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+    })
+    // Reissue still proceeds — a consumed token can't block a fresh one.
+    expect(mockPrisma.businessServiceLinkToken.create).toHaveBeenCalledTimes(1)
+    const createCall = mockPrisma.businessServiceLinkToken.create.mock.calls[0][0]
+    expect(createCall.data.replacesTokenId).toBe('tok_old')
+    // The audit event must not claim this call revoked the (already
+    // consumed) prior token.
+    expect(recordBusinessAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'visa_link_token.reissued',
+      before: { previousTokenId: 'tok_old', revokedPriorToken: false },
+    }))
+  })
+
+  it('an already-revoked prior token cannot have its attribution rewritten (explicit assertion on the final persisted row)', async () => {
+    // Model the "final persisted row" directly: a fake in-memory row that
+    // only applies the CAS write if the WHERE clause's preconditions hold —
+    // i.e. a faithful stand-in for what the real partial-match UPDATE does.
+    const priorRow = { id: 'tok_old', consumedAt: null as Date | null, revokedAt: NOW, revokedByMembershipId: 'mem_other' }
+    mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValue({ id: priorRow.id })
+    mockPrisma.businessServiceLinkToken.updateMany.mockImplementation(async (args: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+      const matches = args.where.id === priorRow.id && args.where.consumedAt === priorRow.consumedAt && args.where.revokedAt === null && priorRow.revokedAt === null
+      if (!matches) return { count: 0 }
+      priorRow.revokedAt = args.data.revokedAt as Date
+      priorRow.revokedByMembershipId = args.data.revokedByMembershipId as string
+      return { count: 1 }
+    })
+
+    await issueOrReissueServiceLinkToken({
+      organizationId: ORG_A, travelRequestId: REQ_A, travelRequestServiceId: SERVICE_A,
+      businessTravellerId: TRAVELLER_A, issuedByMembershipId: MEMBER_A,
+    })
+
+    // The row's attribution is still the OTHER actor's — our reissue's CAS
+    // never matched (revokedAt was already non-null) so it never wrote.
+    expect(priorRow.revokedByMembershipId).toBe('mem_other')
+    expect(priorRow.revokedAt).toBe(NOW)
+  })
+
+  it('concurrent reissues: the loser\'s CAS-then-create ordering cannot produce two live rows — the second call\'s create fails and the whole call reports ok:false', async () => {
+    // First (winning) reissue: finds tok_old live, CAS succeeds, creates
+    // tok_new_A as the service's new sole live token.
+    mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValueOnce({ id: 'tok_old' })
+    mockPrisma.businessServiceLinkToken.updateMany.mockResolvedValueOnce({ count: 1 })
+    mockPrisma.businessServiceLinkToken.create.mockResolvedValueOnce({ id: 'tok_new_A' })
+    const first = await issueOrReissueServiceLinkToken({
+      organizationId: ORG_A, travelRequestId: REQ_A, travelRequestServiceId: SERVICE_A,
+      businessTravellerId: TRAVELLER_A, issuedByMembershipId: MEMBER_A,
+    })
+    expect(first.ok).toBe(true)
+
+    // Second (losing) reissue: its findFirst happened to also see tok_old as
+    // live (read before the winner committed). Its own CAS on tok_old then
+    // affects 0 rows (the winner's CAS already landed), so it proceeds to
+    // create() anyway per our zero-row decision — but by the time its INSERT
+    // runs, the winner's tok_new_A is the live row for this service, so the
+    // DB's partial unique index (uq_bslt_live_per_service) rejects the
+    // INSERT. We simulate that rejection as a thrown error from create().
+    mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValueOnce({ id: 'tok_old' })
+    mockPrisma.businessServiceLinkToken.updateMany.mockResolvedValueOnce({ count: 0 })
+    mockPrisma.businessServiceLinkToken.create.mockRejectedValueOnce(
+      Object.assign(new Error('Unique constraint failed on the fields: (`travel_request_service_id`)'), { code: 'P2002' }),
+    )
+    const second = await issueOrReissueServiceLinkToken({
+      organizationId: ORG_A, travelRequestId: REQ_A, travelRequestServiceId: SERVICE_A,
+      businessTravellerId: TRAVELLER_A, issuedByMembershipId: MEMBER_A,
+    })
+
+    // The loser's whole transaction is reported as a clean failure — never a
+    // reported success referencing a token that doesn't actually exist as
+    // the live one.
+    expect(second.ok).toBe(false)
+    if (!second.ok) expect(second.status).toBe(500)
   })
 })
 

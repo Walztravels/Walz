@@ -147,17 +147,18 @@ describe('POST .../visa-link (issue/reissue)', () => {
     expect(res.status).toBe(201)
     const body = await res.json()
     expect(body.reissued).toBe(true)
-    expect(mockPrisma.businessServiceLinkToken.update).toHaveBeenCalledWith({
-      where: { id: 'tok_old' },
+    expect(mockPrisma.businessServiceLinkToken.update).not.toHaveBeenCalled()
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tok_old', consumedAt: null, revokedAt: null },
       data: expect.objectContaining({ revokedAt: expect.any(Date) }),
     })
   })
 
-  it('never creates two live tokens for the same service in one call (single create, prior revoked first)', async () => {
+  it('never creates two live tokens for the same service in one call (single create, prior revoked first via CAS)', async () => {
     mockPrisma.businessServiceLinkToken.findFirst.mockResolvedValue({ id: 'tok_old' })
     await issueRoute(jsonReq({ businessTravellerId: TRAVELLER_A }), { params })
     expect(mockPrisma.businessServiceLinkToken.create).toHaveBeenCalledTimes(1)
-    expect(mockPrisma.businessServiceLinkToken.update).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.businessServiceLinkToken.updateMany).toHaveBeenCalledTimes(1)
   })
 })
 
