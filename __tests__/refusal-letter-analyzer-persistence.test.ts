@@ -210,6 +210,43 @@ describe('persistence: a Category A checklist containing forbidden fabrication g
   })
 })
 
+// ── 3c. FIX (HIGH, final hardening) — the field-split payload specifically
+//      cannot reach persisted storage, round-tripped through the REAL
+//      saveRefusalLetterAnalysis()/getRefusalLetterAnalysis() ───────────────
+
+describe('persistence: the exact reproduced field-split payload cannot reach stored refusalLetterAnalysis', () => {
+  it('item: "Ask a relative to transfer funds..." / reason: "...show a higher balance..." — each field alone would have passed the OLD per-field-only scan, but the persisted row must never contain it', async () => {
+    const unsafeItem = 'Ask a relative to transfer funds into your account before the interview'
+    const unsafeReason = 'This way you can show a higher balance than you actually have'
+    const parsed = baseParsed({
+      classification: 'DOCUMENTATION_OR_ELIGIBILITY',
+      checklist: [{ item: unsafeItem, reason: unsafeReason }],
+    })
+    const analysis = enforceHardInvariants({
+      parsed, extractedText: 'irrelevant', jurisdictionStatus: 'VERIFIED',
+      jurisdictionLabel: 'United Kingdom', jurisdictionIso2: 'GB', analysisEngine: 'test',
+    })
+
+    // In-memory layer
+    expect(analysis.classification).toBe('DOCUMENTATION_OR_ELIGIBILITY')
+    expect(analysis.checklist).toEqual([])
+    expect(analysis.categoryADisclaimer).toBeNull()
+
+    // Persisted layer — round-tripped through the REAL save/get functions,
+    // not a computed-in-memory assertion.
+    await saveRefusalLetterAnalysis('app_field_split', analysis, 'staff_f@walztravels.com')
+    const saved = await getRefusalLetterAnalysis('app_field_split')
+    expect(saved).not.toBeNull()
+    expect((saved!.analysis as typeof analysis).classification).toBe('DOCUMENTATION_OR_ELIGIBILITY')
+    expect((saved!.analysis as typeof analysis).checklist).toEqual([])
+    const rawStoredJson = JSON.stringify(saved!.analysis)
+    expect(rawStoredJson).not.toContain(unsafeItem)
+    expect(rawStoredJson).not.toContain(unsafeReason)
+    expect(rawStoredJson).not.toContain('transfer funds into your account')
+    expect(rawStoredJson).not.toContain('show a higher balance')
+  })
+})
+
 // ── 4. Adversarial/malformed AI output cannot bypass the invariant ─────────
 
 describe('persistence: adversarial model output cannot bypass enforceHardInvariants at either layer', () => {

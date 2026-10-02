@@ -513,6 +513,190 @@ describe('FIX 2: checklist content is scanned for forbidden fabrication/manipula
   })
 })
 
+// ── FIX 1 (HIGH, final hardening) — field-split bypass closed ───────────────
+//
+// Independently reproduced and confirmed: a checklist entry with
+// item: "Ask a relative to transfer funds into your account before the
+// interview" and reason: "This way you can show a higher balance than you
+// actually have" has containsForbiddenClaim(item) === false AND
+// containsForbiddenClaim(reason) === false (the BORROW concept lives only
+// in item; the INFLATE concept only in reason — the per-field proximity
+// scan never saw them co-occur), while containsForbiddenClaim(item +
+// " " + reason) === true. The per-field-only scan in enforceHardInvariants
+// was therefore blind to this. These tests prove the combined-field scan
+// closes it, in every direction the task required.
+
+describe('FIX (HIGH): field-split checklist bypass — combined item+reason scan', () => {
+  it('the exact reproduced case: dangerous verb in item, dangerous purpose/object in reason — each field alone is innocent, the combination is not', () => {
+    const item = 'Ask a relative to transfer funds into your account before the interview'
+    const reason = 'This way you can show a higher balance than you actually have'
+    // Prove the bypass existed at the predicate level first.
+    expect(containsForbiddenClaim(item)).toBe(false)
+    expect(containsForbiddenClaim(reason)).toBe(false)
+    expect(containsForbiddenClaim(`${item} ${reason}`)).toBe(true)
+
+    // Prove enforceHardInvariants now catches it end-to-end.
+    const result = runInvariants(categoryAWithChecklistItem(item, reason))
+    expect(result.checklist).toEqual([])
+    expect(result.categoryADisclaimer).toBeNull()
+    expect(result.warnings.some(w => /forbidden fabrication\/document-manipulation guidance/i.test(w))).toBe(true)
+  })
+
+  it('the inverse split: dangerous purpose/object in item, dangerous verb in reason', () => {
+    const item = 'This way you can show a higher balance than you actually have'
+    const reason = 'Ask a relative to transfer funds into your account before the interview'
+    expect(containsForbiddenClaim(item)).toBe(false)
+    expect(containsForbiddenClaim(reason)).toBe(false)
+    expect(containsForbiddenClaim(`${item} ${reason}`)).toBe(true)
+
+    const result = runInvariants(categoryAWithChecklistItem(item, reason))
+    expect(result.checklist).toEqual([])
+  })
+
+  it('a dangerous instruction split across two sentences within the fields (not a clean verb/object split)', () => {
+    const item = 'First, ask a relative to transfer funds into your account before the interview.'
+    const reason = 'Then make sure it shows a higher balance than you actually have.'
+    expect(containsForbiddenClaim(item)).toBe(false)
+    expect(containsForbiddenClaim(reason)).toBe(false)
+    expect(containsForbiddenClaim(`${item} ${reason}`)).toBe(true)
+
+    const result = runInvariants(categoryAWithChecklistItem(item, reason))
+    expect(result.checklist).toEqual([])
+  })
+
+  it('a benign checklist (no split, no forbidden content at all) is completely unaffected by the combined-field scan', () => {
+    const item = 'Request an updated bank reference letter directly from your bank confirming the source of your savings'
+    const reason = 'shows the funds are traceable and genuinely yours'
+    const result = runInvariants(categoryAWithChecklistItem(item, reason))
+    expect(result.checklist).toEqual([{ item, reason }])
+    expect(result.categoryADisclaimer).toBe(CATEGORY_A_DISCLAIMER)
+  })
+})
+
+// ── FIX (HIGH extension): adjacent-checklist-entry split ─────────────────────
+//
+// Evaluated per the task: joining the FULL concept scan across two
+// independently-written checklist entries was tested and found to produce
+// a real false positive on entirely benign, unrelated adjacent bullets
+// (see the negative test below), so the cross-entry join deliberately uses
+// only the narrower ADJACENT_ENTRY_CONCEPT_PATTERNS subset (BACKDATE,
+// BORROW+INFLATE, MANIPULATE+seasoning) — not the generic ALTER/FABRICATE
+// + financial-noun pairs. The positive test below proves a real
+// split-across-entries case within that narrower, safer subset is still
+// caught; the negative test proves the exclusion actually protects a
+// realistic benign checklist from being wiped.
+
+describe('FIX (HIGH extension): dangerous instruction split across two adjacent checklist entries', () => {
+  it('a BORROW+INFLATE instruction split across two adjacent entries is caught, even though neither entry alone (nor its own item+reason) is flagged', () => {
+    const entry1Item = 'Ask your cousin to wire money into your account before the appointment'
+    const entry1Reason = 'timing works out that way'
+    const entry2Item = 'Make sure it looks like it has been there all along'
+    const entry2Reason = 'so the balance appears legitimate'
+
+    // Neither entry, alone or combined with its own reason, is flagged.
+    expect(containsForbiddenClaim(entry1Item)).toBe(false)
+    expect(containsForbiddenClaim(`${entry1Item} ${entry1Reason}`)).toBe(false)
+    expect(containsForbiddenClaim(entry2Item)).toBe(false)
+    expect(containsForbiddenClaim(`${entry2Item} ${entry2Reason}`)).toBe(false)
+
+    const parsed = baseParsed({
+      classification: 'DOCUMENTATION_OR_ELIGIBILITY',
+      checklist: [
+        { item: entry1Item, reason: entry1Reason },
+        { item: entry2Item, reason: entry2Reason },
+      ],
+    })
+    const result = runInvariants(parsed)
+    expect(result.checklist).toEqual([])
+    expect(result.warnings.some(w => /adjacent checklist entries/i.test(w))).toBe(true)
+  })
+
+  it('the task\'s own illustrative example ("modify it before resubmitting" / "this relates to your bank statement") is NOT caught by the deliberately-narrowed adjacent scan — documented, intentional exclusion, not an oversight', () => {
+    expect(containsForbiddenClaim('modify it before resubmitting this relates to your bank statement')).toBe(true) // the predicate itself still matches this (ALTER+NOUN)
+    const parsed = baseParsed({
+      classification: 'DOCUMENTATION_OR_ELIGIBILITY',
+      checklist: [
+        { item: 'modify it before resubmitting', reason: '' },
+        { item: 'this relates to your bank statement', reason: '' },
+      ],
+    })
+    const result = runInvariants(parsed)
+    // Each entry alone is innocuous nonsense with no actual target/evidence
+    // of harm, so the all-or-nothing wipe deliberately does NOT trigger for
+    // this specific ALTER+generic-noun pairing across entries (see the
+    // ADJACENT_ENTRY_CONCEPT_PATTERNS comment for why).
+    expect(result.checklist).toEqual([
+      { item: 'modify it before resubmitting', reason: '' },
+      { item: 'this relates to your bank statement', reason: '' },
+    ])
+  })
+
+  it('negative/false-positive guard: two independently-written, entirely benign adjacent checklist entries are never wiped by the adjacent-entry scan', () => {
+    const entry1Item = 'Provide a letter explaining why you need to alter your travel dates'
+    const entry1Reason = 'the officer questioned the trip length'
+    const entry2Item = 'Submit your bank statements for the last 6 months'
+    const entry2Reason = 'demonstrates financial stability'
+    const parsed = baseParsed({
+      classification: 'DOCUMENTATION_OR_ELIGIBILITY',
+      checklist: [
+        { item: entry1Item, reason: entry1Reason },
+        { item: entry2Item, reason: entry2Reason },
+      ],
+    })
+    const result = runInvariants(parsed)
+    expect(result.checklist).toEqual([
+      { item: entry1Item, reason: entry1Reason },
+      { item: entry2Item, reason: entry2Reason },
+    ])
+    expect(result.categoryADisclaimer).toBe(CATEGORY_A_DISCLAIMER)
+  })
+})
+
+// ── FIX 2 (MEDIUM, final hardening) — "forge ahead" false positive ──────────
+
+describe('FIX (MEDIUM): "forge ahead" idiom no longer falsely triggers forgery detection', () => {
+  it('the exact reproduced benign sentence does NOT trigger', () => {
+    expect(containsForbiddenClaim(
+      'Forge ahead with gathering your financial records now so there is no last-minute rush before the deadline.',
+    )).toBe(false)
+  })
+
+  it('a benign use of "boost" (INFLATE family) near financial nouns does NOT trigger without an accompanying BORROW concept', () => {
+    expect(containsForbiddenClaim(
+      'Boost your confidence before discussing your bank statements at the interview; this has nothing to do with your account balance.',
+    )).toBe(false)
+  })
+
+  it('a benign use of "inflate" (INFLATE family, about car tires) near "bank balance" does NOT trigger', () => {
+    expect(containsForbiddenClaim(
+      'Inflate the tires on your car before the long drive to the consulate; this has no bearing on your bank balance.',
+    )).toBe(false)
+  })
+
+  it('a benign use of "pad" (INFLATE family, about a physical envelope) near "documents" does NOT trigger', () => {
+    expect(containsForbiddenClaim(
+      'Please pad the envelope carefully so your documents arrive at the embassy undamaged.',
+    )).toBe(false)
+  })
+
+  it('confirming test: real forgery instructions still correctly trigger — the fix did not weaken genuine detection', () => {
+    expect(containsForbiddenClaim('Please forge a bank statement with inflated figures.')).toBe(true)
+    expect(containsForbiddenClaim('They asked him to forge the transaction history to hide a shortfall.')).toBe(true)
+    // Every other inflection of "forge" is untouched by the fix.
+    expect(containsForbiddenClaim('The bank statement was forged last year.')).toBe(true)
+    expect(containsForbiddenClaim('He was forging employment letters for other clients.')).toBe(true)
+    expect(containsForbiddenClaim('She forges documents for a living.')).toBe(true)
+  })
+
+  it('enforceHardInvariants no longer wipes a legitimate Category A checklist that happens to use the "forge ahead" idiom', () => {
+    const item = 'Forge ahead with gathering your financial records now so there is no last-minute rush before the deadline.'
+    const reason = 'this keeps you on schedule for the reapplication'
+    const result = runInvariants(categoryAWithChecklistItem(item, reason))
+    expect(result.checklist).toEqual([{ item, reason }])
+    expect(result.categoryADisclaimer).toBe(CATEGORY_A_DISCLAIMER)
+  })
+})
+
 // ── Persistence — graceful pre-migration degradation (no new relationship) ───
 
 describe('persistence degrades gracefully before the proposed migration is applied', () => {
