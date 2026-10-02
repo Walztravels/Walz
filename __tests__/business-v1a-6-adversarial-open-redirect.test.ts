@@ -100,20 +100,35 @@ describe('Adversarial: //evil.com-style payload', () => {
 })
 
 describe('Adversarial: the payload is neutralized at every NEW call site in this slice', () => {
-  it('app/api/auth/signup/route.ts source only threads callbackUrl through isSafeLocalPath + a /business prefix check', () => {
+  // LOW FIX FOLLOW-UP (2026-10-02): these two source-grep assertions
+  // originally pinned the exact pre-fix call-site pattern —
+  // `isSafeLocalPath(rawCallbackUrl) && rawCallbackUrl.startsWith('/business')`.
+  // That pattern IS the LOW finding this follow-up fix resolves: it checks
+  // the RAW, unnormalized string's literal prefix, so a dot-segment payload
+  // like `/business/../../../etc/passwd` passes it (the raw string does
+  // start with "/business") even though it normalizes outside of
+  // /business entirely. The authorized fix replaces that literal call-site
+  // pattern with `safeBusinessCallback(rawCallbackUrl)`, which checks the
+  // prefix against the NORMALIZED path instead (see lib/safe-redirect.ts
+  // and __tests__/safe-redirect-business-callback.test.ts for the full
+  // regression coverage of that payload). These two assertions are updated
+  // accordingly to pin the new, safe call-site pattern rather than the
+  // vulnerable one — every other test in this file is unchanged and still
+  // passes, preserving full CRITICAL-class coverage.
+  it('app/api/auth/signup/route.ts source only threads callbackUrl through safeBusinessCallback (normalized-path /business check)', () => {
     const fs = require('fs')
     const path = require('path')
     const src = fs.readFileSync(path.resolve(__dirname, '..', 'app/api/auth/signup/route.ts'), 'utf-8')
-    expect(src).toContain('isSafeLocalPath(rawCallbackUrl)')
-    expect(src).toContain("rawCallbackUrl.startsWith('/business')")
+    expect(src).toContain('safeBusinessCallback(rawCallbackUrl)')
+    expect(src).not.toContain("rawCallbackUrl.startsWith('/business')") // the raw-string prefix check this fix removed
   })
 
-  it('app/api/auth/verify-email/route.ts source only honours callbackUrl through isSafeLocalPath + a /business prefix check', () => {
+  it('app/api/auth/verify-email/route.ts source only honours callbackUrl through safeBusinessCallback (normalized-path /business check)', () => {
     const fs = require('fs')
     const path = require('path')
     const src = fs.readFileSync(path.resolve(__dirname, '..', 'app/api/auth/verify-email/route.ts'), 'utf-8')
-    expect(src).toContain('isSafeLocalPath(rawCallbackUrl)')
-    expect(src).toContain("rawCallbackUrl.startsWith('/business')")
+    expect(src).toContain('safeBusinessCallback(rawCallbackUrl)')
+    expect(src).not.toContain("rawCallbackUrl.startsWith('/business')") // the raw-string prefix check this fix removed
   })
 
   it('BusinessLoginForm and BusinessRegisterForm both route their callbackUrl query param through safeLocalRedirect', () => {

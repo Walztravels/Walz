@@ -129,3 +129,43 @@ export function safeLocalRedirect(raw: unknown, fallback: string): string {
   if (!parsed) return fallback
   return parsed.pathname + parsed.search + parsed.hash
 }
+
+// ── LOW FIX (2026-10-02): /business-scoped callback validation ─────────────
+//
+// The Business signup/verify-email routes (app/api/auth/signup/route.ts,
+// app/api/auth/verify-email/route.ts) need a narrower guarantee than plain
+// same-origin safety: the callback must resolve INTO the /business
+// namespace specifically. Their original gate checked the RAW,
+// unnormalized string's literal prefix:
+//
+//   isSafeLocalPath(rawCallbackUrl) && rawCallbackUrl.startsWith('/business')
+//
+// That's unsound for the same reason the original CRITICAL finding was:
+// `rawCallbackUrl.startsWith('/business')` inspects the string the caller
+// sent, not what a browser actually navigates to. A payload like
+// `/business/../../../etc/passwd` literally starts with `/business` (so the
+// raw check passes) but the WHATWG URL parser's dot-segment normalization
+// — the same normalization `safeLocalRedirect` above already performs and
+// returns as its `pathname` — resolves it to `/etc/passwd`, which is not
+// `/business`-prefixed at all. Since `/etc/passwd` is still same-origin,
+// `isSafeLocalPath` alone would also accept it; only checking the
+// *normalized* result against the `/business` prefix catches this.
+//
+// `safeBusinessCallback` fixes this by building on `safeLocalRedirect`
+// (not re-parsing the URL itself) and checking the prefix against the
+// RECONSTRUCTED, already-normalized path — the exact string callers will
+// go on to thread forward (into the verification email link, into the
+// post-verify redirect) — never against the caller's raw input. Callers
+// must use this function's return value (not the original raw input) as
+// the value they store/thread forward, so a pre-normalization payload can
+// never reach anything downstream.
+export function safeBusinessCallback(raw: unknown): string | null {
+  // '' can never be a valid safeLocalRedirect() success value (every real
+  // local path begins with '/'), so it's a safe "no value" sentinel here.
+  const normalized = safeLocalRedirect(raw, '')
+  if (!normalized) return null
+  if (normalized === '/business' || normalized.startsWith('/business/')) {
+    return normalized
+  }
+  return null
+}

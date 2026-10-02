@@ -5,7 +5,7 @@ import prisma from '@/lib/db'
 import { Resend } from '@/lib/resend-hardened'
 import { signupRateLimit } from '@/lib/rate-limit'
 import { trackCommercialEvent } from '@/lib/commercial/track'
-import { isSafeLocalPath } from '@/lib/safe-redirect'
+import { safeBusinessCallback } from '@/lib/safe-redirect'
 
 const FROM  = 'Walz Travels <noreply@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
@@ -96,11 +96,16 @@ export async function POST(req: NextRequest) {
     // (including the unchanged consumer app/login/LoginForm.tsx signup
     // flow, which never sends this field), so existing behaviour here is
     // completely unaffected.
+    //
+    // safeBusinessCallback validates (and normalizes) the raw input via the
+    // real WHATWG URL parser and checks the /business prefix against the
+    // NORMALIZED result — not the raw string — so a dot-segment payload
+    // like `/business/../../../etc/passwd` (which literally starts with
+    // "/business" but normalizes outside of it) is rejected. Its return
+    // value is the exact string threaded forward below; the raw input is
+    // never used again.
     const rawCallbackUrl: unknown = body?.callbackUrl
-    const safeCallbackUrl =
-      typeof rawCallbackUrl === 'string' && isSafeLocalPath(rawCallbackUrl) && rawCallbackUrl.startsWith('/business')
-        ? rawCallbackUrl
-        : null
+    const safeCallbackUrl = safeBusinessCallback(rawCallbackUrl)
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })

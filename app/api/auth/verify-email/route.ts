@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { Resend } from '@/lib/resend-hardened'
-import { isSafeLocalPath } from '@/lib/safe-redirect'
+import { safeBusinessCallback } from '@/lib/safe-redirect'
 
 const FROM = 'Walz Travels <noreply@walztravels.com>'
 
@@ -23,11 +23,15 @@ export async function GET(req: NextRequest) {
   // //evil.com) falls straight through to today's unchanged hardcoded
   // consumer redirect below, so the existing consumer flow is completely
   // unaffected.
+  //
+  // safeBusinessCallback checks the /business prefix against the
+  // NORMALIZED (dot-segment-resolved) path, not the raw query param, so a
+  // payload like `/business/../../../etc/passwd` — which literally starts
+  // with "/business" but normalizes outside of it — is rejected. Its return
+  // value is the exact string threaded into the redirect below; the raw
+  // query param is never used again.
   const rawCallbackUrl = req.nextUrl.searchParams.get('callbackUrl')
-  const safeCallbackUrl =
-    rawCallbackUrl && isSafeLocalPath(rawCallbackUrl) && rawCallbackUrl.startsWith('/business')
-      ? rawCallbackUrl
-      : null
+  const safeCallbackUrl = safeBusinessCallback(rawCallbackUrl)
 
   if (!token) {
     return NextResponse.redirect(`${baseUrl}/login?error=InvalidToken`)
