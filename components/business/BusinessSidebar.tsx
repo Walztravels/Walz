@@ -1,15 +1,24 @@
 'use client'
 
-// components/business/BusinessSidebar.tsx — Walz Business (V1-A)
+// components/business/BusinessSidebar.tsx — Walz Business (V1-A → V1-B)
 // Desktop-only vertical nav (hidden below the lg breakpoint — see
 // BusinessMobileNav for the small-screen equivalent).
 //
-// SCOPE: Dashboard is the only item backed by a real page in this release
-// (app/business/(portal)/[orgId]/page.tsx). Requests/Travellers/Team/
-// Settings are intentionally visual placeholders that link to not-yet-built
-// routes (they 404) — building those destination pages is explicitly out of
-// scope for V1-A (see release notes). They stay in the nav now so the
-// information architecture is visible and stable for V1-B to fill in.
+// V1-B: all five destinations are now real pages —
+//   Dashboard  → app/business/(portal)/[orgId]/page.tsx
+//   Requests   → app/business/(portal)/[orgId]/requests/page.tsx
+//   Travellers → app/business/(portal)/[orgId]/travellers/page.tsx
+//   Team       → app/business/(portal)/[orgId]/team/page.tsx
+//   Settings   → app/business/(portal)/[orgId]/settings/page.tsx
+//
+// The "Travellers" label and the REFERRAL_PARTNER hide-list below are read
+// from OrgTypeContext (set by app/business/(portal)/[orgId]/layout.tsx) and
+// are COSMETIC ONLY — see that context's own doc comment. The real
+// REFERRAL_PARTNER deny is enforced independently, server-side, on the
+// Travellers and Requests pages themselves (both call
+// assertAgencyOrCorporateAccess, matching their equivalent API routes) —
+// hiding the link here can never be the only thing standing between a
+// REFERRAL_PARTNER member and that data.
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -21,6 +30,8 @@ import {
   Settings,
   type LucideIcon,
 } from 'lucide-react'
+import { useOrgType } from './OrgTypeContext'
+import type { OrganizationType } from '@/lib/business/organization-type'
 
 interface NavItem {
   label: string
@@ -28,20 +39,34 @@ interface NavItem {
   href: string
 }
 
-function buildNavItems(orgId: string | null): NavItem[] {
+function travellerLabel(orgType: OrganizationType | null): string {
+  if (orgType === 'CORPORATE') return 'Employees'
+  if (orgType === 'TRAVEL_AGENCY') return 'Clients'
+  return 'Travellers'
+}
+
+function buildNavItems(orgId: string | null, orgType: OrganizationType | null): NavItem[] {
   const base = orgId ? `/business/${orgId}` : '/business'
-  return [
-    { label: 'Dashboard', icon: LayoutDashboard, href: base },
-    { label: 'Requests', icon: ClipboardList, href: `${base}/requests` },
-    { label: 'Travellers', icon: Users, href: `${base}/travellers` },
-    { label: 'Team', icon: UserCog, href: `${base}/team` },
-    { label: 'Settings', icon: Settings, href: `${base}/settings` },
-  ]
+  // REFERRAL_PARTNER organizations are denied both client-traveller
+  // management and travel-request/booking endpoints server-side (see
+  // lib/business/org-type-gate.ts) — those two nav items are hidden for
+  // them entirely rather than linking to a page that will always 404.
+  const hideAgencyCorporateOnly = orgType === 'REFERRAL_PARTNER'
+
+  const items: NavItem[] = [{ label: 'Dashboard', icon: LayoutDashboard, href: base }]
+  if (!hideAgencyCorporateOnly) {
+    items.push({ label: 'Requests', icon: ClipboardList, href: `${base}/requests` })
+    items.push({ label: travellerLabel(orgType), icon: Users, href: `${base}/travellers` })
+  }
+  items.push({ label: 'Team', icon: UserCog, href: `${base}/team` })
+  items.push({ label: 'Settings', icon: Settings, href: `${base}/settings` })
+  return items
 }
 
 export function BusinessSidebar({ orgId }: { orgId: string | null }) {
   const pathname = usePathname() ?? ''
-  const items = buildNavItems(orgId)
+  const orgType = useOrgType()
+  const items = buildNavItems(orgId, orgType)
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:flex-shrink-0 bg-[#0B1F3A] text-white min-h-screen sticky top-0">
