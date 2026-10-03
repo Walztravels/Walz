@@ -13,6 +13,19 @@
  * actions are offered instead. No server-side check is touched —
  * acceptOrganizationInvitation()'s own revalidation remains the sole
  * authority (see lib/business/invitations.ts).
+ *
+ * B1 RETRY-FIX (this file's later addition): the original hotfix merged a
+ * thrown fetch() exception (offline/DNS/timeout/connection drop — the
+ * server never conclusively responded) into the exact same 'failed' state
+ * as a conclusive, server-confirmed rejection. That is now split into two
+ * distinguishable states: 'server-failed' (conclusive — unchanged wording
+ * and behavior) and 'network-error' (a new, separate, retryable state that
+ * never claims the invitation is invalid/expired and offers a "Try again"
+ * control that re-invokes the same accept() function against the same,
+ * unmodified server endpoint). The one test below that specifically
+ * asserted the OLD merged behavior ("a network failure... also removes the
+ * Accept button") has been replaced — see the "network-error" describe
+ * block — because that assertion encoded the bug this track fixes.
  */
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -46,6 +59,10 @@ function acceptButton(): HTMLButtonElement | null {
   return container.querySelector('button')
 }
 
+function findButtonByText(re: RegExp): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll('button')).find(b => re.test(b.textContent ?? ''))
+}
+
 async function clickAccept() {
   const btn = acceptButton()!
   await act(async () => {
@@ -54,7 +71,7 @@ async function clickAccept() {
   })
 }
 
-describe('AcceptInvitation: a conclusive failure removes the Accept CTA entirely', () => {
+describe('AcceptInvitation: a conclusive (server-confirmed) failure removes the Accept CTA entirely', () => {
   it('a 404 (generic invalid/expired/consumed/mismatched) result removes the Accept button — not merely disables it', async () => {
     ;(global.fetch as jest.Mock).mockResolvedValue({
       ok: false,
@@ -68,11 +85,16 @@ describe('AcceptInvitation: a conclusive failure removes the Accept CTA entirely
     expect(container.textContent).toMatch(/invalid or has expired/i)
   })
 
-  it('a network failure (thrown exception) also removes the Accept button', async () => {
-    ;(global.fetch as jest.Mock).mockRejectedValue(new Error('network down'))
+  it('a direct server-confirmed invalid response (res.ok === false, no thrown exception) shows no "Try again" control — matches unchanged server-failed behavior', async () => {
+    ;(global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ ok: false, error: 'This invitation link is invalid or has expired' }),
+    })
     render()
     await clickAccept()
     expect(acceptButton()).toBeNull()
+    expect(container.textContent?.toLowerCase()).not.toMatch(/try again/)
   })
 
   it('offers "Back to Walz Business sign in" as a recovery action', async () => {
@@ -117,6 +139,104 @@ describe('AcceptInvitation: the distinguishable "already_active_member" (409/con
     // 'conflict' is a distinct, intentionally-preserved state — this hotfix
     // only removes the CTA for the generic 'failed' state, not 'conflict'.
     expect(acceptButton()).toBeTruthy()
+  })
+})
+
+describe('AcceptInvitation: B1 retry-fix — thrown fetch exceptions are a distinct, retryable "network-error" state', () => {
+  it('a thrown fetch error enters network-error, does NOT claim the invitation is invalid, and renders a "Try again" control', async () => {
+    ;(global.fetch as jest.Mock).mockRejectedValue(new TypeError('Failed to fetch'))
+    render()
+    await clickAccept()
+    const text = (container.textContent ?? '').toLowerCase()
+    expect(text).not.toMatch(/invalid/)
+    expect(text).not.toMatch(/expired/)
+    expect(text).toMatch(/couldn't verify or accept this invitation|check your connection/)
+    expect(findButtonByText(/try again/i)).toBeTruthy()
+  })
+
+  it('network failure then successful retry: first fetch throws, Try again succeeds, success/done flow completes normally', async () => {
+    ;(global.fetch as jest.Mock)
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ok: true, organizationId: 'org_42' }) })
+
+    render()
+    await clickAccept() // first attempt -> network-error
+    const tryAgain = findButtonByText(/try again/i)!
+    expect(tryAgain).toBeTruthy()
+
+    await act(async () => {
+      tryAgain.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(2)
+    // Both calls hit the exact same, real server endpoint.
+    for (const call of (global.fetch as jest.Mock).mock.calls) {
+      expect(call[0]).toBe('/api/business/invitations/accept')
+    }
+    expect(container.textContent).toMatch(/you've joined the organization/i)
+    const link = Array.from(container.querySelectorAll('a')).find(a => /go to walz business/i.test(a.textContent ?? ''))
+    expect(link!.getAttribute('href')).toBe('/business/org_42')
+  })
+
+  it('network failure then server rejection: retry via Try again lands in the non-actionable server-failed state, not stuck in network-error', async () => {
+    ;(global.fetch as jest.Mock)
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ ok: false, status: 404, json: async () => ({ ok: false, error: 'invalid' }) })
+
+    render()
+    await clickAccept() // network-error
+    const tryAgain = findButtonByText(/try again/i)!
+
+    await act(async () => {
+      tryAgain.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await new Promise(r => setTimeout(r, 0))
+    })
+
+    // Now conclusively server-failed: no Accept button, no retry control,
+    // and the existing (unchanged) generic invalid/expired copy is shown.
+    expect(acceptButton()).toBeNull()
+    expect(findButtonByText(/try again/i)).toBeFalsy()
+    expect(container.textContent).toMatch(/invalid or has expired/i)
+  })
+
+  it('the client never tries to distinguish WHY a thrown exception happened — same neutral copy regardless of error type', async () => {
+    ;(global.fetch as jest.Mock).mockRejectedValue(new DOMException('The operation was aborted', 'AbortError'))
+    render()
+    await clickAccept()
+    const text = (container.textContent ?? '').toLowerCase()
+    expect(text).not.toMatch(/abort|timeout|dns|offline/)
+    expect(text).toMatch(/check your connection and try again/)
+  })
+
+  it('clicking "Try again" immediately re-enters the working state (no plain Try again / network-error banner remains) — prevents duplicate submission', async () => {
+    let resolveSecond: (v: unknown) => void = () => {}
+    ;(global.fetch as jest.Mock)
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
+
+    render()
+    await clickAccept()
+    const tryAgain = findButtonByText(/try again/i)!
+
+    act(() => { tryAgain.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+
+    // Mid-flight: back to the generic disabled "Accepting…" button, and the
+    // network-error banner/"Try again" control is gone.
+    const workingBtn = acceptButton()
+    expect(workingBtn).toBeTruthy()
+    expect(workingBtn!.disabled).toBe(true)
+    expect(workingBtn!.textContent).toMatch(/accepting/i)
+    expect(findButtonByText(/try again/i)).toBeFalsy()
+
+    // A second click while disabled cannot fire a third fetch call.
+    act(() => { workingBtn!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(2)
+
+    await act(async () => {
+      resolveSecond({ ok: true, status: 200, json: async () => ({ ok: true, organizationId: 'org_1' }) })
+      await new Promise(r => setTimeout(r, 0))
+    })
   })
 })
 

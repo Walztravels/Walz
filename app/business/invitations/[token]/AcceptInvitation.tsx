@@ -11,7 +11,9 @@ import Link from 'next/link'
 
 export default function AcceptInvitation({ token }: { token: string }) {
   const router = useRouter()
-  const [state, setState] = useState<'idle' | 'working' | 'done' | 'failed' | 'conflict'>('idle')
+  const [state, setState] = useState<
+    'idle' | 'working' | 'done' | 'server-failed' | 'network-error' | 'conflict'
+  >('idle')
   const [organizationId, setOrganizationId] = useState<string | null>(null)
 
   async function accept() {
@@ -28,9 +30,16 @@ export default function AcceptInvitation({ token }: { token: string }) {
         setState('done')
         return
       }
-      setState(res.status === 409 ? 'conflict' : 'failed')
+      // Conclusive, server-confirmed outcome — the request completed and the
+      // API returned a result. Never inferred client-side.
+      setState(res.status === 409 ? 'conflict' : 'server-failed')
     } catch {
-      setState('failed')
+      // The fetch() call itself threw — offline/DNS/timeout/connection drop.
+      // This is NOT a server verdict: the server never ran (or its response
+      // never arrived), so we must not claim the invitation is invalid or
+      // expired. Kept distinct from 'server-failed' so the UI can offer an
+      // honest retry that calls the exact same endpoint again.
+      setState('network-error')
     }
   }
 
@@ -49,16 +58,20 @@ export default function AcceptInvitation({ token }: { token: string }) {
     )
   }
 
-  // Walz Business hotfix (B1.2) — 'failed' is a CONCLUSIVE, server-confirmed
-  // failure (the POST already ran and the API returned a non-ok, non-409
-  // result — see app/api/business/invitations/accept/route.ts). Re-pressing
-  // "Accept" can never succeed from this state (the token itself is
-  // invalid/expired/consumed/mismatched — nothing about re-clicking changes
-  // that), so the button is not shown at all rather than merely disabled,
-  // and recovery actions are offered instead. This changes NO server-side
-  // check — acceptOrganizationInvitation()'s own revalidation is untouched
-  // and remains the sole authority; this is presentation only.
-  if (state === 'failed') {
+  // Walz Business hotfix (B1.2) — 'server-failed' is a CONCLUSIVE,
+  // server-confirmed failure (the POST already ran and the API returned a
+  // non-ok, non-409 result — see app/api/business/invitations/accept/route.ts).
+  // Re-pressing "Accept" can never succeed from this state (the token itself
+  // is invalid/expired/consumed/mismatched — nothing about re-clicking
+  // changes that), so the button is not shown at all rather than merely
+  // disabled, and recovery actions are offered instead. This changes NO
+  // server-side check — acceptOrganizationInvitation()'s own revalidation is
+  // untouched and remains the sole authority; this is presentation only.
+  // UNCHANGED by the B1 retry-fix (track B1 retry fix only renamed 'failed'
+  // -> 'server-failed' and split the former network-exception path out into
+  // the separate 'network-error' state below; this block's wording and
+  // behavior are identical to the accepted 78d9eed2 candidate).
+  if (state === 'server-failed') {
     return (
       <div>
         <div role="alert" style={{ background: '#fee', border: '1px solid #fcc', color: '#900', padding: 12, borderRadius: 8, marginBottom: 12 }}>
@@ -72,6 +85,35 @@ export default function AcceptInvitation({ token }: { token: string }) {
           <p style={{ color: '#666', fontSize: 14, margin: 0 }}>
             Ask your organization administrator for a new invitation if you still need access.
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  // NEW (B1 retry-fix) — 'network-error' is the fetch() call itself throwing
+  // (offline/DNS/timeout/connection drop). The server never conclusively
+  // rejected anything here — it may never have been reached at all — so this
+  // must never say "invalid" or "expired", and must offer an honest retry
+  // that calls the exact same accept() function, which hits the same
+  // unmodified /api/business/invitations/accept endpoint fresh. No
+  // client-side shortcut, cache, or inference about validity is made.
+  if (state === 'network-error') {
+    return (
+      <div>
+        <div role="alert" style={{ background: '#fff4e5', border: '1px solid #ffd8a8', color: '#7a4a00', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+          We couldn&apos;t verify or accept this invitation right now. Check your connection and try again.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <button
+            type="button"
+            onClick={accept}
+            style={{ padding: '10px 20px', borderRadius: 8, background: '#C9A84C', color: '#0B1F3A', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Try again
+          </button>
+          <Link href="/business/login" style={{ color: '#0B1F3A', fontWeight: 600 }}>
+            Back to Walz Business sign in
+          </Link>
         </div>
       </div>
     )
