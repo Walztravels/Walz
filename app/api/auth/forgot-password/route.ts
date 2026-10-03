@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { forgotPasswordRateLimit } from '@/lib/rate-limit'
+import { safeBusinessCallback } from '@/lib/safe-redirect'
 
 const FROM = 'Walz Travels <noreply@walztravels.com>'
 
@@ -12,8 +13,19 @@ export async function POST(req: NextRequest) {
     const rl = forgotPasswordRateLimit(ip)
     if (!rl.allowed) return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
 
-    const { email } = await req.json()
+    const body = await req.json()
+    const { email } = body
     if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
+
+    // Walz Business hotfix (B1.1) — OPTIONAL, additive context threaded
+    // from app/forgot-password/page.tsx (which only ever sends the value it
+    // already validated via safeBusinessCallback). Re-validated here too —
+    // this route never trusts a client-supplied value without its own
+    // independent check — so the reset-password link only ever carries a
+    // genuinely safe, same-origin, /business-prefixed path, never an
+    // open-redirect-shaped payload.
+    const rawCallbackUrl: unknown = body?.callbackUrl
+    const safeCallbackUrl = safeBusinessCallback(rawCallbackUrl)
 
     const normalised = email.toLowerCase().trim()
     const user = await prisma.user.findUnique({ where: { email: normalised } })
@@ -31,7 +43,10 @@ export async function POST(req: NextRequest) {
       data: { passwordResetToken: token, passwordResetExpires: expires },
     })
 
-    const resetUrl = `${process.env.NEXTAUTH_URL ?? 'https://walztravels.com'}/reset-password?token=${token}`
+    const baseUrl  = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
+    const resetUrl = safeCallbackUrl
+      ? `${baseUrl}/reset-password?token=${token}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
+      : `${baseUrl}/reset-password?token=${token}`
 
     if (process.env.RESEND_API_KEY) {
             await getResend().emails.send({

@@ -67,6 +67,17 @@ export default function BusinessLoginForm() {
       }).toString()}`
     : '/business/register'
 
+  // Walz Business hotfix (B1.1) — the shared app/forgot-password + reset-
+  // password pages hardcode the CONSUMER /login destination for every
+  // "Back to sign in" link. Threading `?callbackUrl=/business/login` here
+  // (the exact same param name/contract already used throughout this
+  // domain — see safeBusinessCallback in lib/safe-redirect.ts) lets those
+  // shared pages recognize a Business-originated visit and round-trip back
+  // to /business/login instead, without forking a parallel Business-only
+  // copy of the password-reset flow. Validated downstream via
+  // safeBusinessCallback, never trusted as a raw redirect target.
+  const forgotPasswordHref = `/forgot-password?${new URLSearchParams({ callbackUrl: '/business/login' }).toString()}`
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-16">
       <div className="w-full max-w-md">
@@ -119,7 +130,7 @@ export default function BusinessLoginForm() {
                 <label htmlFor="biz-login-password" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Password
                 </label>
-                <Link href="/forgot-password" className="text-xs text-[#0B1F3A] hover:underline font-medium">
+                <Link href={forgotPasswordHref} className="text-xs text-[#0B1F3A] hover:underline font-medium">
                   Forgot password?
                 </Link>
               </div>

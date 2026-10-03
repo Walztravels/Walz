@@ -11,6 +11,10 @@
 // REFERRAL_PARTNER hide-list are COSMETIC ONLY (read from OrgTypeContext —
 // see that file's doc comment); the real deny is enforced independently,
 // server-side, on the Travellers/Requests pages themselves.
+//
+// Walz Business hotfix (B1.4) — `hasOrganizations` mirrors BusinessSidebar's
+// own flag exactly (see that file's doc comment for the full rationale);
+// defaults to `true` for the same backward-compatibility reason.
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -51,7 +55,13 @@ function buildNavItems(orgId: string | null, orgType: OrganizationType | null): 
   return items
 }
 
-export function BusinessMobileNav({ orgId }: { orgId: string | null }) {
+export function BusinessMobileNav({
+  orgId,
+  hasOrganizations = true,
+}: {
+  orgId: string | null
+  hasOrganizations?: boolean
+}) {
   const pathname = usePathname() ?? ''
   const orgType = useOrgType()
   const base = orgId ? `/business/${orgId}` : '/business'
@@ -59,6 +69,19 @@ export function BusinessMobileNav({ orgId }: { orgId: string | null }) {
   // Tailwind needs static, literal class names — grid-cols-N is chosen
   // explicitly rather than built from a template string.
   const gridColsClass = items.length === 5 ? 'grid-cols-5' : 'grid-cols-3'
+
+  if (!hasOrganizations) {
+    return (
+      <nav
+        aria-label="Business portal navigation"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="px-4 py-3 text-center text-[11px] text-slate-500 leading-relaxed">
+          No organization yet — sign out above, or open a valid invitation link to join one.
+        </div>
+      </nav>
+    )
+  }
 
   return (
     <nav

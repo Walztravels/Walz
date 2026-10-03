@@ -126,11 +126,25 @@ export async function GET(req: NextRequest) {
   return NextResponse.redirect(`${baseUrl}/login?verified=true&callbackUrl=/portal/dashboard`)
 }
 
-// POST /api/auth/verify-email  { email }  →  resend verification
+// POST /api/auth/verify-email  { email, callbackUrl? }  →  resend verification
 export async function POST(req: NextRequest) {
   try {
-    const { email } = await req.json()
+    const body = await req.json()
+    const { email } = body
     if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
+
+    // Walz Business hotfix (B1.3) — OPTIONAL, additive field, same contract
+    // as the GET handler above and app/api/auth/signup/route.ts. A user
+    // whose ORIGINAL verification link carried a Business/invitation
+    // callbackUrl (because its token has since expired, or the email was
+    // lost) can request a fresh link from app/verify-email/page.tsx without
+    // losing that context — the old behavior silently dropped it, always
+    // building a bare `?token=...` link regardless of what the original
+    // link carried. Validated via safeBusinessCallback (never trusted raw);
+    // absent/invalid for every other caller, so the unchanged consumer
+    // resend flow is completely unaffected.
+    const rawCallbackUrl: unknown = body?.callbackUrl
+    const safeCallbackUrl = safeBusinessCallback(rawCallbackUrl)
 
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
@@ -150,7 +164,9 @@ export async function POST(req: NextRequest) {
     })
 
     const baseUrl   = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
-    const verifyUrl = `${baseUrl}/api/auth/verify-email?token=${token}`
+    const verifyUrl = safeCallbackUrl
+      ? `${baseUrl}/api/auth/verify-email?token=${token}&callbackUrl=${encodeURIComponent(safeCallbackUrl)}`
+      : `${baseUrl}/api/auth/verify-email?token=${token}`
     const resend    = getResend()
 
     if (resend) {

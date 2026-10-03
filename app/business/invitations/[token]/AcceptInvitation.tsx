@@ -49,14 +49,36 @@ export default function AcceptInvitation({ token }: { token: string }) {
     )
   }
 
-  return (
-    <div>
-      {state === 'failed' && (
+  // Walz Business hotfix (B1.2) — 'failed' is a CONCLUSIVE, server-confirmed
+  // failure (the POST already ran and the API returned a non-ok, non-409
+  // result — see app/api/business/invitations/accept/route.ts). Re-pressing
+  // "Accept" can never succeed from this state (the token itself is
+  // invalid/expired/consumed/mismatched — nothing about re-clicking changes
+  // that), so the button is not shown at all rather than merely disabled,
+  // and recovery actions are offered instead. This changes NO server-side
+  // check — acceptOrganizationInvitation()'s own revalidation is untouched
+  // and remains the sole authority; this is presentation only.
+  if (state === 'failed') {
+    return (
+      <div>
         <div role="alert" style={{ background: '#fee', border: '1px solid #fcc', color: '#900', padding: 12, borderRadius: 8, marginBottom: 12 }}>
           This invitation is invalid or has expired, or it was sent to a different email address than the one
-          you&apos;re signed in with. Ask the organization to send a new invitation.
+          you&apos;re signed in with. It cannot be accepted as-is.
         </div>
-      )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+          <Link href="/business/login" style={{ color: '#0B1F3A', fontWeight: 600 }}>
+            Back to Walz Business sign in
+          </Link>
+          <p style={{ color: '#666', fontSize: 14, margin: 0 }}>
+            Ask your organization administrator for a new invitation if you still need access.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
       {state === 'conflict' && (
         <div role="alert" style={{ background: '#fff8e1', border: '1px solid #ffe082', color: '#795500', padding: 12, borderRadius: 8, marginBottom: 12 }}>
           You are already a member of this organization.

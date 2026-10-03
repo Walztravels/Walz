@@ -5,11 +5,23 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Lock, Loader2, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react'
+import { safeBusinessCallback } from '@/lib/safe-redirect'
 
 function ResetPasswordContent() {
   const searchParams         = useSearchParams()
   const router               = useRouter()
   const token                = searchParams.get('token') ?? ''
+
+  // Walz Business hotfix (B1.1) — same optional, additive context as
+  // app/forgot-password/page.tsx. Threaded here from the emailed reset link
+  // (see app/api/auth/forgot-password/route.ts), re-validated independently
+  // via safeBusinessCallback before it is ever used as a navigation target.
+  const rawCallbackUrl       = searchParams.get('callbackUrl')
+  const businessCallback     = safeBusinessCallback(rawCallbackUrl)
+  const signInHref           = businessCallback ?? '/login'
+  const forgotPasswordHref   = businessCallback
+    ? `/forgot-password?${new URLSearchParams({ callbackUrl: businessCallback }).toString()}`
+    : '/forgot-password'
 
   const [password, setPassword]   = useState('')
   const [confirm, setConfirm]     = useState('')
@@ -26,7 +38,7 @@ function ResetPasswordContent() {
           <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-4" />
           <h2 className="font-bold text-[#0B1F3A] text-lg mb-2">Invalid reset link</h2>
           <p className="text-gray-500 text-sm mb-6">This link is missing a token. Please request a new one.</p>
-          <Link href="/forgot-password" className="text-[#C9A84C] font-semibold text-sm hover:underline">
+          <Link href={forgotPasswordHref} className="text-[#C9A84C] font-semibold text-sm hover:underline">
             Request new reset link
           </Link>
         </div>
@@ -51,7 +63,7 @@ function ResetPasswordContent() {
       if (!res.ok) setError(data.error || 'Something went wrong.')
       else {
         setDone(true)
-        setTimeout(() => router.push('/login'), 3000)
+        setTimeout(() => router.push(signInHref), 3000)
       }
     } catch {
       setError('Something went wrong. Please try again.')

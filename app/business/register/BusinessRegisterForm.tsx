@@ -67,7 +67,10 @@ export default function BusinessRegisterForm() {
       if (!res.ok) {
         setError(data.error || 'Could not create account. Please try again.')
       } else {
-        router.push(`/verify-email?email=${encodeURIComponent(email)}`)
+        router.push(
+          `/verify-email?email=${encodeURIComponent(email)}` +
+          (callbackUrl !== '/business' ? `&callbackUrl=${encodeURIComponent(callbackUrl)}` : '')
+        )
       }
     } catch {
       setError('Something went wrong. Please try again.')

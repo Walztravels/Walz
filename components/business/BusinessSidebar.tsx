@@ -19,6 +19,20 @@
 // assertAgencyOrCorporateAccess, matching their equivalent API routes) —
 // hiding the link here can never be the only thing standing between a
 // REFERRAL_PARTNER member and that data.
+//
+// Walz Business hotfix (B1.4) — `hasOrganizations` (sourced from
+// app/business/(portal)/layout.tsx's own ACTIVE-membership query, passed
+// through BusinessShell — no new query, no schema change) gates the entire
+// operational item list. A signed-in user with ZERO active
+// OrganizationMembership rows has no workspace to navigate to; showing
+// Dashboard/Requests/Travellers/Team/Settings as though they did is
+// presentation-only misleading (every one of those destinations already
+// independently fail-closes server-side regardless of this flag — see the
+// comment above). Defaults to `true` so every existing call site/test that
+// doesn't pass it (e.g. the plain /business org-picker page, which may
+// still have 1+ real memberships even when no single org is selected yet —
+// orgId null there is NOT the same condition as zero memberships) keeps its
+// exact prior behavior.
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -63,7 +77,13 @@ function buildNavItems(orgId: string | null, orgType: OrganizationType | null): 
   return items
 }
 
-export function BusinessSidebar({ orgId }: { orgId: string | null }) {
+export function BusinessSidebar({
+  orgId,
+  hasOrganizations = true,
+}: {
+  orgId: string | null
+  hasOrganizations?: boolean
+}) {
   const pathname = usePathname() ?? ''
   const orgType = useOrgType()
   const items = buildNavItems(orgId, orgType)
@@ -80,6 +100,14 @@ export function BusinessSidebar({ orgId }: { orgId: string | null }) {
         </p>
       </div>
 
+      {!hasOrganizations ? (
+        <nav aria-label="Business portal navigation" className="flex-1 px-3 py-5">
+          <div className="px-3 py-3 text-sm text-white/60 leading-relaxed">
+            You&apos;re not a member of any organization yet. Sign out from the menu above, or open a valid
+            invitation link to join one.
+          </div>
+        </nav>
+      ) : (
       <nav aria-label="Business portal navigation" className="flex-1 px-3 py-5 space-y-0.5">
         {items.map(item => {
           const isActive = item.href === base(orgId)
@@ -103,6 +131,7 @@ export function BusinessSidebar({ orgId }: { orgId: string | null }) {
           )
         })}
       </nav>
+      )}
 
       <div className="px-6 py-5 border-t border-white/10">
         <p className="text-[11px] text-white/30 leading-relaxed">

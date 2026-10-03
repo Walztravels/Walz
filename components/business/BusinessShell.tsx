@@ -38,10 +38,16 @@ export function BusinessShell({
 }) {
   const pathname = usePathname() ?? ''
   const orgId = currentOrgIdFromPathname(pathname)
+  // Walz Business hotfix (B1.4) — `organizations` is already the caller's
+  // ACTIVE-membership list (see app/business/(portal)/layout.tsx, which
+  // queries it for the OrgSwitcher); reused here as-is, no new query, no
+  // schema change. Zero memberships means zero workspace, so the nav must
+  // not present operational destinations as though one exists.
+  const hasOrganizations = organizations.length > 0
 
   return (
     <div className="min-h-screen bg-slate-50 lg:flex">
-      <BusinessSidebar orgId={orgId} />
+      <BusinessSidebar orgId={orgId} hasOrganizations={hasOrganizations} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="sticky top-0 z-30 bg-white border-b border-slate-200">
@@ -68,7 +74,7 @@ export function BusinessShell({
         </main>
       </div>
 
-      <BusinessMobileNav orgId={orgId} />
+      <BusinessMobileNav orgId={orgId} hasOrganizations={hasOrganizations} />
     </div>
   )
 }

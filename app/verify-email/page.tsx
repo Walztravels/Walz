@@ -10,6 +10,12 @@ function VerifyEmailContent() {
   const searchParams = useSearchParams()
   const email        = searchParams.get('email') ?? ''
   const errorParam   = searchParams.get('error')
+  // Walz Business hotfix (B1.3) — OPTIONAL, additive context carried from
+  // app/business/register/BusinessRegisterForm.tsx's post-signup redirect.
+  // Forwarded as-is to POST /api/auth/verify-email on resend; that route is
+  // the trust boundary and independently re-validates it via
+  // safeBusinessCallback before using it for anything (see that route).
+  const callbackUrl  = searchParams.get('callbackUrl') ?? ''
 
   const [loading, setLoading]       = useState(false)
   const [resent, setResent]         = useState(false)
@@ -31,7 +37,7 @@ function VerifyEmailContent() {
       const res  = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, ...(callbackUrl ? { callbackUrl } : {}) }),
       })
       const data = await res.json()
       if (!res.ok) {

@@ -1,11 +1,29 @@
 'use client'
 
 import { useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Mail, Loader2, AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react'
+import { safeBusinessCallback } from '@/lib/safe-redirect'
 
 function ForgotPasswordContent() {
+  const searchParams = useSearchParams()
+
+  // Walz Business hotfix (B1.1) — OPTIONAL, additive context. Consumer
+  // visitors (app/login/LoginForm.tsx) never send this param, so
+  // `businessCallback` is null and `signInHref` falls back to the unchanged
+  // `/login` — zero behavior change for that flow. A Business visitor
+  // (app/business/login/BusinessLoginForm.tsx) sends
+  // `?callbackUrl=/business/login`; `safeBusinessCallback` validates it
+  // through the real WHATWG URL parser (rejects //evil.com, /\evil.com,
+  // control characters, encoded traversal, cross-origin URLs, and anything
+  // outside the /business namespace — see lib/safe-redirect.ts) before it is
+  // ever used as a navigation target or threaded into the reset email link.
+  const rawCallbackUrl = searchParams.get('callbackUrl')
+  const businessCallback = safeBusinessCallback(rawCallbackUrl)
+  const signInHref = businessCallback ?? '/login'
+
   const [email, setEmail]     = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
@@ -21,7 +39,12 @@ function ForgotPasswordContent() {
       const res  = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({
+          email,
+          // Only the already-validated, normalized value is ever sent —
+          // never the raw query param (see businessCallback above).
+          ...(businessCallback ? { callbackUrl: businessCallback } : {}),
+        }),
       })
       const data = await res.json()
       if (!res.ok) setError(data.error || 'Something went wrong.')
@@ -52,7 +75,7 @@ function ForgotPasswordContent() {
                 If an account exists for <strong>{email}</strong>, we&apos;ve sent a reset link.
                 It expires in <strong>1 hour</strong>. Check your spam folder if you don&apos;t see it.
               </p>
-              <Link href="/login"
+              <Link href={signInHref}
                 className="inline-flex items-center gap-2 text-[#C9A84C] font-semibold text-sm hover:underline">
                 <ArrowLeft className="w-4 h-4" /> Back to sign in
               </Link>
@@ -94,7 +117,7 @@ function ForgotPasswordContent() {
               </form>
 
               <div className="mt-5 text-center">
-                <Link href="/login"
+                <Link href={signInHref}
                   className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-[#0B1F3A] transition-colors">
                   <ArrowLeft className="w-4 h-4" /> Back to sign in
                 </Link>
