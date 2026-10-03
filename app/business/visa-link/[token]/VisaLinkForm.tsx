@@ -33,10 +33,27 @@
 // VALIDATION SOURCE OF TRUTH: checkLength / FIELD_LIMITS / isValidIso2 are
 // imported directly from lib/business/validation.ts — the same shared
 // module submitVisaIntake() itself uses — rather than reimplementing any
-// numeric cap or regex here. The one addition with no domain counterpart is
-// a minimal email-shape check (submitVisaIntake() itself never validates
-// email FORMAT, only length when non-empty) — see validate() below for why
-// that is presentation-only and does not contradict the domain contract.
+// numeric cap or regex here.
+//
+// SLICE C ADDENDUM FIX — email format LOW: Slice B originally added an
+// EMAIL_SHAPE regex with no domain counterpart (submitVisaIntake() never
+// validates email FORMAT, only length when non-empty — see
+// lib/business/visa-intake.ts). That made this UI STRICTER than the real
+// domain contract it is supposed to mirror: a value the domain would
+// happily accept (anything under FIELD_LIMITS.EMAIL) could be rejected
+// here for not "looking like" an email. Per an authorized follow-up
+// instruction, that extra check has been REMOVED — validate() below now
+// checks only length for email, exactly matching submitVisaIntake()'s own
+// rule, with no stricter client-side invention. See the updated test in
+// __tests__/business-v1c-phase2-slice-b-visa-link-form.test.tsx proving an
+// odd-shaped-but-short string now proceeds to review, matching the domain.
+//
+// SLICE C (this change): adds a client-side-only "Attach documents"
+// section to the SAME review step (see the module-level comment further
+// below, near the document-validation imports, for the full write-up:
+// scope, the MIME/size/count validation source, the magic-byte-signature
+// honest disclosure, and why this lives inside the existing review step
+// rather than as a new step in the state machine).
 //
 // REQUIRED-VS-OPTIONAL SEMANTICS (mirrors submitVisaIntake() exactly):
 // destinationIso2 is the ONLY field submitVisaIntake() hard-requires (it
@@ -68,10 +85,119 @@
 // anywhere in this file. This component calls fetch() exactly once, for
 // the existing GET preview endpoint, and never calls submitVisaIntake(),
 // consumeServiceLinkToken(), storeCaseDocument(), or any
-// /api/business/link/[token]/submit endpoint (which does not exist).
+// /api/business/link/[token]/submit endpoint (which does not exist). This
+// remains true after Slice C's document-attachment addition below — see
+// that section's own header comment for the write-up of why.
+//
+// ============================================================================
+// SLICE C — SECURE DOCUMENT UPLOAD HARDENING (client-side selection only)
+// ============================================================================
+//
+// JUDGMENT CALL — no real upload call in this slice: the brief's default is
+// client-side file selection + client-side validation + an in-memory file
+// list, with NO network call to any upload endpoint, mirroring exactly how
+// Slice B left "Continue to Documents" non-functional. That default is what
+// is implemented below: selecting, listing, and removing files triggers
+// zero fetch() calls (the component still calls fetch() exactly once, for
+// the Slice A preview GET, across its entire lifecycle — see the Slice C
+// test file's "exactly one fetch call total" assertion). No server
+// endpoint was created for this slice. See the Slice C report for the
+// researched follow-up question of whether a real upload call will even be
+// viable later (it bears on Slice D's design, not this one): Vercel
+// Serverless Functions on this project enforce a well-known ~4.5MB request
+// body ceiling — this exact codebase already works around that same limit
+// in several other places (see e.g. app/api/upload/[token]/presign/
+// route.ts, app/api/admin/bank-analyser/presign/route.ts,
+// app/api/admin/orbit/media/presign/route.ts, all of which mint a
+// presigned, direct-to-storage upload URL specifically to bypass it) for
+// files far smaller than this surface's own 15MB-per-file ceiling. Holding
+// every selected file in browser memory and sending them all in one final
+// multipart POST — the naive reading of "client-side until final submit" —
+// is therefore NOT viable once a real submission exists: a single file at
+// the existing 15MB cap already exceeds that platform ceiling, let alone
+// several. This is flagged here as an architecture finding for whichever
+// slice builds the real submission endpoint, not something this slice
+// needs to resolve, since Slice C never submits anything over the network.
+//
+// MIME / SIZE VALIDATION SOURCE: lib/business/visa-link-document-validation.ts
+// exports SECURE_LINK_ALLOWED_MIME_TYPES / SECURE_LINK_MAX_FILE_BYTES,
+// which mirror lib/intelligence/document-store.ts's own exported
+// INTEL_ALLOWED_TYPES / INTEL_MAX_BYTES EXACTLY (same 4 MIME types, same
+// 15MB) — copied rather than imported directly, because document-store.ts
+// pulls in server-only dependencies (a Supabase service-role client
+// factory, the Prisma client, Node's `crypto` module) that do not belong
+// in, and are not guaranteed to even bundle for, a 'use client' browser
+// chunk. See that file's own header for the full reasoning and for the
+// dedicated test that asserts the two modules' constants stay identical.
+//
+// FILE COUNT CAP: SECURE_LINK_MAX_FILES (10) is a NEW, this-surface-only,
+// client-side-only guard — the discovery before writing this file found no
+// existing cap on file COUNT anywhere in the domain, only a per-file byte
+// cap. See lib/business/visa-link-document-validation.ts for the full
+// reasoning.
+//
+// MAGIC-BYTE VERIFICATION — HONEST DISCLOSURE: validateFileSignature() in
+// lib/business/visa-link-document-validation.ts DOES inspect real leading
+// bytes (the PDF/JPEG/PNG/WEBP magic numbers) and will reject a file whose
+// content doesn't match its claimed extension/MIME type — this is genuine
+// content-sniffing, not merely trusting File.type. What it is NOT: a
+// malware/virus scanner. No such scanner exists anywhere in this codebase
+// (VisaCaseDocument.scanStatus defaults to SCAN_UNAVAILABLE precisely
+// because none does), and nothing here claims otherwise — a well-formed,
+// correctly-signed PDF/JPEG/PNG/WEBP that happens to carry malicious
+// content would pass this check, exactly as it would pass every other
+// upload surface in this codebase today. package.json was checked fresh
+// before writing this file for an existing content-sniffing library
+// (file-type, magic-bytes.js, or similar) — none exists, so the signature
+// check above is this slice's own small, auditable, from-scratch
+// implementation, not a wrapped third-party library.
+//
+// STATE / PRIVACY: selected files live in `documents` React state only —
+// id (a local counter, not derived from file content), filename, size, and
+// the File object itself (needed only so its bytes can be read locally for
+// the signature check; never read into a persisted form, never
+// base64-encoded, never put in localStorage/sessionStorage/IndexedDB — all
+// three are structurally incapable of holding a File efficiently anyway,
+// but no attempt is made here regardless). No thumbnail/preview is
+// rendered — skipped as explicitly optional in the brief, and would need
+// URL.createObjectURL() + matching revocation bookkeeping for no required
+// benefit at this stage. No console.* call anywhere in this file ever
+// includes a filename (the existing "no console.* call anywhere in this
+// file" invariant above is actually stronger than the brief's minimum bar
+// of "no filenames" — this file calls console.* precisely zero times, by
+// design, exactly as before Slice C).
+//
+// WHY THE DOCUMENT UI LIVES *INSIDE* THE EXISTING 'review' STEP RATHER
+// THAN AS A NEW STEP IN THE STATE MACHINE: Slice B's own regression tests
+// (frozen, must keep passing) assert that clicking "Continue to review"
+// shows "Review your answers" IMMEDIATELY, and that "Continue to
+// Documents" stays disabled with no click handler. Inserting a literal new
+// step between 'form' and 'review' — the most literal reading of "a
+// document-attachment step between the form/review states" — would break
+// both of those frozen assertions. Enabling "Continue to Documents" itself
+// to transition into a new step would break the other ("stays disabled")
+// assertion. The design below satisfies the brief's actual functional
+// requirements (file UI exists; MIME/size/count validated; files listed
+// and removable; shown in review "alongside the Slice B form answers";
+// zero network calls; the final action stays disabled exactly as Slice B
+// left it) without touching either frozen behavior: the attachment section
+// is additional content rendered inside the existing review step, above
+// the untouched "Edit answers" / "Continue to Documents" button row.
+// "Continue to Documents" itself — text, disabled attribute, lack of an
+// onClick handler — is completely untouched by this slice (aside from the
+// one explicitly-authorized trivial fix below: removing its redundant
+// aria-disabled, which does not change hasAttribute('disabled')).
 
 import { useEffect, useState } from 'react'
 import { checkLength, FIELD_LIMITS, isValidIso2 } from '@/lib/business/validation'
+import {
+  SECURE_LINK_ALLOWED_MIME_TYPES,
+  SECURE_LINK_MAX_FILES,
+  SECURE_LINK_MAX_FILE_BYTES,
+  SECURE_LINK_SIGNATURE_HEADER_BYTES,
+  validateFileSignature,
+  validateFileSize,
+} from '@/lib/business/visa-link-document-validation'
 
 type PreviewState =
   | { status: 'loading' }
@@ -96,16 +222,6 @@ interface FormValues {
 type FormErrors = Partial<Record<keyof FormValues, string>>
 
 type IntakeStep = 'form' | 'review'
-
-// Minimal, presentation-only shape check. submitVisaIntake() itself never
-// validates email FORMAT — only trims, lowercases, and length-checks it
-// (see lib/business/visa-intake.ts line 115 and its checkLength() call at
-// line 125). This regex therefore has no domain counterpart to reuse; it
-// is an additive client-side convenience that never conflicts with the
-// domain contract (a value this regex accepts can still fail the domain's
-// own length check, and the domain places no further constraint this
-// could contradict).
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const EMPTY_VALUES: FormValues = { destinationIso2: '', visaType: '', firstName: '', lastName: '', email: '' }
 
@@ -148,17 +264,15 @@ function validate(v: FormValues): FormErrors {
   }
 
   // email — optional; submitVisaIntake() falls back to the traveller's
-  // stored email when blank. Length check mirrors the domain
-  // (FIELD_LIMITS.EMAIL); the format check is additive (see EMAIL_SHAPE
-  // above).
+  // stored email when blank. SLICE C ADDENDUM FIX: only the domain's own
+  // length check (FIELD_LIMITS.EMAIL) is applied here — no client-only
+  // format/shape regex. submitVisaIntake() itself never validates email
+  // FORMAT (see lib/business/visa-intake.ts), so this UI must not be
+  // stricter than the contract it mirrors.
   const email = v.email.trim().toLowerCase()
   if (email) {
     const lengthCheck = checkLength(email, 'Email', FIELD_LIMITS.EMAIL)
-    if (!lengthCheck.ok) {
-      errors.email = lengthCheck.error!
-    } else if (!EMAIL_SHAPE.test(email)) {
-      errors.email = 'Enter a valid email address'
-    }
+    if (!lengthCheck.ok) errors.email = lengthCheck.error!
   }
 
   return errors
@@ -184,7 +298,43 @@ const labelStyle: React.CSSProperties = {
 const fieldWrapStyle: React.CSSProperties = { marginBottom: 14 }
 
 const errorStyle: React.CSSProperties = { color: '#900', fontSize: 12, marginTop: 4 }
-const hintStyle: React.CSSProperties = { color: '#888', fontSize: 12, marginTop: 4 }
+// SLICE C ADDENDUM FIX (trivial, Slice B LOW): #888 on white is ~3.5:1
+// contrast, below WCAG AA's 4.5:1 minimum for this size of text. #666
+// (already used elsewhere in this file for body copy) is ~5.7:1 — passes,
+// with no other visual change.
+const hintStyle: React.CSSProperties = { color: '#666', fontSize: 12, marginTop: 4 }
+
+// Slice C — one locally-held, SELECTED (never "uploaded") file. `id` is a
+// local counter for React keys / the remove control only — never derived
+// from file content, never sent anywhere.
+interface SelectedDocument {
+  id: string
+  name: string
+  size: number
+  mimeType: string
+}
+
+let nextDocumentId = 0
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Reads only the first SECURE_LINK_SIGNATURE_HEADER_BYTES of a File via
+// FileReader (NOT File.prototype.arrayBuffer(), which is not implemented
+// by every runtime this component is tested/rendered in) so the magic-byte
+// signature check has real bytes to inspect without reading the whole file
+// into memory.
+function readHeaderBytes(file: File, maxBytes: number): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer))
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read file'))
+    reader.readAsArrayBuffer(file.slice(0, maxBytes))
+  })
+}
 
 export default function VisaLinkForm({ token }: { token: string }) {
   const [state, setState] = useState<PreviewState>({ status: 'loading' })
@@ -199,6 +349,16 @@ export default function VisaLinkForm({ token }: { token: string }) {
   const [errors, setErrors] = useState<FormErrors>({})
   const [attempted, setAttempted] = useState(false)
   const [firstNamePrefilled, setFirstNamePrefilled] = useState(false)
+
+  // Slice C — SELECTED (never "uploaded") documents. Metadata only
+  // (filename, size, declared MIME) is kept in state; the File object
+  // itself is read transiently (just its first few header bytes, for the
+  // signature check) and then discarded — nothing here persists a file's
+  // bytes anywhere, in this component's state or otherwise. Resets with
+  // the rest of this component's state on reload, exactly like `values`.
+  const [documents, setDocuments] = useState<SelectedDocument[]>([])
+  const [docErrors, setDocErrors] = useState<string[]>([])
+  const [docProcessing, setDocProcessing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -294,6 +454,64 @@ export default function VisaLinkForm({ token }: { token: string }) {
 
   function handleEdit() {
     setStep('form')
+  }
+
+  // Slice C — validates and queues newly selected files. ZERO network
+  // calls: everything here is local FileReader reads + pure function
+  // calls against lib/business/visa-link-document-validation.ts. Never
+  // calls storeCaseDocument(), fetch(), or anything write-capable.
+  async function handleFilesSelected(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return
+    const incoming = Array.from(fileList)
+
+    setDocProcessing(true)
+    const newErrors: string[] = []
+    const accepted: SelectedDocument[] = []
+    let remainingSlots = SECURE_LINK_MAX_FILES - documents.length
+
+    for (const file of incoming) {
+      if (remainingSlots <= 0) {
+        newErrors.push(`"${file.name}" was not added — you can attach a maximum of ${SECURE_LINK_MAX_FILES} files.`)
+        continue
+      }
+
+      const sizeCheck = validateFileSize(file.size)
+      if (!sizeCheck.ok) {
+        newErrors.push(`"${file.name}": ${sizeCheck.error}`)
+        continue
+      }
+
+      let headerBytes: Uint8Array
+      try {
+        headerBytes = await readHeaderBytes(file, SECURE_LINK_SIGNATURE_HEADER_BYTES)
+      } catch {
+        newErrors.push(`"${file.name}" could not be read. Please try again.`)
+        continue
+      }
+
+      const signatureCheck = validateFileSignature({
+        fileName: file.name,
+        declaredMimeType: file.type,
+        headerBytes,
+      })
+      if (!signatureCheck.ok) {
+        newErrors.push(`"${file.name}": ${signatureCheck.error}`)
+        continue
+      }
+
+      accepted.push({ id: String(nextDocumentId++), name: file.name, size: file.size, mimeType: file.type })
+      remainingSlots--
+    }
+
+    if (accepted.length > 0) {
+      setDocuments(prev => [...prev, ...accepted])
+    }
+    setDocErrors(newErrors)
+    setDocProcessing(false)
+  }
+
+  function handleRemoveDocument(id: string) {
+    setDocuments(prev => prev.filter(d => d.id !== id))
   }
 
   if (state.status === 'loading') {
@@ -539,6 +757,93 @@ export default function VisaLinkForm({ token }: { token: string }) {
             />
           </dl>
 
+          {/* Slice C — client-side-only document attachment. Files are
+              SELECTED, never uploaded: no fetch/storeCaseDocument() call
+              happens anywhere in this section. See the module header for
+              the full write-up (MIME/size/count validation source, the
+              magic-byte-signature honest disclosure, why this lives here
+              rather than as a separate step). */}
+          <div style={{ marginBottom: 20, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 6 }}>
+              Attach documents <span style={{ fontWeight: 400, color: '#888' }}>(optional for now)</span>
+            </h3>
+            <p style={hintStyle}>
+              Select up to {SECURE_LINK_MAX_FILES} PDF, JPG, PNG or WEBP files (max {SECURE_LINK_MAX_FILE_BYTES / (1024 * 1024)}MB each).
+              Selected files are not uploaded yet — document upload isn&apos;t available until a later step.
+            </p>
+
+            <input
+              id="documents"
+              name="documents"
+              type="file"
+              multiple
+              disabled={docProcessing || documents.length >= SECURE_LINK_MAX_FILES}
+              accept={[...SECURE_LINK_ALLOWED_MIME_TYPES, '.pdf', '.jpg', '.jpeg', '.png', '.webp'].join(',')}
+              onChange={e => {
+                const picked = e.target.files
+                // Reset immediately so selecting the exact same file again
+                // still fires a change event next time (browsers otherwise
+                // dedupe an identical FileList value).
+                e.target.value = ''
+                void handleFilesSelected(picked)
+              }}
+              aria-describedby="documents-hint"
+              style={{ fontSize: 13 }}
+            />
+            <p id="documents-hint" style={hintStyle}>
+              {documents.length} of {SECURE_LINK_MAX_FILES} files selected.
+            </p>
+
+            {docErrors.length > 0 && (
+              <ul role="alert" style={{ ...errorStyle, margin: '4px 0 0', paddingLeft: 18 }}>
+                {docErrors.map((msg, i) => (
+                  <li key={i}>{msg}</li>
+                ))}
+              </ul>
+            )}
+
+            {documents.length > 0 && (
+              <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
+                {documents.map(doc => (
+                  <li
+                    key={doc.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '6px 0',
+                      borderBottom: '1px solid #f5f5f5',
+                      fontSize: 13,
+                    }}
+                  >
+                    <span style={{ color: NAVY, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {doc.name} <span style={{ color: '#888' }}>({formatFileSize(doc.size)})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDocument(doc.id)}
+                      aria-label={`Remove ${doc.name}`}
+                      style={{
+                        flexShrink: 0,
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        background: '#fff',
+                        color: '#900',
+                        border: '1px solid #e5b4b4',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             <button
               type="button"
@@ -547,13 +852,18 @@ export default function VisaLinkForm({ token }: { token: string }) {
             >
               Edit answers
             </button>
-            {/* Non-functional placeholder for a later slice (document
-                upload). Deliberately disabled — never a working stub, never
-                wired to any endpoint, never clickable. */}
+            {/* Non-functional placeholder for a later slice (final
+                submission). Deliberately disabled — never a working stub,
+                never wired to any endpoint, never clickable. Untouched by
+                Slice C except removing the redundant aria-disabled below
+                (a SLICE C ADDENDUM FIX, trivial Slice B LOW): the native
+                `disabled` attribute alone already conveys this to
+                assistive tech and removes the element from the tab order,
+                so aria-disabled was redundant. hasAttribute('disabled') is
+                unchanged. */}
             <button
               type="button"
               disabled
-              aria-disabled="true"
               title="Document upload is not available yet"
               style={{
                 padding: '10px 20px',

@@ -10,10 +10,15 @@
  *     renders the form; only minimal org/traveller context is shown.
  *   - Validation: valid values proceed to review; destination validation
  *     matches the exact domain rule (strict 2-letter ISO, rejects
- *     malformed rather than silently truncating); invalid email rejected;
- *     overlength fields rejected per the exact FIELD_LIMITS; required
- *     fields block proceeding; whitespace/trim/case handling matches the
- *     domain's own handling.
+ *     malformed rather than silently truncating); email format is NOT
+ *     validated client-side — only length — matching submitVisaIntake()'s
+ *     own rule exactly (SLICE C ADDENDUM FIX: Slice B originally added a
+ *     stricter-than-domain EMAIL_SHAPE regex; that LOW was fixed per an
+ *     authorized follow-up instruction — see VisaLinkForm.tsx's updated
+ *     header comment and validate() for the full write-up); overlength
+ *     fields rejected per the exact FIELD_LIMITS; required fields block
+ *     proceeding; whitespace/trim/case handling matches the domain's own
+ *     handling.
  *   - Privacy: no scope IDs anywhere in rendered output or hidden inputs,
  *     no token hash, no linkTokenId, form state never serialized into the
  *     URL, no localStorage/sessionStorage usage.
@@ -273,14 +278,21 @@ describe('VisaLinkForm — Slice B validation (mirrors submitVisaIntake() exactl
     expect(bodyText()).toMatch(/US/)
   })
 
-  it('rejects an invalid email shape', async () => {
+  // SLICE C ADDENDUM FIX (was "rejects an invalid email shape"): Slice B
+  // originally rejected this value via a client-only EMAIL_SHAPE regex
+  // that has no counterpart in submitVisaIntake() (which never validates
+  // email FORMAT, only length) — an authorized follow-up instruction fixed
+  // that LOW. This test now proves the fix: an odd-shaped-but-short email
+  // is NO LONGER rejected and proceeds to review, exactly matching the
+  // domain's own length-only rule.
+  it('does not reject an odd-shaped-but-short email — the domain itself never validates email format, only length', async () => {
     mockValidPreview()
     await renderAndFlush()
     setValue(input('destinationIso2')!, 'US')
     setValue(input('email')!, 'not-an-email')
     await clickContinueToReview()
-    expect(bodyText()).toMatch(/valid email address/)
-    expect(bodyText()).not.toMatch(/Review your answers/)
+    expect(bodyText()).not.toMatch(/valid email address/)
+    expect(bodyText()).toMatch(/Review your answers/)
   })
 
   it('an empty email is valid (optional field) and proceeds to review', async () => {

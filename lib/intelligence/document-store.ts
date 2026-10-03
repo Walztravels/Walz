@@ -17,7 +17,13 @@ const INTEL_PREFIX = 'intel'
 export const INTEL_ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 export const INTEL_MAX_BYTES = 15 * 1024 * 1024
 
-function safeFilename(name: string): string {
+// Exported (Walz Business V1-C Phase 2, Slice C addendum) purely for
+// adversarial unit testing from __tests__/ — e.g. path traversal
+// (`../`, `..\`), control/unicode characters, double extensions
+// (`.pdf.exe`), very long names, blank names. Pure additive change: the
+// implementation below is byte-for-byte unchanged, so every existing
+// caller's behavior is identical.
+export function safeFilename(name: string): string {
   const base = (name || 'document').split(/[\\/]/).pop() ?? 'document'
   return base.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120)
 }
